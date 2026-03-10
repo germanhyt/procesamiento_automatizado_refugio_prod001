@@ -30,11 +30,13 @@ class LocatariosService:
     async def consolidar_locatario(self, key_carpeta: str, codigo_negocio: str) -> Dict:
         """Consolida archivos de un locatario específico."""
         folder_semana = self.get_semana_anterior()
-        path_locatario = os.path.join(self.locatarios_path, key_carpeta)
+        # Limpiar espacios en blanco (ej: 'Nashmys ' -> 'Nashmys')
+        normalized_key = key_carpeta.strip()
+        path_locatario = os.path.join(self.locatarios_path, normalized_key)
         
         if not os.path.exists(path_locatario):
             logger.error(f"Carpeta locatario no encontrada: {path_locatario}")
-            return {"success": False, "error": f"Directorio locatario no encontrado: {key_carpeta}"}
+            return {"success": False, "error": f"Directorio locatario no encontrado: {normalized_key}"}
 
         # Escanear archivos XLSX en la carpeta del locatario
         archivos = [f for f in os.listdir(path_locatario) if f.lower().endswith('.xlsx')]

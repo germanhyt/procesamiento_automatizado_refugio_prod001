@@ -1,100 +1,126 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from app.services.conversion_service import ConversionService
-from app.services.asociacion_service import AsociacionService
-from app.services.locatarios_service import LocatariosService
-from app.services.ventas_service import VentasService
-from app.services.bigquery_service import BigQueryService
+from fastapi import APIRouter, HTTPException, File, UploadFile
 import os
+import logging
 from dotenv import load_dotenv
 
-# Configurar ruta al archivo .env de forma robusta
-# de app/api/procesamiento.py -> ROOT/backend/app/api/procesamiento.py
-# necesitamos subir 4 niveles para llegar al root (3 para backend, 1 más para root)
+logger = logging.getLogger(__name__)
+
+# Configuración de entorno
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 env_path = os.path.join(base_dir, "config", ".env")
 load_dotenv(env_path)
 
 router = APIRouter(prefix="/procesamiento", tags=["Procesamiento"])
 
-# Configuración de rutas desde .env
-DRIVE_PATH = os.getenv("GOOGLE_DRIVE_PATH")
-CONFIG_PATH = os.getenv("CONFIG_EXCEL_PATH")
-LOCATARIOS_PATH = os.getenv("LOCATARIOS_PATH")
-PROCESAMIENTO_PATH = os.getenv("PROCESAMIENTO_PATH")
-
-# Inicialización de servicios
-conv_service = ConversionService(DRIVE_PATH)
-asoc_service = AsociacionService(CONFIG_PATH)
-loc_service = LocatariosService(LOCATARIOS_PATH, PROCESAMIENTO_PATH)
-ventas_service = VentasService(CONFIG_PATH, PROCESAMIENTO_PATH)
-# Resolver ruta de credenciales si es relativa al root
-bq_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if bq_creds and not os.path.isabs(bq_creds):
-    bq_creds = os.path.join(base_dir, bq_creds.lstrip("./"))
-
-bq_service = BigQueryService(
-    os.getenv("BQ_PROJECT_ID"), 
-    os.getenv("BQ_DATASET"), 
-    bq_creds
-)
-
-@router.post("/flujo-completo")
-async def ejecutar_flujo_completo(background_tasks: BackgroundTasks):
-    """Orquesta los 5 pasos del proceso en orden según el plan maestro."""
-    try:
-        results = {}
-        
-        # 1. Convertir XLSX a CSV en CierreCaja
-        results["conversion"] = await conv_service.process_batch("CierreCaja")
-        
-        # 2. Auto-asociar archivos
-        results["asociacion"] = await asoc_service.auto_asociar_archivos(os.path.join(DRIVE_PATH, "CierreCaja"))
-        
-        # Obtener lista de negocios para pasos siguientes (necesitamos info completa)
-        negocios = asoc_service.get_negocios_info()
-        
-        # 3. Consolidar Locatarios (Iterativo por negocio)
-        consolidados = []
-        for negocio in negocios:
-            # Descripcion (nombre carpeta) y CodigoNegocio
-            res = await loc_service.consolidar_locatario(negocio['Descripcion'], negocio['CodigoNegocio'])
-            if res.get("success") and res.get("registros", 0) > 0:
-                consolidados.append({
-                    "negocio": negocio['Descripcion'], 
-                    "file": res.get("file"),
-                    "codigo": negocio['CodigoNegocio']
-                })
-
-        results["consolidacion"] = {"total": len(consolidados), "count": len(consolidados)}
-        
-        # 4. Extraer datos y cargar a sales_df (Excel local) utilizando coordenadas
-        coords = ventas_service.get_coordenadas()
-        extracciones = []
-        for cons in consolidados:
-            res_ext = await ventas_service.extraer_datos_archivo(cons["file"], coords.get(cons["codigo"], {}))
-            if res_ext.get("success") and res_ext.get("data"):
-                # Actualizar sales_df en Excel (añadiendo registros)
-                await ventas_service.actualizar_sales_df(res_ext["data"])
-                extracciones.append({"negocio": cons["negocio"], "registros": len(res_ext["data"])})
-        results["extraccion"] = {"total": len(extracciones), "detalles": extracciones}
-        
-        # 5. Sincronizar con BigQuery
-        # results["bigquery"] = await bq_service.sync_sales_df(CONFIG_PATH)
-        
-        return {
-            "status": "success",
-            "message": "Flujo procesado correctamente",
-            "data": results
-        }
-    except Exception as e:
-        logger.error(f"Error en flujo completo: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# Rutas desde .env con normalización forzada de Windows
+DRIVE_PATH = os.path.normpath(os.getenv("GOOGLE_DRIVE_PATH", "").strip('"\''))
+CONFIG_PATH = os.path.normpath(os.getenv("CONFIG_EXCEL_PATH", "").strip('"\''))
+LOCATARIOS_PATH = os.path.normpath(os.getenv("LOCATARIOS_PATH", "").strip('"\''))
+PROCESAMIENTO_PATH = os.path.normpath(os.getenv("PROCESAMIENTO_PATH", "").strip('"\''))
 
 @router.get("/status-drive")
 async def check_drive_status():
-    """Verifica la conexión con las carpetas de Google Drive."""
-    return {
-        "drive_connected": os.path.exists(DRIVE_PATH),
-        "config_exists": os.path.exists(CONFIG_PATH),
-        "locatarios_exists": os.path.exists(LOCATARIOS_PATH)
-    }
+    """Endpoint ultra-rápido: Solo verifica existencia de rutas."""
+    try:
+        from app.utils.check_env import verify_connections
+        report = verify_connections(DRIVE_PATH, CONFIG_PATH, LOCATARIOS_PATH)
+        return {
+            "drive_connected": report["drive_folder"]["exists"],
+            "config_exists": report["config_file"]["exists"],
+            "is_config_open": report["config_file"]["is_open"]
+        }
+    except Exception as e:
+        return {"drive_connected": False, "error": str(e)}
+
+@router.post("/flujo-completo")
+async def ejecutar_flujo_completo():
+    """Importación dinámica: Solo carga servicios pesados al ejecutar."""
+    from app.services.conversion_service import ConversionService
+    from app.services.asociacion_service import AsociacionService
+    from app.services.locatarios_service import LocatariosService
+    from app.services.ventas_service import VentasService
+    from app.services.bigquery_service import BigQueryService
+
+    try:
+        conv = ConversionService(DRIVE_PATH)
+        res_conv = await conv.process_batch("CierreCaja")
+        return {"status": "success", "data": res_conv}
+    except Exception as e:
+        logger.error(f"Error en ejecución: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# RUTAS FLUJO LEGACY (Restauradas)
+# ==========================================
+
+def get_legacy_service():
+    from app.services.legacy_service import LegacyService
+    
+    # Resolución robusta de la ruta de credenciales
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip('"\'')
+    if creds_path.startswith("./"):
+        # base_dir apunta a la raíz del proyecto (donde está la carpeta config)
+        creds_path = os.path.normpath(os.path.join(base_dir, creds_path[2:]))
+    elif not os.path.isabs(creds_path):
+        creds_path = os.path.normpath(os.path.join(base_dir, "config", creds_path))
+
+    return LegacyService(
+        DRIVE_PATH, 
+        CONFIG_PATH, 
+        os.getenv("BQ_PROJECT_ID"), 
+        os.getenv("BQ_DATASET"), 
+        creds_path
+    )
+
+@router.get("/legacy/archivos")
+async def legacy_listar_archivos():
+    service = get_legacy_service()
+    return await service.list_cierre_caja_files()
+
+@router.get("/legacy/negocios")
+async def legacy_listar_negocios():
+    service = get_legacy_service()
+    return await service.obtener_negocios_lista()
+
+@router.post("/legacy/convertir")
+async def legacy_convertir():
+    service = get_legacy_service()
+    return await service.convertir_xlsx_to_csv()
+
+@router.post("/legacy/asociar")
+async def legacy_asociar():
+    service = get_legacy_service()
+    return await service.asociar_negocios_automatico()
+
+@router.post("/legacy/cargar-ventas")
+async def legacy_cargar_ventas(clear: bool = False):
+    service = get_legacy_service()
+    return await service.cargar_ventas_legacy(clear_data=clear)
+
+@router.post("/legacy/cargar-bigquery")
+async def legacy_cargar_bigquery():
+    service = get_legacy_service()
+    return await service.cargar_bigquery_legacy()
+
+@router.post("/legacy/subir")
+async def legacy_subir_archivo(file: UploadFile = File(...)):
+    service = get_legacy_service()
+    content = await file.read()
+    return await service.save_upload_file(file.filename, content)
+
+@router.post("/legacy/guardar-asociacion")
+async def legacy_guardar_asociacion(archivo: str, codigo: str, inicio: str, fin: str):
+    service = get_legacy_service()
+    return await service.guardar_asociacion_manual(archivo, codigo, inicio, fin)
+
+@router.get("/legacy/preview-sales")
+async def legacy_preview_sales(limit: int = 100):
+    """Vista previa de sales_df."""
+    service = get_legacy_service()
+    return await service.get_sales_df_preview(limit)
+
+@router.get("/legacy/preview-realizadas")
+async def legacy_preview_realizadas(limit: int = 100):
+    """Vista previa de Realizadas."""
+    service = get_legacy_service()
+    return await service.get_realizadas_preview(limit)

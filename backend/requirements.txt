@@ -10,3 +10,5 @@ fuzzywuzzy==0.18.0
 python-dotenv==1.0.0
 psycopg2-binary==2.9.9
 python-levenshtein==0.23.0
+chardet==5.2.0
+python-multipart==0.0.9
