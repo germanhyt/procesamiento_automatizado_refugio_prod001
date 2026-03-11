@@ -281,8 +281,8 @@ const LegacyFlow: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <StepButton icon={<FileCode />} title="1. Convertir" desc="XLSX → CSV (;)" onClick={() => runStep('Conversión', 'convertir')} loading={isProcessing === 'Conversión'} />
                     <StepButton icon={<Link />} title="2. Asociar" desc="Fuzzy Universal" onClick={() => runStep('Asociación', 'asociar')} loading={isProcessing === 'Asociación'} />
-                    <StepButton icon={<Database />} title="3. Ventas" desc="sales_df + Real." onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
-                    <StepButton icon={<CloudSync />} title="4. BigQuery" desc="Sync + Pago + Pred." onClick={() => runStep('BigQuery', 'cargar-bigquery')} loading={isProcessing === 'BigQuery'} />
+                    <StepButton icon={<Database />} title="3. Proces. Ventas" desc="sales_df + Real." onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
+                    <StepButton icon={<CloudSync />} title="4. Proces. Nube" desc="Sync + Pago + Pred." onClick={() => runStep('BigQuery', 'cargar-bigquery')} loading={isProcessing === 'BigQuery'} />
                 </div>
             </div>
 

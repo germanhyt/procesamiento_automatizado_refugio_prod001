@@ -12,6 +12,7 @@ import logo from './assets/logo.png';
 import LegacyFlow from './LegacyFlow';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
+import PowerBIDashboard from './pages/PowerBIDashboard';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
@@ -19,7 +20,7 @@ const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostna
 const AppContent: React.FC = () => {
     const { user, logout, isLoading: authLoading } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [activeTab, setActiveTab] = useState<'legacy' | 'dashboard' | 'config' | 'users'>('legacy');
+    const [activeTab, setActiveTab] = useState<'legacy' | 'dashboard' | 'config' | 'users' | 'powerbi'>('legacy');
 
     // Helper para verificar permisos dinámicamente
     const hasPermission = (codename: string) => {
@@ -56,6 +57,7 @@ const AppContent: React.FC = () => {
     }
 
     const menuItems = [
+        { id: 'powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view' },
         { id: 'legacy', label: 'Flujo Diario Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process' },
         { id: 'dashboard', label: 'Procesamiento Automático', icon: <Zap size={18} />, disabled: true, permission: 'dashboard:view' },
         { id: 'users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage' }
@@ -77,7 +79,7 @@ const AppContent: React.FC = () => {
                     {sidebarOpen && (
                         <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="overflow-hidden">
                             <h2 className="text-sm font-black tracking-tighter uppercase text-white leading-none">Refugio</h2>
-                            <p className="text-[10px] text-teal-500 font-mono tracking-[0.2em] mt-1">ENGINE v4.5</p>
+                            <p className="text-[10px] text-teal-500 font-mono tracking-[0.2em] mt-1">Data</p>
                         </motion.div>
                     )}
                 </div>
@@ -169,6 +171,11 @@ const AppContent: React.FC = () => {
                                         <button className="bg-teal-500 text-black px-16 py-6 rounded-3xl font-black uppercase tracking-widest text-xs hover:shadow-[0_0_40px_rgba(20,184,166,0.3)] transition-all">Ejecutar Motor</button>
                                     </div>
                                 </div>
+                            </motion.div>
+                        )}
+                        {activeTab === 'powerbi' && (
+                            <motion.div key="powerbi" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.02 }} className="h-full">
+                                <PowerBIDashboard />
                             </motion.div>
                         )}
                         {activeTab === 'users' && user.is_superuser && (

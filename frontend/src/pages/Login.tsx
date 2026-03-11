@@ -71,7 +71,7 @@ const Login: React.FC = () => {
                         <img src={logo} alt="Refugio Logo" className="w-14 h-14 rounded-full border-2 border-teal-500/50 object-cover relative shadow-inner shadow-teal-500/20" />
                     </div>
                     {/* </div> */}
-                    <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Refugio Operaciones</h1>
+                    <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Refugio Data</h1>
                     {/* <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">Seguridad & Autenticación</p> */}
                     <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">Login</p>
                 </div>

@@ -218,7 +218,7 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-6xl h-[85vh] rounded-[40px] flex overflow-hidden flex-col sm:flex-row shadow-2xl">
                 <div className="w-full sm:w-80 bg-black/20 border-r border-white/5 flex flex-col">
                     <div className="p-8 border-b border-white/5 flex justify-between items-center bg-zinc-800/20">
@@ -294,7 +294,7 @@ const RegisterModal = ({ onClose, roles, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[40px] p-12 shadow-2xl space-y-8">
                 <div className="flex justify-between items-center border-b border-white/5 pb-8"><h3 className="text-xl font-black uppercase tracking-widest text-white">Nuevo Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -333,7 +333,7 @@ const EditUserModal = ({ user, onClose, roles, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-md rounded-[40px] p-12 shadow-2xl space-y-8">
                 <div className="flex justify-between items-center border-b border-white/5 pb-8"><h3 className="text-xl font-black uppercase tracking-widest text-white">Editar Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
                 <div className="space-y-6">

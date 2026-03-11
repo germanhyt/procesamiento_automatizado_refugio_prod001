@@ -88,11 +88,13 @@ L13	L13_LA 22_consolidado.csv	1	0	2026-03-02	2026-03-08	2026-03-10 16:38:50	2026
 Agregamos una vista previa de los registros de sales_df de Configuracion en un modal
 
 
-7) ✅ Login y RBAC Completado
-- APIs de autenticación y gestión de roles
-- Frontend con Login premium y Dashboard protegido
-- Modelos PostgreSQL para usuarios y permisos
-- Script de inicialización de base de datos
+7) 
+Ahora planificamos y ejecutamos el login de usuario
+- Apis de login y register
+- En el frontend de forma incial el loguin, el register de usuarios de forma interna ya dentro del dashboard
+- migraciones para user, roles, uers_rols, permission, rol_permissions
+- Vista de registro de usuarios con posibilidad de asignar rol
+- Modal para gestionar roles y sus permisos correspondientes (buscador y select), este modal dentro de la vista de gestion de usuarios (crud)
 
 
 8) 
@@ -101,7 +103,51 @@ Documentamos el README:
 - Los camandos y su funcionalidad correspondiente
 
 
+9) 
+PROCEDIMIENTO PARA INCRUSTAR DASHBOARD DE POWERBI EN LA APLICACION - enfoque "App Owns Data" (La aplicación posee los datos)
+
+Fase 1: Registrar la Aplicación en Microsoft Entra ID (Azure)
+  Esta fase crea la "identidad" de tu aplicación para que pueda autenticarse sin un usuario humano.
+
+  Entra al Centro de administración de Microsoft Entra (entra.microsoft.com) con tu cuenta de administrador.
+
+  En el menú lateral, ve a Identidad > Aplicaciones > Registros de aplicaciones y haz clic en Nuevo registro.
+
+  Ponle un nombre (ej. Refugio-PowerBI-App) y déjalo como "Cuentas solo en este directorio organizativo". Regístralo.
+
+  En la pantalla general de tu nueva app, copia y guarda el ID de la aplicación (cliente) y el ID del inquilino (directorio).
+
+  Ve a Certificados y secretos (en el menú izquierdo de tu app), haz clic en Nuevo secreto de cliente. Cópialo inmediatamente (el "Valor"), ya que no volverá a mostrarse. Este es tu Client Secret.
+
+  (Opcional pero recomendado): Ve a Grupos en Entra ID, crea un Grupo de Seguridad (ej. PowerBI_APIs) y añade tu aplicación (Refugio-PowerBI-App) como miembro de ese grupo.
+
+Fase 2: Dar Permisos en Power BI Service
+  Ahora hay que decirle a Power BI que confíe en esa aplicación que acabas de crear.
+
+  Vuelve a app.powerbi.com y entra al Portal de administración (ícono de engranaje arriba a la derecha).
+
+  Ve a Configuración del inquilino y baja hasta la sección Configuración de desarrollador.
+
+  Habilita la opción Permitir que las entidades de servicio usen las API de Power BI. Aquí puedes aplicarlo a toda la organización o, preferiblemente, al Grupo de Seguridad que creaste en el paso 6 anterior.
+
+  Ve a tu Área de trabajo (Workspace) donde está el reporte de Refugio.
+
+  Haz clic en Administrar acceso (o "Manage Access").
+
+  Busca el nombre de tu aplicación (Refugio-PowerBI-App) y agrégala con el rol de Visor o Miembro.
+
+Fase 3: El Backend (Python)
+Fase 4: El Frontend (React)
 
 
-
+10) 
+Este error es muy específico de Power BI y confirma que la comunicación técnica (Azure -> Backend -> Power BI) ya funciona, pero te falta un nivel de permiso dentro del portal de Power BI.
+El mensaje "Only folder user with reshare permissions can generate embed token" significa que tu Aplicación (Service Principal) fue agregada al área de trabajo como "Visor" (Viewer), y ese rol no tiene permiso para generar tokens de compartido para terceros.
+Cómo solucionarlo (Pasos en Power BI Service):
+Ve a app.powerbi.com y entra en tu Área de Trabajo (Workspace).
+Haz clic en el botón Administrar acceso (Manage access).
+Busca tu aplicación: Refugio-PowerBI-App (o el nombre que le hayas puesto).
+Cambia su rol: Cambia de "Visor" (Viewer) a Miembro (Member) o Colaborador (Contributor).
+Nota: El rol de "Miembro" es el recomendado para este enfoque, ya que permite generar tokens de incrustación.
+Guarda los cambios y vuelve a intentar cargar el dashboard en nuestra aplicación.
 

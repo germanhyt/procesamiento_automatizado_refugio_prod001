@@ -1,1 +1,1 @@
-from . import procesamiento, auth, users_roles
+from . import procesamiento, auth, users_roles, powerbi
