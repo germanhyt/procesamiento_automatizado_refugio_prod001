@@ -263,14 +263,14 @@ const LegacyFlow: React.FC = () => {
                                     className="py-3 bg-zinc-800/40 hover:bg-zinc-700/60 border border-white/5 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"
                                 >
                                     <Table size={12} className="text-teal-500" />
-                                    sales_df
+                                    Ver sales_df
                                 </button>
                                 <button
                                     onClick={() => handleOpenPreview('realizadas')}
                                     className="py-3 bg-zinc-800/40 hover:bg-zinc-700/60 border border-white/5 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"
                                 >
                                     <Database size={12} className="text-blue-400" />
-                                    Resumen
+                                    Ver Resumen
                                 </button>
                             </div>
                         </div>
@@ -290,7 +290,11 @@ const LegacyFlow: React.FC = () => {
             <div className="xl:col-span-4 h-full flex flex-col min-h-[500px]">
                 <div className="flex-1 bg-zinc-900/30 border border-white/5 rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
                     <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">Live Feedback</h3>
+                        {/* <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">Live Feedback</h3> */}
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">
+                            {/* Live Feedback */}
+                            Flujo procesos
+                        </h3>
                         <button onClick={() => setLogs([])} className="text-[8px] font-black uppercase text-zinc-600 hover:text-white transition-colors">Clean</button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-8 space-y-4 scrollbar-hide font-mono">

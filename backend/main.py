@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
-from app.api import procesamiento
+from app.api import procesamiento, auth, users_roles
 
 # Configuración de logs para ver errores reales
 logging.basicConfig(level=logging.INFO)
@@ -20,8 +20,10 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Incluir el router de forma directa y obligatoria
+# Incluir los routers
 app.include_router(procesamiento.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(users_roles.router, prefix="/api")
 
 @app.get("/")
 async def root():

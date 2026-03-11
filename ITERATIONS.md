@@ -88,7 +88,20 @@ L13	L13_LA 22_consolidado.csv	1	0	2026-03-02	2026-03-08	2026-03-10 16:38:50	2026
 Agregamos una vista previa de los registros de sales_df de Configuracion en un modal
 
 
-7) 
-Realizamos 
+7) ✅ Login y RBAC Completado
+- APIs de autenticación y gestión de roles
+- Frontend con Login premium y Dashboard protegido
+- Modelos PostgreSQL para usuarios y permisos
+- Script de inicialización de base de datos
+
+
+8) 
+Documentamos el README:
+- Los módulos y la lógica de cada uno
+- Los camandos y su funcionalidad correspondiente
+
+
+
+
 
 

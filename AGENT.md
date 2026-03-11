@@ -7,3 +7,4 @@
    d) Usa funciones, clases, componentes donde sea necesario
    e) Realizas diseños UX/UI minimalista - intutivo - amigable, y estilos acorde al logo
 3) Construyes un arquitectura de solución limpia, modular y escalable
+5) Documentos en un archivo README.md por cada commit
