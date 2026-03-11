@@ -71,7 +71,7 @@ const AppContent: React.FC = () => {
                 animate={{ width: sidebarOpen ? 300 : 80 }}
                 className="bg-[#080808] border-r border-white/5 flex flex-col relative z-50 h-full transition-all duration-300 ease-in-out shadow-2xl"
             >
-                <div className="p-8 mb-4 flex items-center gap-5">
+                <div className={`flex items-center gap-5 transition-all duration-300 ${sidebarOpen ? 'p-8 mb-4' : 'p-0 h-24 mb-4 justify-center'}`}>
                     <div className="relative shrink-0">
                         <div className="absolute inset-0 bg-teal-500/30 blur-2xl rounded-full"></div>
                         <img src={logo} alt="Refugio Logo" className="w-14 h-14 rounded-full border-2 border-teal-500/50 object-cover relative shadow-inner shadow-teal-500/20" />
@@ -89,7 +89,8 @@ const AppContent: React.FC = () => {
                         <button
                             key={item.id}
                             onClick={() => !item.disabled && setActiveTab(item.id as any)}
-                            className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 group relative overflow-hidden
+                            className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl
+                                ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
                                 ${activeTab === item.id ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]' : item.disabled ? 'opacity-40 cursor-not-allowed grayscale' : 'text-zinc-500 hover:bg-white/5 hover:text-white'}
                             `}
                         >
@@ -103,7 +104,9 @@ const AppContent: React.FC = () => {
                 <div className="p-4">
                     <button
                         onClick={logout}
-                        className="w-full flex items-center gap-5 p-4 rounded-2xl text-red-500 hover:bg-red-500/5 transition-all"
+                        className={`w-full flex items-center rounded-2xl text-red-500 hover:bg-red-500/5 transition-all
+                            ${sidebarOpen ? 'p-4 gap-5' : 'p-0 h-16 justify-center'}
+                        `}
                     >
                         <LogOut size={18} />
                         {sidebarOpen && <span className="text-[10px] font-black uppercase tracking-widest">Cerrar Sesión</span>}
@@ -118,37 +121,36 @@ const AppContent: React.FC = () => {
             </motion.aside>
 
             <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-[radial-gradient(circle_at_top_right,_#111,_#050505)]">
-                <header className="h-20 border-b border-white/5 px-10 flex items-center justify-between bg-[#050505]/40 backdrop-blur-3xl shrink-0">
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2 text-zinc-600 font-black text-[10px]">
-                            <Home size={14} />
-                            <span>/</span>
-                            <span className="uppercase tracking-widest text-teal-500">
+                <header className="h-20 border-b border-white/5 px-4 sm:px-10 flex items-center justify-between bg-[#050505]/40 backdrop-blur-3xl shrink-0 overflow-hidden">
+                    <div className="flex items-center gap-4 min-w-0">
+                        <div className="flex items-center gap-2 text-zinc-600 font-black text-[10px] truncate">
+                            <Home size={14} className="shrink-0" />
+                            <span className="opacity-40 select-none">/</span>
+                            <span className="uppercase tracking-widest text-teal-500 truncate">
                                 {menuItems.find(m => m.id === activeTab)?.label}
                             </span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
-                        <div className="flex gap-4">
-                            <StatusBadge active={status?.drive_connected} label="G-Drive" loading={isStatusLoading} />
-                            <StatusBadge active={status?.config_exists} label="MasterConfig" loading={isStatusLoading} />
+                    <div className="flex items-center gap-3 sm:gap-6 shrink-0">
+                        <div className="flex gap-2 sm:gap-4">
+                            <StatusBadge active={status?.drive_connected} label="Drive" loading={isStatusLoading} />
+                            <StatusBadge active={status?.config_exists} label="Config" loading={isStatusLoading} />
                         </div>
-                        <div className="h-6 w-[1px] bg-white/10"></div>
+                        <div className="h-6 w-[1px] bg-white/10 hidden xs:block"></div>
                         <div className="flex items-center gap-3">
-                            <div className="text-right hidden sm:block">
+                            <div className="text-right hidden md:block">
                                 <p className="text-[9px] font-black text-white uppercase tracking-tighter">{user.username}</p>
-                                {/* <p className="text-[8px] text-zinc-500 font-mono">{user.is_superuser ? 'Super Admin' : 'Admin Operador'}</p> */}
-                                <p className="text-[8px] text-zinc-500 font-mono">{user.roles?.map((x) => x.name + " ")}</p>
+                                <p className="text-[8px] text-zinc-500 font-mono truncate max-w-[100px]">{user.roles?.map((x: any) => x.name).join(", ")}</p>
                             </div>
-                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-teal-500">
+                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-teal-500 shrink-0 shadow-lg shadow-black/20">
                                 <UserIcon size={18} />
                             </div>
                         </div>
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-10 scrollbar-hide">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-10 scrollbar-hide">
                     <AnimatePresence mode="wait">
                         {activeTab === 'legacy' && (
                             <motion.div key="legacy" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.02 }} className="h-full">
@@ -162,7 +164,7 @@ const AppContent: React.FC = () => {
                                     <StatCard icon={<BarChart3 className="w-5 h-5" />} title="Performance" value="99.2%" subtitle="Efficiency Rate" />
                                     <StatCard icon={<Shield className="w-5 h-5" />} title="Security" value="RBAC ACTIVE" subtitle="Access Control" />
                                 </div>
-                                <div className="bg-zinc-900/40 border border-white/5 p-20 rounded-[60px] relative overflow-hidden text-center">
+                                <div className="bg-zinc-900/40 border border-white/5 p-8 sm:p-20 rounded-[40px] sm:rounded-[60px] relative overflow-hidden text-center">
                                     <div className="absolute top-0 right-0 p-10 opacity-[0.02] rotate-12"><Zap size={300} /></div>
                                     <div className="relative z-10 flex flex-col items-center">
                                         <div className="w-24 h-24 bg-teal-500/10 rounded-full flex items-center justify-center text-teal-500 border border-teal-500/20 mb-10"><Play size={40} fill="currentColor" className="ml-1" /></div>
@@ -205,14 +207,15 @@ const App: React.FC = () => (
 );
 
 const StatusBadge = ({ active, label, loading }: any) => (
-    <div className={`px-5 py-2 rounded-2xl border text-[9px] font-black uppercase tracking-widest flex items-center gap-3 transition-all ${loading ? 'opacity-30' : active ? 'bg-emerald-500/5 text-emerald-500 border-emerald-500/10' : 'bg-red-500/5 text-red-500 border-red-500/10'}`}>
-        <div className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-red-500'}`}></div>
-        {label}
+    <div className={`px-3 sm:px-5 py-2 rounded-2xl border text-[9px] font-black uppercase tracking-widest flex items-center gap-2 sm:gap-3 transition-all ${loading ? 'opacity-30' : active ? 'bg-emerald-500/5 text-emerald-500 border-emerald-500/10' : 'bg-red-500/5 text-red-500 border-red-500/10'}`}>
+        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${active ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-red-500'}`}></div>
+        <span className="hidden lg:block">{label}</span>
+        {!active && <span className="lg:hidden">!</span>}
     </div>
 );
 
 const StatCard = ({ icon, title, value, subtitle }: any) => (
-    <div className="bg-zinc-900/40 p-10 rounded-[40px] border border-white/5 hover:border-teal-500/20 transition-all group">
+    <div className="bg-zinc-900/40 p-6 sm:p-10 rounded-[30px] sm:rounded-[40px] border border-white/5 hover:border-teal-500/20 transition-all group">
         <div className="text-teal-500 mb-8 group-hover:scale-110 transition-transform duration-300">{icon}</div>
         <h4 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-2">{title}</h4>
         <div className="text-3xl font-black text-white tracking-tighter">{value}</div>

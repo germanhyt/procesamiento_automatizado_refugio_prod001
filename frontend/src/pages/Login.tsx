@@ -62,7 +62,7 @@ const Login: React.FC = () => {
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-md p-10 bg-zinc-900/40 border border-white/5 backdrop-blur-3xl rounded-[40px] shadow-2xl z-10"
+                className="w-full max-w-[90%] sm:max-w-md p-6 sm:p-10 bg-zinc-900/40 border border-white/5 backdrop-blur-3xl rounded-[30px] sm:rounded-[40px] shadow-2xl z-10"
             >
                 <div className="flex flex-col items-center mb-10">
                     {/* <div className="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-500/20 mb-6"> */}

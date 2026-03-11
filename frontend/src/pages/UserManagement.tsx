@@ -219,7 +219,7 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-6xl h-[85vh] rounded-[40px] flex overflow-hidden flex-col sm:flex-row shadow-2xl">
+        <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-6xl h-[90vh] sm:h-[85vh] rounded-[30px] sm:rounded-[40px] flex overflow-hidden flex-col sm:flex-row shadow-2xl">
                 <div className="w-full sm:w-80 bg-black/20 border-r border-white/5 flex flex-col">
                     <div className="p-8 border-b border-white/5 flex justify-between items-center bg-zinc-800/20">
                         <span className="uppercase tracking-widest text-[10px] font-black text-teal-500">Roles</span>
@@ -245,7 +245,7 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
                         </div>
                         <input type="text" placeholder="Buscar permiso..." value={searchPerm} onChange={e => setSearchPerm(e.target.value)} className="bg-black/40 border border-white/5 rounded-xl py-3 px-6 text-[11px] text-white outline-none focus:border-teal-500/50 w-full sm:w-64" />
                     </div>
-                    <div className="flex-1 overflow-y-auto p-12 space-y-8 scrollbar-hide">
+                    <div className="flex-1 overflow-y-auto p-6 sm:p-12 space-y-6 sm:space-y-8 scrollbar-hide">
                         {isCreating && (
                             <div className="grid grid-cols-2 gap-6 p-8 bg-teal-500/5 rounded-3xl border border-teal-500/10">
                                 <input placeholder="Nombre del Rol" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none" value={newRoleData.name} onChange={e => setNewRoleData({ ...newRoleData, name: e.target.value })} />
@@ -267,9 +267,9 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
                             })}
                         </div>
                     </div>
-                    <div className="p-10 border-t border-white/5 flex gap-4 justify-between items-center px-12 bg-zinc-900/40">
+                    <div className="p-6 sm:p-10 border-t border-white/5 flex flex-col sm:flex-row gap-4 justify-between items-center px-8 sm:px-12 bg-zinc-900/40">
                         <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{selectedPermIds.length} Asignados</span>
-                        <button onClick={handleSaveRole} disabled={isSaving || (!selectedRole && !isCreating)} className="px-12 py-4 bg-teal-500 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 disabled:opacity-50">{isSaving ? <RefreshCcw className="animate-spin" size={16} /> : <Save size={16} />}{isCreating ? 'Guardar Rol' : 'Actualizar'}</button>
+                        <button onClick={handleSaveRole} disabled={isSaving || (!selectedRole && !isCreating)} className="w-full sm:w-auto px-12 py-4 bg-teal-500 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 disabled:opacity-50">{isSaving ? <RefreshCcw className="animate-spin" size={16} /> : <Save size={16} />}{isCreating ? 'Guardar Rol' : 'Actualizar'}</button>
                     </div>
                 </div>
             </motion.div>
@@ -295,8 +295,8 @@ const RegisterModal = ({ onClose, roles, onSuccess }: any) => {
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[40px] p-12 shadow-2xl space-y-8">
-                <div className="flex justify-between items-center border-b border-white/5 pb-8"><h3 className="text-xl font-black uppercase tracking-widest text-white">Nuevo Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8">
+                <div className="flex justify-between items-center border-b border-white/5 pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-white">Nuevo Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Usuario</label><input className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm text-white outline-none" required value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} /></div>
@@ -334,8 +334,8 @@ const EditUserModal = ({ user, onClose, roles, onSuccess }: any) => {
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-md rounded-[40px] p-12 shadow-2xl space-y-8">
-                <div className="flex justify-between items-center border-b border-white/5 pb-8"><h3 className="text-xl font-black uppercase tracking-widest text-white">Editar Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-md rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8">
+                <div className="flex justify-between items-center border-b border-white/5 pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-white">Editar Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
                 <div className="space-y-6">
                     <div className="space-y-2"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Password (Opcional)</label>
                         <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm text-white outline-none" placeholder="Vacío para no cambiar" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />

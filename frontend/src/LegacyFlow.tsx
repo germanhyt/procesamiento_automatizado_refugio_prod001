@@ -186,7 +186,7 @@ const LegacyFlow: React.FC = () => {
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 h-full">
             <div className="xl:col-span-8 space-y-8">
                 {/* Explorador y Asociación */}
-                <div className="bg-zinc-900/40 p-10 rounded-[40px] border border-white/5 grid grid-cols-1 md:grid-cols-2 gap-12">
+                <div className="bg-zinc-900/40 p-6 sm:p-10 rounded-[40px] border border-white/5 grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 flex items-center gap-3">
@@ -287,7 +287,7 @@ const LegacyFlow: React.FC = () => {
             </div>
 
             {/* Consola */}
-            <div className="xl:col-span-4 h-full flex flex-col min-h-[500px]">
+            <div className="xl:col-span-4 h-full flex flex-col min-h-[300px] sm:min-h-[500px]">
                 <div className="flex-1 bg-zinc-900/30 border border-white/5 rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
                     <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
                         {/* <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">Live Feedback</h3> */}
@@ -327,7 +327,7 @@ const LegacyFlow: React.FC = () => {
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
-                            className="bg-zinc-900 border border-white/10 w-full max-w-7xl h-[80vh] rounded-[40px] flex flex-col overflow-hidden shadow-[0_0_100px_rgba(45,212,191,0.1)]"
+                            className="bg-zinc-900 border border-white/10 w-full max-w-7xl h-[90vh] sm:h-[80vh] rounded-[30px] sm:rounded-[40px] flex flex-col overflow-hidden shadow-[0_0_100px_rgba(45,212,191,0.1)]"
                         >
                             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
                                 <div className="flex items-center gap-4">
@@ -349,7 +349,7 @@ const LegacyFlow: React.FC = () => {
                                 </button>
                             </div>
 
-                            <div className="flex-1 overflow-x-auto p-8 scrollbar-hide">
+                            <div className="flex-1 overflow-x-auto p-4 sm:p-8 scrollbar-hide">
                                 {previewLoading ? (
                                     <div className="h-full flex flex-col items-center justify-center gap-4 opacity-50">
                                         <RefreshCcw className="animate-spin text-teal-500" size={32} />
@@ -379,7 +379,7 @@ const LegacyFlow: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="p-6 border-t border-white/5 bg-black/20 flex justify-between items-center px-10">
+                            <div className="p-4 sm:p-6 border-t border-white/5 bg-black/20 flex flex-col sm:flex-row gap-4 justify-between items-center px-6 sm:px-10">
                                 <div className="text-[10px] text-zinc-600 font-mono">
                                     Total de filas en base: <span className="text-white">{previewData?.total_rows || 0}</span>
                                 </div>
