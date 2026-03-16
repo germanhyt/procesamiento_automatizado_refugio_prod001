@@ -1,0 +1,31 @@
+services:
+  datarefugio_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: datarefugio_backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      # Credenciales de Power BI deben estar en el .env del root o pasadas aquí
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+    networks:
+      - app_shared_network
+
+  datarefugio_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=https://api.datarefugio.gcbprojects.site/api
+    container_name: datarefugio_frontend
+    restart: always
+    networks:
+      - app_shared_network
+
+networks:
+  app_shared_network:
+    external: true

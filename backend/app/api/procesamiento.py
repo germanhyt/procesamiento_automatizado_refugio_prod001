@@ -5,32 +5,60 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Configuración de entorno
-base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Configuración de entorno: Intentar detectar raíz del proyecto
+current_file_path = os.path.abspath(__file__)
+# app/api/procesamiento.py -> app/api -> app -> backend -> root
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+
+# Si estamos en Docker, base_dir podría ser /app o /
+if not os.path.exists(os.path.join(base_dir, "config")):
+    # Fallback para estructura dentro del contenedor backend
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+
 env_path = os.path.join(base_dir, "config", ".env")
-load_dotenv(env_path)
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    # En Docker las variables ya vienen en el enviroment, no es crítico que el .env exista
+    pass
 
 router = APIRouter(prefix="/procesamiento", tags=["Procesamiento"])
 
-# Rutas desde .env con normalización forzada de Windows
-DRIVE_PATH = os.path.normpath(os.getenv("GOOGLE_DRIVE_PATH", "").strip('"\''))
-CONFIG_PATH = os.path.normpath(os.getenv("CONFIG_EXCEL_PATH", "").strip('"\''))
-LOCATARIOS_PATH = os.path.normpath(os.getenv("LOCATARIOS_PATH", "").strip('"\''))
-PROCESAMIENTO_PATH = os.path.normpath(os.getenv("PROCESAMIENTO_PATH", "").strip('"\''))
+# Integración de Google Drive API: Reemplazamos las rutas locales por IDs de carpetas/archivos
+DRIVE_ID_CONFIG = os.getenv("DRIVE_ID_ARCHIVO_CONFIGURACION", "").strip('"\'')
+DRIVE_ID_CIERRECAJA = os.getenv("DRIVE_ID_CARPETA_CIERRECAJA", "").strip('"\'')
+DRIVE_ID_PROCESADOS = os.getenv("DRIVE_ID_CARPETA_PROCESADOS", "").strip('"\'')
 
 @router.get("/status-drive")
 async def check_drive_status():
-    """Endpoint ultra-rápido: Solo verifica existencia de rutas."""
+    """Endpoint ultra-rápido: Verifica disponibilidad de archivos/carpetas vía Google Drive API."""
     try:
-        from app.utils.check_env import verify_connections
-        report = verify_connections(DRIVE_PATH, CONFIG_PATH, LOCATARIOS_PATH)
+        from app.services.gdrive_service import GDriveService
+        
+        # Resolución robusta de la ruta de credenciales
+        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip('"\'')
+        if creds_path.startswith("./"):
+            creds_path = os.path.normpath(os.path.join(base_dir, creds_path[2:]))
+        elif not os.path.isabs(creds_path):
+            creds_path = os.path.normpath(os.path.join(base_dir, "config", creds_path))
+            
+        gdrive = GDriveService(creds_path)
+        
+        # Validar si puede leer el ID de CierreCaja
+        carpetas_conectadas = False
+        try:
+            res_list = gdrive.list_files_in_folder(DRIVE_ID_CIERRECAJA)
+            carpetas_conectadas = True
+        except:
+            carpetas_conectadas = False
+            
         return {
-            "drive_connected": report["drive_folder"]["exists"],
-            "config_exists": report["config_file"]["exists"],
-            "is_config_open": report["config_file"]["is_open"]
+            "drive_connected": carpetas_conectadas,
+            "config_exists": bool(DRIVE_ID_CONFIG),  # Podría validarse con una metadata request si quisiéramos
+            "is_config_open": False # Ya no aplica en la nube (la API sobreescribe)
         }
     except Exception as e:
-        return {"drive_connected": False, "error": str(e)}
+        return {"drive_connected": False, "config_exists": False, "error": str(e)}
 
 @router.post("/flujo-completo")
 async def ejecutar_flujo_completo():
@@ -55,6 +83,7 @@ async def ejecutar_flujo_completo():
 
 def get_legacy_service():
     from app.services.legacy_service import LegacyService
+    from app.services.gdrive_service import GDriveService
     
     # Resolución robusta de la ruta de credenciales
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip('"\'')
@@ -64,12 +93,16 @@ def get_legacy_service():
     elif not os.path.isabs(creds_path):
         creds_path = os.path.normpath(os.path.join(base_dir, "config", creds_path))
 
+    gdrive = GDriveService(creds_path)
+
     return LegacyService(
-        DRIVE_PATH, 
-        CONFIG_PATH, 
-        os.getenv("BQ_PROJECT_ID"), 
-        os.getenv("BQ_DATASET"), 
-        creds_path
+        gdrive_service=gdrive,
+        drive_id_config=DRIVE_ID_CONFIG,
+        drive_id_ventas=DRIVE_ID_CIERRECAJA,
+        drive_id_procesados=DRIVE_ID_PROCESADOS,
+        bq_project_id=os.getenv("BQ_PROJECT_ID"),
+        bq_dataset=os.getenv("BQ_DATASET"),
+        bq_creds_path=creds_path
     )
 
 @router.get("/legacy/archivos")

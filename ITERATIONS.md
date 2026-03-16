@@ -151,3 +151,550 @@ Cambia su rol: Cambia de "Visor" (Viewer) a Miembro (Member) o Colaborador (Cont
 Nota: El rol de "Miembro" es el recomendado para este enfoque, ya que permite generar tokens de incrustación.
 Guarda los cambios y vuelve a intentar cargar el dashboard en nuestra aplicación.
 
+
+11) 
+
+Ahora desplegamos la aplicacion en el vps, preparamos los recursos y lo colocamos en README.md,
+te comparto los siguientes archivos para ponernos en contexto
+
+root@vmi2809688:/home/projects/shared# cat docker-compose.yml
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./letsencrypt:/etc/letsencrypt
+      - ./webroot:/usr/share/nginx/html
+    #depends_on:
+      #- evolution-api      # Referencia para orden de inicio, aunque estén en otro compose
+      #- n8n
+      #- estacionamiento_frontend
+      #- estacionamiento_backend
+    networks:
+      - app_shared_network
+      - supabase_default
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./webroot:/webroot
+    # entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --post-hook \"nginx -s reload\"; sleep 12h & wait $${!}; done;'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx
+    networks:
+      - app_shared_network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_shared_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_shared_network
+
+networks:
+  app_shared_network:
+    external: true
+  supabase_default:       # <--- AGREGAR ESTO
+    external: true        # <--- AGREGAR ESTO
+
+volumes:
+  postgres_data:
+    external: true
+    name: projects_postgres_data  # <--- IMPORTANTE: Pon aquí el nombre que anotaste en el Paso 0
+  redis_data:
+    external: true
+    name: projects_redis_data     # <--- IMPORTANTE: Pon aquí el nombre que anotaste en el Paso 0
+
+
+ConsultasRefugio_backup_20260126_015247.tar.gz  a.out  n8n_backup
+root@vmi2809688:~# cd /home/projects/estacionamiento/
+root@vmi2809688:/home/projects/estacionamiento# ls
+db  docker-compose.yml  github  nginx  old_backend  old_frontend  parking-system-gcb-backend-prod002  parking-system-gcb-frontend-prod002
+root@vmi2809688:/home/projects/estacionamiento# cd ..
+root@vmi2809688:/home/projects# cd shared/
+root@vmi2809688:/home/projects/shared# ls
+docker-compose.yml  letsencrypt  nginx.conf  webroot
+root@vmi2809688:/home/projects/shared# cat docker-compose.yml
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./letsencrypt:/etc/letsencrypt
+      - ./webroot:/usr/share/nginx/html
+    #depends_on:
+      #- evolution-api      # Referencia para orden de inicio, aunque estén en otro compose
+      #- n8n
+      #- estacionamiento_frontend
+      #- estacionamiento_backend
+    networks:
+      - app_shared_network
+      - supabase_default
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./webroot:/webroot
+    # entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --post-hook \"nginx -s reload\"; sleep 12h & wait $${!}; done;'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx
+    networks:
+      - app_shared_network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_shared_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_shared_network
+
+networks:
+  app_shared_network:
+    external: true
+  supabase_default:       # <--- AGREGAR ESTO
+    external: true        # <--- AGREGAR ESTO
+
+volumes:
+  postgres_data:
+    external: true
+    name: projects_postgres_data  # <--- IMPORTANTE: Pon aquí el nombre que anotaste en el Paso 0
+  redis_data:
+    external: true
+    name: projects_redis_data     # <--- IMPORTANTE: Pon aquí el nombre que anotaste en el Paso 0
+
+
+root@vmi2809688:/home/projects/shared# ls
+docker-compose.yml  letsencrypt  nginx.conf  webroot
+root@vmi2809688:/home/projects/shared# cat nginx.conf
+# Resolver DNS para servicios Docker
+resolver 127.0.0.11 valid=10s;
+resolver_timeout 5s;
+
+# ========== HTTP BLOCKS (puerto 80) ==========
+
+# HTTP to HTTPS redirect para estacionamiento frontend
+server {
+    listen 80;
+    server_name estacionamiento.gcbprojects.site;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTP to HTTPS redirect para estacionamiento backend
+server {
+    listen 80;
+    server_name admin.estacionamiento.gcbprojects.site;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+
+# BLOQUE PARA CONSULTAS
+server {
+    listen 80;
+    server_name consultas.gcbprojects.site;
+
+    # Esta ruta es CRÍTICA para que certbot funcione
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+
+# HTTP to HTTPS redirect (default - debe ir al final de los bloques HTTP)
+server {
+    listen 80 default_server;
+    server_name _;
+
+    # PERMITIR challenge http-01
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+    }
+
+    return 301 https://$host$request_uri;
+}
+
+
+
+server {
+    listen 80;
+    server_name chatwoot.gcbprojects.site;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 80;
+    server_name supabase.gcbprojects.site;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+
+
+# ========== HTTPS BLOCKS (puerto 443) ==========
+
+# n8n subdomain
+server {
+    listen 443 ssl;
+    server_name n8n.gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+    # --- ACTUALIZA ESTAS RUTAS ---
+    ssl_certificate /etc/letsencrypt/live/n8n.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/n8n.gcbprojects.site/privkey.pem;
+    # -----------------------------
+
+    # --- AGREGA ESTE BLOQUE AQUÍ ---
+    # Esto asegura que Nginx sirva el reto de validación en lugar de pasarlo a n8n
+    # MANTEN EL BLOQUE .well-known QUE PUSIMOS ANTES, ES ÚTIL PARA RENOVACIONES AUTOMÁTICAS
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        try_files $uri =404;
+    }
+    # -------------------------------
+
+    location / {
+        proxy_pass http://n8n:5678;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+# Evolution API subdomain
+server {
+    listen 443 ssl;
+    server_name evolution.gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+    location / {
+        proxy_pass http://evolution-api:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Python app subdomain
+server {
+    listen 443 ssl;
+    server_name python.gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+    location / {
+        proxy_pass http://python_app:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Estacionamiento Frontend
+server {
+    listen 443 ssl;
+    server_name estacionamiento.gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+
+    location / {
+        proxy_pass http://estacionamiento_frontend:80;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+# Estacionamiento Backend API + WebSockets (combinado)
+server {
+    listen 443 ssl;
+    server_name admin.estacionamiento.gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+
+    client_max_body_size 100M;
+
+    # WebSockets (Reverb) - DEBE ir ANTES de location /
+    location /app/ {
+        proxy_pass http://estacionamiento_reverb:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # Backend API
+    location / {
+        proxy_pass http://estacionamiento_nginx_backend:80;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+}
+
+# gcbprojects.site (landing page)
+server {
+    listen 443 ssl;
+    server_name gcbprojects.site;
+
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+    location / {
+        return 200 "Welcome to GCB Projects!";
+    }
+}
+
+
+
+
+# consultas.gcbprojects.site
+server {
+    listen 443 ssl;
+    server_name consultas.gcbprojects.site;
+    # USA ESTACIONAMIENTO SOLO COMO TEMPORAL PARA QUE NGINX ARRANQUE
+    ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+
+    # ssl_certificate /etc/letsencrypt/live/consultas.gcbprojects.site/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/consultas.gcbprojects.site/privkey.pem;
+
+    location / {
+        proxy_pass http://consultas_python:8501;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+    location /_stcore/stream {
+        proxy_pass http://consultas_python:8501/_stcore/stream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+
+
+
+server {
+    listen 443 ssl;
+    server_name chatwoot.gcbprojects.site;
+
+    # Usamos el certificado de estacionamiento TEMPORALMENTE para que Nginx no explote al reiniciar
+    # ssl_certificate /etc/letsencrypt/live/estacionamiento.gcbprojects.site/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/estacionamiento.gcbprojects.site/privkey.pem;
+
+    ssl_certificate /etc/letsencrypt/live/chatwoot.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chatwoot.gcbprojects.site/privkey.pem;
+
+
+    location / {
+        proxy_pass http://chatwoot_web:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+
+server {
+    listen 443 ssl;
+    server_name supabase.gcbprojects.site;
+
+    # Certificados temporales para poder reiniciar
+    ssl_certificate /etc/letsencrypt/live/supabase.gcbprojects.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/supabase.gcbprojects.site/privkey.pem;
+
+    # Mandamos TODO al guardia de seguridad (Kong)
+    location / {
+        proxy_pass http://supabase-kong:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 1. Rutas de la API de Supabase (Kong - Puerto 8000)
+    # location ~ ^/(rest|graphql|auth|storage|realtime)/ {
+    #    proxy_pass http://supabase-kong:8000;
+    #    proxy_http_version 1.1;
+    #    proxy_set_header Upgrade $http_upgrade;
+    #    proxy_set_header Connection "upgrade";
+    #    proxy_set_header Host $host;
+    #    proxy_set_header X-Real-IP $remote_addr;
+    #    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    #    proxy_set_header X-Forwarded-Proto $scheme;
+    # }
+
+    # 2. Panel de Control de Supabase (Studio - Puerto 3001)
+    # location / {
+    #    proxy_pass http://supabase-studio:3000;
+    #    proxy_http_version 1.1;
+    #    proxy_set_header Upgrade $http_upgrade;
+    #    proxy_set_header Connection "upgrade";
+    #    proxy_set_header Host $host;
+    #    proxy_set_header X-Real-IP $remote_addr;
+    #    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    #    proxy_set_header X-Forwarded-Proto $scheme;
+    # }
+}
+
+
+root@vmi2809688:/home/projects/shared# ls -la
+total 36
+drwxr-xr-x 4 root    root     4096 Mar  1 03:56 .
+drwxr-xr-x 8 root    root     4096 Mar  1 03:32 ..
+-rw-r--r-- 1 root    root      138 Nov 23 03:14 .env
+-rw-r--r-- 1 root    root     2102 Mar  1 04:33 docker-compose.yml
+drwxr-xr-x 7 refugio refugio  4096 Mar 10 18:15 letsencrypt
+-rw-r--r-- 1 root    root    10798 Mar  1 04:48 nginx.conf
+drwxr-xr-x 3 refugio refugio  4096 Oct  6 03:08 webroot
+root@vmi2809688:/home/projects/shared# cat .env
+# Postgres
+POSTGRES_USER=evouser
+POSTGRES_PASSWORD=strongpassword123!
+POSTGRES_DB=evolutiondb
+
+# Redis
+REDIS_PASSWORD=strongredispass456!
+root@vmi2809688:/home/projects/shared#
+
+

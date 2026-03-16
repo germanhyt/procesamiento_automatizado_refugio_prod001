@@ -11,6 +11,7 @@ class PermissionOut(PermissionBase):
     id: int
     class Config:
         from_attributes = True
+        orm_mode = True
 
 class RoleBase(BaseModel):
     name: str
@@ -24,6 +25,7 @@ class RoleOut(RoleBase):
     permissions: List[PermissionOut] = []
     class Config:
         from_attributes = True
+        orm_mode = True
 
 class UserBase(BaseModel):
     username: str
@@ -47,6 +49,7 @@ class UserOut(UserBase):
     created_at: datetime
     class Config:
         from_attributes = True
+        orm_mode = True
 
 class Token(BaseModel):
     access_token: str

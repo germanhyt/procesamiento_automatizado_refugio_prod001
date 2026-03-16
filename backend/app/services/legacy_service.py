@@ -17,19 +17,42 @@ from google.oauth2 import service_account
 logger = logging.getLogger(__name__)
 
 class LegacyService:
-    def __init__(self, drive_path: str, config_path: str, bq_project_id: str, bq_dataset: str, bq_creds_path: str):
-        self.drive_path = drive_path
-        self.config_path = config_path
+    def __init__(self, gdrive_service, drive_id_config: str, drive_id_ventas: str, drive_id_procesados: str, bq_project_id: str, bq_dataset: str, bq_creds_path: str):
+        self.gdrive = gdrive_service
+        self.drive_id_config = drive_id_config
+        self.drive_id_ventas = drive_id_ventas
+        self.drive_id_procesados = drive_id_procesados
+        
         self.bq_project_id = bq_project_id
         self.bq_dataset = bq_dataset
         self.bq_creds_path = bq_creds_path
-        self.ventas_dir = os.path.join(drive_path, "CierreCaja")
-        self.procesados_dir = os.path.join(drive_path, "Procesados")
-        # Root path for scripts (where main.py or similar is located)
-        self.base_scripts_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        # We assume prediction folder is in the parent of backend/
-        self.project_root = os.path.dirname(self.base_scripts_dir)
-        self.prediction_script = os.path.join(self.project_root, "prediction", "predictor_ventas_powerbi_clean.py")
+        
+        # Temp paths for local processing within Docker/VPS
+        self.temp_dir = "/tmp/refugio_data"
+        os.makedirs(self.temp_dir, exist_ok=True)
+        self.config_path = os.path.join(self.temp_dir, "Configuracion.xlsx")
+        
+        # Root path for scripts
+        self.backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        # Intentar ruta local (Docker) o ruta relativa (Desarrollo)
+        local_prediction = os.path.join(self.backend_dir, "prediction", "predictor_ventas_powerbi_clean.py")
+        if os.path.exists(local_prediction):
+            self.prediction_script = local_prediction
+        else:
+            self.project_root = os.path.dirname(self.backend_dir)
+            self.prediction_script = os.path.join(self.project_root, "prediction", "predictor_ventas_powerbi_clean.py")
+
+    def _download_config(self):
+        """Descarga el Config de Drive a la ruta temporal"""
+        if self.drive_id_config:
+            self.gdrive.download_file(self.drive_id_config, self.config_path)
+
+    def _upload_config(self):
+        """Sube el Config modificado de vuelta a Drive"""
+        if self.drive_id_config:
+            self.gdrive.update_file(self.drive_id_config, self.config_path)
+
 
     # ==========================================
     # REGLAS ESPECIALES (Fieles a CargaVentas_csvOfi.py)
@@ -124,33 +147,36 @@ class LegacyService:
     # ... (métodos existentes de conversión y archivos) ...
 
     async def list_cierre_caja_files(self) -> Dict[str, Any]:
-        """Lista archivos actualmente en CierreCaja."""
+        """Lista archivos actualmente en CierreCaja desde Google Drive."""
         try:
-            if not os.path.exists(self.ventas_dir):
-                return {"success": False, "error": "Directorio CierreCaja no encontrado"}
+            if not self.drive_id_ventas:
+                return {"success": False, "error": "ID de la carpeta CierreCaja no proporcionado"}
             
-            files = []
-            for f in os.listdir(self.ventas_dir):
-                path = os.path.join(self.ventas_dir, f)
-                if os.path.isfile(path):
-                    stats = os.stat(path)
-                    files.append({
-                        "name": f,
-                        "size": stats.st_size,
-                        "modified": datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    })
-            return {"success": True, "files": files}
+            files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
+            formatted_files = []
+            for f in files:
+                formatted_files.append({
+                    "name": f.get("name"),
+                    "size": int(f.get("size", 0)),
+                    "modified": f.get("modifiedTime")
+                })
+            return {"success": True, "files": formatted_files}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     async def save_upload_file(self, filename: str, content: bytes) -> Dict[str, Any]:
-        """Guarda un archivo subido en CierreCaja."""
+        """Guarda un archivo subido temporal y lo sube a Drive en CierreCaja."""
         try:
-            os.makedirs(self.ventas_dir, exist_ok=True)
-            path = os.path.join(self.ventas_dir, filename)
-            with open(path, "wb") as f:
+            temp_path = os.path.join(self.temp_dir, filename)
+            with open(temp_path, "wb") as f:
                 f.write(content)
-            return {"success": True, "message": f"Archivo {filename} guardado"}
+            
+            file_id = self.gdrive.upload_new_file(temp_path, filename, self.drive_id_ventas)
+            os.remove(temp_path)
+            
+            if file_id:
+                return {"success": True, "message": f"Archivo {filename} guardado en Drive"}
+            return {"success": False, "error": "Error subiendo archivo a Drive"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -159,31 +185,41 @@ class LegacyService:
     # ==========================================
     async def convertir_xlsx_to_csv(self) -> Dict[str, Any]:
         """
-        Replica la lógica de ConvertirCSVOfi.py:
-        Busca todos los .xlsx en CierreCaja, los convierte a CSV (sep=;) y los elimina.
+        Descarga los .xlsx desde Drive, los convierte a CSV y los resube a CierreCaja. Luego envía a papelera el original.
         """
         results = []
         try:
-            if not os.path.exists(self.ventas_dir):
-                return {"success": False, "error": f"No existe el directorio: {self.ventas_dir}"}
+            if not self.drive_id_ventas:
+                return {"success": False, "error": "ID de la carpeta CierreCaja no proporcionado"}
 
-            files = [f for f in os.listdir(self.ventas_dir) if f.lower().endswith('.xlsx')]
+            files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
+            xlsx_files = [f for f in files if f.get('name', '').lower().endswith('.xlsx')]
             
-            for filename in files:
-                xlsx_path = os.path.join(self.ventas_dir, filename)
+            for file_info in xlsx_files:
+                filename = file_info.get('name')
+                file_id = file_info.get('id')
+                
+                xlsx_temp_path = os.path.join(self.temp_dir, filename)
+                csv_filename = filename.rsplit('.', 1)[0] + '.csv'
+                csv_path = os.path.join(self.temp_dir, csv_filename)
+                
                 try:
-                    df = pd.read_excel(xlsx_path)
-                    csv_filename = filename.rsplit('.', 1)[0] + '.csv'
-                    csv_path = os.path.join(self.ventas_dir, csv_filename)
-                    # El original usa pd.to_csv sin especificar sep en algunas versiones, 
-                    # pero el proceso de carga espera ";"
+                    self.gdrive.download_file(file_id, xlsx_temp_path)
+                    
+                    df = pd.read_excel(xlsx_temp_path)
                     df.to_csv(csv_path, index=False, sep=";")
-                    os.remove(xlsx_path)
+                    
+                    self.gdrive.upload_new_file(csv_path, csv_filename, self.drive_id_ventas, "text/csv")
+                    self.gdrive.trash_file(file_id)
+                    
+                    if os.path.exists(xlsx_temp_path): os.remove(xlsx_temp_path)
+                    if os.path.exists(csv_path): os.remove(csv_path)
+
                     results.append(f"Convertido: {filename}")
                 except Exception as e:
                     results.append(f"Error en {filename}: {str(e)}")
 
-            return {"success": True, "details": results, "count": len(files)}
+            return {"success": True, "details": results, "count": len(xlsx_files)}
         except Exception as e:
             logger.error(f"Error en convertir_xlsx_to_csv: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -195,6 +231,7 @@ class LegacyService:
     async def obtener_negocios_lista(self) -> Dict[str, Any]:
         """Retorna la lista de negocios para el selector manual."""
         try:
+            self._download_config()
             df = pd.read_excel(self.config_path, sheet_name="Negocios")
             negocios = df[["CodigoNegocio", "Descripcion"]].dropna().to_dict(orient="records")
             return {"success": True, "negocios": negocios}
@@ -204,6 +241,7 @@ class LegacyService:
     async def guardar_asociacion_manual(self, archivo: str, codigo_negocio: str, fecha_inicio: str, fecha_fin: str) -> Dict[str, Any]:
         """Guarda manualmente una asociación en la hoja Activas."""
         try:
+            self._download_config()
             # Leer Activas actual
             try:
                 df_activas = pd.read_excel(self.config_path, sheet_name="Activas")
@@ -226,6 +264,7 @@ class LegacyService:
             with pd.ExcelWriter(self.config_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                 df_activas.to_excel(writer, sheet_name="Activas", index=False)
 
+            self._upload_config()
             return {"success": True, "message": f"Asociación guardada para {archivo}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -237,10 +276,14 @@ class LegacyService:
         Actualiza las hojas 'Asociaciones' y 'Activas' con fechas de la última semana.
         """
         try:
+            self._download_config()
             # 1. Cargar Negocios y Archivos
             hoja_negocios = pd.read_excel(self.config_path, sheet_name="Negocios")
             tiendas = hoja_negocios["Descripcion"].dropna().unique().tolist()
-            archivos_pendientes = [f for f in os.listdir(self.ventas_dir) if f.lower().endswith('.csv')]
+            
+            drive_files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
+            # Detectamos ambos formatos: CSV y XLSX
+            archivos_pendientes = [f.get('name') for f in drive_files if f.get('name', '').lower().endswith(('.csv', '.xlsx'))]
             
             # 2. Fuzzy Matching
             asociaciones = []
@@ -294,6 +337,7 @@ class LegacyService:
                 df_asoc.to_excel(writer, sheet_name="Asociaciones", index=False)
                 df_activas.to_excel(writer, sheet_name="Activas", index=False)
 
+            self._upload_config()
             return {"success": True, "count": len(asociaciones), "details": asociaciones}
         except Exception as e:
             logger.error(f"Error en asociar_negocios: {str(e)}")
@@ -311,6 +355,8 @@ class LegacyService:
         4. Mueve archivos procesados a /Procesados/YYYY-MM-DD_cloud/.
         """
         try:
+            self._download_config()
+
             # 0. Limpieza opcional
             if clear_data:
                 self._clear_sales_data()
@@ -346,22 +392,20 @@ class LegacyService:
             column_names = [col for col in base_carga_df.columns if col != 'CodigoNegocio']
             
             # Carpeta de destino con formato específico: YYYY-MM-DD_cloud
-            current_date_str = datetime.now().strftime("%Y-%m-%d")
-            folder_name = f"{current_date_str}_cloud"
-            dated_destination_dir = os.path.join(self.procesados_dir, folder_name)
-            os.makedirs(dated_destination_dir, exist_ok=True)
+            # Obtener archivos de Drive (map filename -> file_id)
+            drive_files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
+            drive_files_dict = {f.get('name'): f.get('id') for f in drive_files if f.get('name')}
 
             # 2. Iterar sobre Activas
             for _, config_row in config_activas_df.iterrows():
                 codigo_negocio = config_row['CodigoNegocio']
                 ruta_archivo = config_row['RutaArchivo']
                 cargar = config_row['Cargar']
-                
-                if cargar != 1 or not str(ruta_archivo).lower().endswith('.csv'):
+                # Aceptamos tanto CSV como XLSX para procesar
+                ext = str(ruta_archivo).lower()
+                if cargar != 1 or not (ext.endswith('.csv') or ext.endswith('.xlsx')):
                     continue
 
-                file_path = os.path.join(self.ventas_dir, str(ruta_archivo))
-                
                 # Extraer info del negocio
                 try:
                     neg_info = negocios_df[negocios_df['CodigoNegocio'] == codigo_negocio].iloc[0]
@@ -393,20 +437,27 @@ class LegacyService:
                 except:
                     codigo_ubicacion, estado_negocio, tipo_negocio, area = '', 'ACTIVO', '', ''
 
-                if not os.path.exists(file_path):
-                    logger.warning(f"Archivo no encontrado: {file_path}. Intentando crear registros por defecto...")
+                file_id = drive_files_dict.get(str(ruta_archivo))
+                if not file_id:
+                    logger.warning(f"Archivo no encontrado en Drive: {ruta_archivo}. Intentando crear registros por defecto...")
                     processed_df = self._create_default_records(codigo_negocio, codigo_ubicacion, estado_negocio, tipo_negocio, area, column_names)
                     processed_dataframes.append(processed_df)
                     continue
 
-                # Cargar CSV con detección de encoding
-                with open(file_path, 'rb') as f:
-                    encoding = chardet.detect(f.read())['encoding'] or 'latin-1'
+                # Cargar archivo (detección automática de formato)
+                file_path = os.path.join(self.temp_dir, str(ruta_archivo))
+                self.gdrive.download_file(file_id, file_path)
                 
-                try:
-                    sheet = pd.read_csv(file_path, delimiter=";", encoding=encoding)
-                except:
-                    sheet = pd.read_csv(file_path, delimiter=";", encoding='latin-1')
+                if str(ruta_archivo).lower().endswith('.xlsx'):
+                    sheet = pd.read_excel(file_path)
+                else:
+                    try:
+                        with open(file_path, 'rb') as f:
+                            encoding = chardet.detect(f.read())['encoding'] or 'latin-1'
+                        sheet = pd.read_csv(file_path, sep=None, engine='python', encoding=encoding)
+                    except:
+                        # Fallback para CSV si la detección automática falla
+                        sheet = pd.read_csv(file_path, delimiter=";", encoding='latin-1')
 
                 if sheet.empty:
                     continue
@@ -561,11 +612,21 @@ class LegacyService:
 
                 processed_dataframes.append(processed_df)
 
-                # Mover a Procesados
+                # Mover a Procesados en Google Drive
                 try:
-                    shutil.move(file_path, os.path.join(dated_destination_dir, ruta_archivo))
-                except:
-                    pass
+                    # Crear subcarpeta YYYY-MM-DD_cloud en Drive bajo Procesados
+                    current_date_str = datetime.now().strftime("%Y-%m-%d")
+                    folder_name = f"{current_date_str}_cloud"
+                    procesados_folder_id = self.gdrive.get_or_create_folder(folder_name, self.drive_id_procesados)
+                    
+                    if procesados_folder_id:
+                        self.gdrive.move_file(file_id, self.drive_id_ventas, procesados_folder_id)
+                        
+                    # Limpiar el temporal local
+                    if os.path.exists(file_path): 
+                        os.remove(file_path)
+                except Exception as ex:
+                    logger.error(f"Error moviendo archivo en Drive: {ex}")
 
             # 5. Consolidar y Guardar (Append)
             if processed_dataframes:
@@ -573,18 +634,12 @@ class LegacyService:
                 
                 # Actualizar hojas en Excel
                 self._update_excel_with_sales(final_df, config_activas_df, Realizadas_df)
+                self._upload_config()
                 
                 return {"success": True, "registros": len(final_df), "negocios": len(processed_dataframes)}
             else:
                 return {"success": True, "registros": 0, "message": "No se procesaron nuevos datos"}
 
-        except Exception as e:
-            logger.error(f"Error en cargar_ventas_legacy: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    # ==========================================
-    # PASO 4: CARGAR BIGQUERY
-    # ==========================================
         except Exception as e:
             logger.error(f"Error en cargar_ventas_legacy: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -597,6 +652,8 @@ class LegacyService:
         Sincroniza BigQuery basándose EXCLUSIVAMENTE en la hoja 'sales_df' del Excel.
         """
         try:
+            self._download_config()
+            
             creds = service_account.Credentials.from_service_account_file(self.bq_creds_path)
             client = bigquery.Client(credentials=creds, project=self.bq_project_id)
             
@@ -673,8 +730,7 @@ class LegacyService:
     async def get_sales_df_preview(self, limit: int = 100) -> Dict[str, Any]:
         """Obtiene una vista previa de la hoja sales_df."""
         try:
-            if not os.path.exists(self.config_path):
-                return {"success": False, "error": "Archivo de configuración no encontrado"}
+            self._download_config()
             
             df = pd.read_excel(self.config_path, sheet_name="sales_df")
             # Tomar los últimos registros (suelen ser los más recientes)
@@ -700,8 +756,7 @@ class LegacyService:
     async def get_realizadas_preview(self, limit: int = 100) -> Dict[str, Any]:
         """Obtiene una vista previa de la hoja Realizadas."""
         try:
-            if not os.path.exists(self.config_path):
-                return {"success": False, "error": "Archivo de configuración no encontrado"}
+            self._download_config()
             
             df = pd.read_excel(self.config_path, sheet_name="Realizadas")
             # Tomar los últimos registros
