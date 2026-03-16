@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Lock, ArrowRight, ShieldCheck, RefreshCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { User, Lock, ArrowRight, RefreshCcw, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { useAuth } from '../context/AuthContext';
-import logo from './../assets/logo.png';
+import { useAuth } from '@/context/AuthContext';
+import logo from '@/assets/logo.png';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const { login } = useAuth();
+    const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -36,8 +39,9 @@ const Login: React.FC = () => {
                     timer: 2000,
                     showConfirmButton: false,
                     background: '#0a0a0a',
-                    color: '#fff'
+                    color: '#fff',
                 });
+                navigate('/bienvenida', { replace: true });
             }
         } catch (err: any) {
             Swal.fire({
@@ -73,12 +77,12 @@ const Login: React.FC = () => {
                     {/* </div> */}
                     <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Refugio Data</h1>
                     {/* <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">Seguridad & Autenticación</p> */}
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">Login</p>
+                    <p className="text-[10px] text-refugio-muted uppercase tracking-widest mt-2">Login</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-zinc-500 ml-4 tracking-widest">Usuario</label>
+                        <label className="text-[10px] font-black uppercase text-refugio-muted ml-4 tracking-widest">Usuario</label>
                         <div className="relative group">
                             <User className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-teal-500 transition-colors" size={18} />
                             <input
@@ -87,23 +91,32 @@ const Login: React.FC = () => {
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 className="w-full bg-black/40 border border-white/5 rounded-2xl py-5 pl-14 pr-6 text-sm text-white focus:border-teal-500/50 outline-none transition-all group-hover:border-white/10"
-                                placeholder="Ingresa tu ID..."
+                                placeholder="Ingresa tu usuario..."
                             />
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-zinc-500 ml-4 tracking-widest">Contraseña</label>
+                        <label className="text-[10px] font-black uppercase text-refugio-muted ml-4 tracking-widest">Contraseña</label>
                         <div className="relative group">
                             <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-teal-500 transition-colors" size={18} />
                             <input
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-black/40 border border-white/5 rounded-2xl py-5 pl-14 pr-6 text-sm text-white focus:border-teal-500/50 outline-none transition-all group-hover:border-white/10"
+                                className="w-full bg-black/40 border border-white/5 rounded-2xl py-5 pl-14 pr-14 text-sm text-white focus:border-teal-500/50 outline-none transition-all group-hover:border-white/10"
                                 placeholder="••••••••"
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 text-refugio-muted hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                                title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                                aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
                     </div>
 

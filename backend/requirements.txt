@@ -20,3 +20,4 @@ email-validator==2.1.0.post1
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.2
 pydantic==1.10.17
+tzdata>=2024.1

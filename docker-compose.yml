@@ -12,6 +12,7 @@ services:
       - .env
     volumes:
       - ./config:/app/config
+      - ./uploads:/app/uploads
     networks:
       - app_shared_network
 

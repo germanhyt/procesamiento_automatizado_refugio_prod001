@@ -48,7 +48,7 @@ const PowerBIDashboard: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Análisis de Data</h2>
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">Dashboard Interactivo | Power BI Service</p>
+                    <p className="text-[10px] text-refugio-muted uppercase tracking-widest mt-1">Dashboard Interactivo | Power BI Service</p>
                 </div>
 
                 <div className="flex gap-3">

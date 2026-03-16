@@ -7,10 +7,14 @@ import {
     RefreshCcw, Play, CheckCircle,
     FileCode, Link, Database, CloudSync,
     Trash2, ChevronRight, Info, Upload,
-    File, Calendar, Store, Plus, Search, Table, X, Eye
+    File, Calendar, Store, Plus, Search, Table, X, Eye,
+    ShieldCheck, Layers, FolderOpen, Download, FileArchive
 } from 'lucide-react';
 
+import { LOCATARIOS } from '@/constants/locatarios';
+
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+const FUENTES_URL = `${API_URL}/fuentes`;
 
 interface CierreCajaFile {
     name: string;
@@ -60,6 +64,14 @@ const LegacyFlow: React.FC = () => {
     const [previewType, setPreviewType] = useState<'sales' | 'realizadas'>('sales');
     const [previewData, setPreviewData] = useState<any>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
+
+    // Modal Gestión Archivos (FileStore por semana)
+    const [isFilesModalOpen, setIsFilesModalOpen] = useState(false);
+    const [semanasList, setSemanasList] = useState<string[]>([]);
+    const [selectedSemanaFiles, setSelectedSemanaFiles] = useState<string>('');
+    const [archivosFileStore, setArchivosFileStore] = useState<{ semana: string; locatario: string; archivos: string[] }[]>([]);
+    const [filesModalLoading, setFilesModalLoading] = useState(false);
+    const [bulkLocatario, setBulkLocatario] = useState('');
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -128,6 +140,45 @@ const LegacyFlow: React.FC = () => {
         } finally { setIsProcessing(null); }
     };
 
+    const runLimpiezaConfirm = async () => {
+        const result = await Swal.fire({
+            title: 'Verificación: Limpieza',
+            text: '¿Proceder con el siguiente proceso (Consolidación)? Confirma que los archivos en FileStore están listos para consolidar.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#14b8a6',
+            cancelButtonColor: '#71717a',
+            confirmButtonText: 'Sí, proceder',
+            cancelButtonText: 'Cancelar',
+            background: '#111',
+            color: '#fff',
+        });
+        if (result.isConfirmed) {
+            setLogs(prev => ['✅ Verificación OK. Puede ejecutar Consolidación.', ...prev]);
+            Swal.fire({ title: 'Listo', text: 'Ejecute ahora el paso Consolidación.', icon: 'success', background: '#111', color: '#fff', confirmButtonColor: '#2dd4bf' });
+        }
+    };
+
+    const runConsolidacion = async () => {
+        setIsProcessing('Consolidación');
+        setLogs(prev => ['⏳ Consolidación: leyendo FileStore y BaseCarga...', ...prev]);
+        try {
+            const res = await axios.post(`${API_URL}/procesamiento/legacy/consolidar`);
+            if (res.data.success) {
+                const msg = res.data.registros
+                    ? `Registros: ${res.data.registros}, duplicados eliminados: ${res.data.duplicados_eliminados ?? 0}`
+                    : (res.data.message || 'Completado');
+                setLogs(prev => [`✅ Consolidación: ${msg}`, ...prev]);
+                Swal.fire({ title: 'Consolidación OK', text: msg, icon: 'success', background: '#111', color: '#fff', confirmButtonColor: '#2dd4bf' });
+            } else throw new Error(res.data.error);
+        } catch (e: any) {
+            setLogs(prev => [`❌ ERROR Consolidación: ${e.response?.data?.error ?? e.message}`, ...prev]);
+            Swal.fire({ title: 'Error', text: e.response?.data?.error ?? e.message, icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setIsProcessing(null);
+        }
+    };
+
     const runVentasProtocol = async () => {
         const result = await Swal.fire({
             title: 'Confirmar Carga de Ventas',
@@ -182,22 +233,114 @@ const LegacyFlow: React.FC = () => {
         }
     };
 
+    const openFilesModal = async () => {
+        setIsFilesModalOpen(true);
+        setFilesModalLoading(true);
+        try {
+            const [semRes, archRes] = await Promise.all([
+                axios.get(`${FUENTES_URL}/semanas`),
+                axios.get(`${FUENTES_URL}/semana-actual`),
+            ]);
+            if (semRes.data?.semanas?.length) setSemanasList(semRes.data.semanas);
+            const semana = archRes.data?.carpeta || semRes.data?.semanas?.[0] || '';
+            setSelectedSemanaFiles(semana);
+            if (semana) {
+                const listRes = await axios.get(`${FUENTES_URL}/archivos`, { params: { semana } });
+                setArchivosFileStore(listRes.data?.archivos || []);
+            } else setArchivosFileStore([]);
+        } catch (e) { setArchivosFileStore([]); }
+        finally { setFilesModalLoading(false); }
+    };
+
+    const fetchArchivosForSemana = async (semana: string) => {
+        if (!semana) { setArchivosFileStore([]); return; }
+        setFilesModalLoading(true);
+        try {
+            const res = await axios.get(`${FUENTES_URL}/archivos`, { params: { semana } });
+            setArchivosFileStore(res.data?.archivos || []);
+        } catch (e) { setArchivosFileStore([]); }
+        finally { setFilesModalLoading(false); }
+    };
+
+    const downloadZip = (semana: string, locatario?: string) => {
+        const params = new URLSearchParams({ semana });
+        if (locatario) params.set('locatario', locatario);
+        window.open(`${FUENTES_URL}/zip?${params.toString()}`, '_blank');
+    };
+
+    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files?.length || !bulkLocatario.trim()) {
+            Swal.fire({ title: 'Falta locatario', text: 'Selecciona un locatario antes de subir.', icon: 'warning', background: '#111', color: '#fff' });
+            return;
+        }
+        const formData = new FormData();
+        Array.from(e.target.files).forEach((f) => formData.append('files', f));
+        try {
+            const res = await axios.post(`${FUENTES_URL}/upload-bulk?locatario_codigo=${encodeURIComponent(bulkLocatario)}&replace=true`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            setLogs(prev => [`✅ Bulk: ${res.data?.results?.filter((r: any) => r.ok).length ?? 0} subidos`, ...prev]);
+            if (selectedSemanaFiles) fetchArchivosForSemana(selectedSemanaFiles);
+            e.target.value = '';
+        } catch (err: any) {
+            setLogs(prev => [`❌ Bulk upload: ${err.message}`, ...prev]);
+        }
+    };
+
+    const deleteFileStoreFile = async (semana: string, locatario: string, filename: string) => {
+        const ok = await Swal.fire({
+            title: 'Eliminar archivo',
+            text: `¿Eliminar ${filename}?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            background: '#111',
+            color: '#fff',
+        });
+        if (!ok.isConfirmed) return;
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${FUENTES_URL}/archivo`, {
+                params: { semana_folder: semana, locatario_codigo: locatario, filename },
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (selectedSemanaFiles === semana) fetchArchivosForSemana(semana);
+        } catch (err: any) {
+            Swal.fire({ title: 'Error', text: err.response?.data?.detail ?? err.message, icon: 'error', background: '#111', color: '#fff' });
+        }
+    };
+
     return (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 h-full">
             <div className="xl:col-span-8 space-y-8">
+                {/* Pasos Legacy: 0 Limpieza, 1 Consolidación, 2-4 Convertir/Asociar/Ventas/Nube */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 xl:gap-4">
+                    <StepButton icon={<ShieldCheck />} title="0. Limpieza" desc="Verificación para consolidar" onClick={runLimpiezaConfirm} loading={false} />
+                    <StepButton icon={<Layers />} title="1. Consolidar" desc="FileStore → unir + dedup" onClick={runConsolidacion} loading={isProcessing === 'Consolidación'} />
+                    <StepButton icon={<FileCode />} title="2. Convertir" desc="XLSX → CSV (;)" onClick={() => runStep('Conversión', 'convertir')} loading={isProcessing === 'Conversión'} />
+                    <StepButton icon={<Link />} title="3. Asociar" desc="Fuzzy Universal" onClick={() => runStep('Asociación', 'asociar')} loading={isProcessing === 'Asociación'} />
+                    <StepButton icon={<Database />} title="4. Proces. Ventas" desc="sales_df + Real." onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
+                    <StepButton icon={<CloudSync />} title="5. Proces. Nube" desc="Sync + Pago + Pred." onClick={() => runStep('BigQuery', 'cargar-bigquery')} loading={isProcessing === 'BigQuery'} />
+                </div>
+
                 {/* Explorador y Asociación */}
                 <div className="bg-zinc-900/40 p-6 sm:p-10 rounded-[40px] border border-white/5 grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
                     <div className="space-y-6">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 flex items-center gap-3">
                                 <Search size={14} /> Explorador CierreCaja
                             </h3>
-                            {/* Botón de Subida Restaurado y Mejorado */}
-                            <label className="cursor-pointer bg-teal-500/10 hover:bg-teal-500/20 text-teal-500 px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-teal-500/20 group">
-                                <Upload size={12} className="group-hover:scale-110 transition-transform" />
-                                <span className="text-[9px] font-black uppercase tracking-widest">Subir</span>
-                                <input type="file" className="hidden" onChange={handleUpload} multiple />
-                            </label>
+                            <div className="flex items-center gap-2">
+                                <button type="button" onClick={openFilesModal} className="bg-zinc-800 hover:bg-teal-500/20 text-zinc-400 hover:text-teal-500 px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-white/5">
+                                    <FolderOpen size={12} />
+                                    <span className="text-[9px] font-black uppercase tracking-widest">Gestionar Archivos</span>
+                                </button>
+                                <label className="cursor-pointer bg-teal-500/10 hover:bg-teal-500/20 text-teal-500 px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-teal-500/20 group">
+                                    <Upload size={12} className="group-hover:scale-110 transition-transform" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest">Subir</span>
+                                    <input type="file" className="hidden" onChange={handleUpload} multiple />
+                                </label>
+                            </div>
                         </div>
                         <div className="bg-black/40 rounded-3xl border border-white/5 h-64 overflow-y-auto scrollbar-hide">
                             {files.length === 0 ? (
@@ -277,13 +420,7 @@ const LegacyFlow: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Pasos Legacy */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <StepButton icon={<FileCode />} title="1. Convertir" desc="XLSX → CSV (;)" onClick={() => runStep('Conversión', 'convertir')} loading={isProcessing === 'Conversión'} />
-                    <StepButton icon={<Link />} title="2. Asociar" desc="Fuzzy Universal" onClick={() => runStep('Asociación', 'asociar')} loading={isProcessing === 'Asociación'} />
-                    <StepButton icon={<Database />} title="3. Proces. Ventas" desc="sales_df + Real." onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
-                    <StepButton icon={<CloudSync />} title="4. Proces. Nube" desc="Sync + Pago + Pred." onClick={() => runStep('BigQuery', 'cargar-bigquery')} loading={isProcessing === 'BigQuery'} />
-                </div>
+
             </div>
 
             {/* Consola */}
@@ -313,6 +450,114 @@ const LegacyFlow: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Modal Gestión Archivos (FileStore) */}
+            <AnimatePresence>
+                {isFilesModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+                        onClick={() => setIsFilesModalOpen(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 10 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95, y: 10 }}
+                            className="bg-zinc-900 border border-white/10 w-full max-w-4xl max-h-[90vh] rounded-[30px] flex flex-col overflow-hidden shadow-xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                                <h3 className="text-sm font-black uppercase tracking-widest text-teal-500 flex items-center gap-2">
+                                    <FolderOpen size={20} /> Gestionar archivos por semana (FileStore)
+                                </h3>
+                                <button type="button" onClick={() => setIsFilesModalOpen(false)} className="p-2 hover:bg-white/5 rounded-xl text-zinc-500 hover:text-white">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                                <div className="flex flex-wrap items-center gap-4">
+                                    <label className="text-[10px] font-black uppercase text-zinc-500">Semana</label>
+                                    <select
+                                        value={selectedSemanaFiles}
+                                        onChange={(e) => {
+                                            const s = e.target.value;
+                                            setSelectedSemanaFiles(s);
+                                            fetchArchivosForSemana(s);
+                                        }}
+                                        className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white"
+                                    >
+                                        {semanasList.length === 0 && <option value="">Sin semanas</option>}
+                                        {semanasList.map((s) => (
+                                            <option key={s} value={s}>{s}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectedSemanaFiles && downloadZip(selectedSemanaFiles)}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-500/20 text-teal-500 hover:bg-teal-500/30 text-[10px] font-black uppercase"
+                                    >
+                                        <FileArchive size={14} /> Descargar semana (.zip)
+                                    </button>
+                                </div>
+                                {filesModalLoading ? (
+                                    <div className="flex items-center justify-center py-12"><RefreshCcw size={32} className="animate-spin text-teal-500" /></div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {archivosFileStore.map((grupo) => (
+                                            <div key={`${grupo.semana}-${grupo.locatario}`} className="bg-black/30 rounded-2xl border border-white/5 p-4">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <span className="text-[10px] font-black uppercase text-teal-500">{grupo.locatario}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button type="button" onClick={() => downloadZip(grupo.semana, grupo.locatario)} className="text-[9px] font-black uppercase text-zinc-400 hover:text-teal-500 flex items-center gap-1">
+                                                            <Download size={12} /> ZIP
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <ul className="space-y-2">
+                                                    {grupo.archivos.map((nombre) => (
+                                                        <li key={nombre} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0 text-[10px]">
+                                                            <span className="flex items-center gap-2 text-zinc-300">
+                                                                <FileCode size={14} className="text-emerald-500/80" /> {nombre}
+                                                            </span>
+                                                            <button type="button" onClick={() => deleteFileStoreFile(grupo.semana, grupo.locatario, nombre)} className="p-1.5 rounded-lg text-zinc-500 hover:bg-red-500/20 hover:text-red-500" title="Eliminar">
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ))}
+                                        {archivosFileStore.length === 0 && !filesModalLoading && (
+                                            <p className="text-zinc-500 text-sm text-center py-8">No hay archivos en esta semana.</p>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="border-t border-white/5 pt-6">
+                                    <h4 className="text-[10px] font-black uppercase text-zinc-500 mb-3">Cargar en bloque</h4>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <select
+                                            value={bulkLocatario}
+                                            onChange={(e) => setBulkLocatario(e.target.value)}
+                                            className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white min-w-[200px]"
+                                        >
+                                            <option value="">— Locatario —</option>
+                                            {LOCATARIOS.map((l) => (
+                                                <option key={l.codigo} value={l.codigo}>{l.name}</option>
+                                            ))}
+                                        </select>
+                                        <label className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-500/20 text-teal-500 hover:bg-teal-500/30 text-[10px] font-black uppercase">
+                                            <Upload size={14} /> Seleccionar archivos (reemplaza si existe)
+                                            <input type="file" className="hidden" accept=".xlsx,.csv" multiple onChange={handleBulkUpload} />
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Modal de Vista Previa */}
             <AnimatePresence>
@@ -408,7 +653,7 @@ const StepButton = ({ icon, title, desc, onClick, loading, isExtra, fullWidth }:
             {loading ? <RefreshCcw size={20} /> : icon}
         </div>
         <h4 className="font-black text-[10px] uppercase tracking-widest mb-1">{title}</h4>
-        <p className="text-[9px] text-zinc-600 font-medium leading-tight">{desc}</p>
+        <p className="text-[9px] text-refugio-muted font-medium leading-tight">{desc}</p>
         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
             <ChevronRight size={14} className={isExtra ? 'text-blue-400' : 'text-teal-500/50'} />
         </div>

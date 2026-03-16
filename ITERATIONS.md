@@ -698,3 +698,34 @@ REDIS_PASSWORD=strongredispass456!
 root@vmi2809688:/home/projects/shared#
 
 
+12)
+
+Ahora lo que haremos es planificar con la siguiente refactorización,
+
+a) Respeto a las rutas:
+- ruteamos también cada módulo con buenas prácticas 
+- Usemos un AppRoutes como componente (Private y Public Routes), Outlets, y ruta de página no encontrada
+- Redirección luego de login a la página de bienvenida (simple)
+
+b) Respecto a la integración con Drive
+- Cambio en el repositorio de archivos, primero una propuesta de librería que funcione como filStore, donde como primero proceso se cargará los archivos/reportes de los diferentes locatarios mediante un página web expuesta de forma pública mediante una ruta  (Fuentes de datos). Estos archivos cargados (excel o csv) lo organizamos dentro con carpetas semanales y dentro por carpeta de locatario (/semana1/locatario1/) la semana son de lunes a domingo (semana11_09_15_marzo por ejemplo) estos se van generando automáticamente al cargar un nuevo archivo, trabajamos con la zona horario de Lima
+- Si es necesario indicarme una modifcación en docker para la persistencia de archivos en producción
+
+
+
+c) 
+Planificamos, no modificamos
+
+Ahora en el procesamiento tengo las siguientes observaciones
+- Limpíeza: solo un alert de verificación para proceder con el siguiente proceso que es la consolidación
+- Consolidación (Opcional): La idea es que en base las corrdenas mapeadas en BaseCarga (veriicar la duplicidad de registros) y consolidar los diferentes archivos de dicha semana en uno solo es decir unirlos en un tabla de datos (ojo todos con todos los campos) 
+- Asociar: Mantiene su lógica
+- Procesar Ventas: Mantiene su lógica
+- Procesar a la nube: Mantiene su lógica pero revisemos que no cargue data en nulls,
+
+Además:
+Estoy requiriendo poder tener un modal en el módulo para poder gestionar los archivos excel por semana, permitir visaulizar los archivos, descargar en bloque (.zip), y cargar en bloque y si coincide nombres reemplazarlos, cargar un nuevo archivo o poder eliminar. Esto ya que verificaré el contenido de los archivos y de ser necesario se modificará de forma interna (limpieza)
+
+
+
+

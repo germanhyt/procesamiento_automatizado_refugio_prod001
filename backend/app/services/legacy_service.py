@@ -780,9 +780,131 @@ class LegacyService:
             return {"success": False, "error": str(e)}
 
     # ==========================================
+    # CONSOLIDACIÓN DESDE FILESTORE (semana actual Lima)
+    # ==========================================
+    async def consolidar_desde_filestore(self) -> Dict[str, Any]:
+        """
+        Lee archivos del FileStore de la semana actual (Lima), aplica BaseCarga por locatario,
+        une todos los datos y elimina duplicados (Fecha, CodigoNegocio, Monto, Producto).
+        """
+        try:
+            from app.services.file_store_service import (
+                get_upload_base,
+                get_week_folder_name,
+                list_archivos,
+            )
+            self._download_config()
+            base_carga_df = pd.read_excel(self.config_path, sheet_name="BaseCarga")
+            column_names = [c for c in base_carga_df.columns if c != "CodigoNegocio"]
+
+            base = get_upload_base()
+            semana = get_week_folder_name()
+            items = list_archivos(semana_folder=semana)
+            if not items:
+                return {"success": True, "message": "Sin archivos en FileStore para esta semana", "registros": 0, "semana": semana}
+
+            def force_numeric_safe(val):
+                if pd.isna(val):
+                    return 0.0
+                try:
+                    clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
+                    clean_str = re.sub(r"[^0-9.]", "", clean_str)
+                    if not clean_str or clean_str == ".":
+                        return 0.0
+                    num_val = float(clean_str)
+                    if num_val > 50000:
+                        return 0.0
+                    return round(num_val, 4)
+                except Exception:
+                    return 0.0
+
+            processed_list = []
+            for item in items:
+                codigo_negocio = item["locatario"]
+                try:
+                    base_carga_df.loc[base_carga_df["CodigoNegocio"] == codigo_negocio, column_names[0]].values[0]
+                except Exception:
+                    logger.warning(f"BaseCarga sin fila para {codigo_negocio}, omitiendo.")
+                    continue
+
+                for filename in item["archivos"]:
+                    try:
+                        file_path = base / semana / item["locatario"] / filename
+                        if not file_path.is_file():
+                            continue
+                        if str(filename).lower().endswith(".xlsx"):
+                            sheet = pd.read_excel(file_path)
+                        else:
+                            with open(file_path, "rb") as f:
+                                enc = chardet.detect(f.read())["encoding"] or "latin-1"
+                            sheet = pd.read_csv(file_path, sep=None, engine="python", encoding=enc)
+                        if sheet.empty:
+                            continue
+                        data = {col: [] for col in column_names}
+                        max_length = 0
+                        for col in column_names:
+                            try:
+                                cell_address = base_carga_df.loc[
+                                    base_carga_df["CodigoNegocio"] == codigo_negocio, col
+                                ].values[0]
+                                if pd.notna(cell_address):
+                                    r_idx, c_idx = self._excel_cell_to_csv_indices(str(cell_address))
+                                    col_vals = sheet.iloc[r_idx:, c_idx].tolist()
+                                    data[col] = col_vals
+                                    max_length = max(max_length, len(col_vals))
+                            except Exception:
+                                data[col] = []
+                        for col in column_names:
+                            if len(data[col]) < max_length:
+                                data[col].extend([None] * (max_length - len(data[col])))
+                        processed_df = pd.DataFrame(data)
+                        processed_df = processed_df.loc[:, ~processed_df.columns.str.contains("^Unnamed", na=False)]
+                        if processed_df.empty:
+                            continue
+                        if "Monto" in processed_df.columns:
+                            processed_df["Monto"] = processed_df["Monto"].apply(force_numeric_safe)
+                        processed_df = self._group_by_transaction(processed_df, codigo_negocio)
+                        processed_df = processed_df[(processed_df["Monto"] > 0) & processed_df["Fecha"].notna()]
+                        if processed_df.empty:
+                            continue
+                        processed_df["CodigoNegocio"] = codigo_negocio
+                        processed_list.append(processed_df)
+                        logger.info(f"Consolidar: {codigo_negocio} / {filename} -> {len(processed_df)} filas")
+                    except Exception as e:
+                        logger.warning(f"Error procesando {item['locatario']}/{filename}: {e}")
+                        continue
+
+            if not processed_list:
+                return {"success": True, "message": "Ningún archivo pudo consolidarse", "registros": 0, "semana": semana}
+
+            final = pd.concat(processed_list, ignore_index=True)
+            before_dedup = len(final)
+            subset_cols = [c for c in ["Fecha", "CodigoNegocio", "Monto", "Producto"] if c in final.columns]
+            if subset_cols:
+                final = final.drop_duplicates(subset=subset_cols, keep="last")
+            duplicados_eliminados = before_dedup - len(final)
+
+            consolidados_dir = base / "consolidados"
+            consolidados_dir.mkdir(parents=True, exist_ok=True)
+            out_path = consolidados_dir / f"{semana}.csv"
+            final.to_csv(out_path, index=False, sep=";")
+            logger.info(f"Consolidado guardado: {out_path} ({len(final)} registros)")
+
+            return {
+                "success": True,
+                "semana": semana,
+                "registros": len(final),
+                "locatarios_procesados": len(processed_list),
+                "duplicados_eliminados": duplicados_eliminados,
+                "archivo": str(out_path),
+            }
+        except Exception as e:
+            logger.error(f"Error en consolidar_desde_filestore: {e}")
+            return {"success": False, "error": str(e)}
+
+    # ==========================================
     # GESTIÓN DE ARCHIVOS
     # ==========================================
-
 
     async def _run_prediction_engine(self, client: bigquery.Client) -> str:
         """
@@ -1092,6 +1214,13 @@ class LegacyService:
                 if col in df_proc.columns:
                     df_proc[col] = df_proc[col].astype(str).str.replace(',', '.').str.strip()
                     df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0.0)
+
+            # 7. No cargar filas con datos críticos nulos o inválidos (evitar nulls en BQ)
+            if 'Monto' in df_proc.columns:
+                df_proc = df_proc[df_proc['Monto'].notna() & (pd.to_numeric(df_proc['Monto'], errors='coerce') > 0)]
+            if 'Fecha' in df_proc.columns:
+                df_proc = df_proc[df_proc['Fecha'].notna() & (df_proc['Fecha'].astype(str).str.strip() != '') & (df_proc['Fecha'].astype(str).str.strip() != 'nan')]
+            df_proc = df_proc.reset_index(drop=True)
 
             return df_proc
         except Exception as e:

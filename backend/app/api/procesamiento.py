@@ -120,6 +120,12 @@ async def legacy_convertir():
     service = get_legacy_service()
     return await service.convertir_xlsx_to_csv()
 
+@router.post("/legacy/consolidar")
+async def legacy_consolidar():
+    """Consolida archivos del FileStore de la semana actual (Lima) usando BaseCarga y elimina duplicados."""
+    service = get_legacy_service()
+    return await service.consolidar_desde_filestore()
+
 @router.post("/legacy/asociar")
 async def legacy_asociar():
     service = get_legacy_service()
