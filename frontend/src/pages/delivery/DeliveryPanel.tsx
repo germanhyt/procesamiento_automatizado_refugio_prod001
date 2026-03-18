@@ -1,0 +1,580 @@
+import React, { useMemo, useState } from 'react';
+import { useDeliveryWS } from '@/hooks/useDeliveryWS';
+import { useActiveOrders, useAdminActions, useAdminOrdersByStatus, useManualMatch, useRunnerActions, useWaitingDrivers } from '@/hooks/useDelivery';
+import { useAuth } from '@/context/AuthContext';
+import Swal from 'sweetalert2';
+import {
+    DELIVERY_PERMISSIONS,
+    ORDER_STATUSES_ADMIN,
+    ORDER_STATUSES_RUNNER,
+    orderStatusBadgeClass,
+} from '@/constants/delivery';
+
+function hasPermission(user: any, codename: string): boolean {
+    if (!user) return false;
+    if (user.is_superuser) return true;
+    const roles = (user as { roles?: Array<{ permissions?: Array<{ codename: string }> }> }).roles;
+    return roles?.some((role) => role.permissions?.some((p) => p.codename === codename)) ?? false;
+}
+
+function minutesSince(iso: string | null | undefined) {
+    if (!iso) return null;
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return null;
+    return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+
+const DeliveryPanel: React.FC = () => {
+    const { user } = useAuth();
+    const { state, attempts } = useDeliveryWS();
+    const isWsOpen = state === 'open';
+    const polling = isWsOpen ? false : 5000;
+
+    const orders = useActiveOrders(polling);
+    const drivers = useWaitingDrivers(polling);
+    const runner = useRunnerActions();
+    const admin = useAdminActions();
+    const manualMatch = useManualMatch();
+
+    const canOperate = hasPermission(user, DELIVERY_PERMISSIONS.OPERATE);
+    const canAdmin = hasPermission(user, DELIVERY_PERMISSIONS.ADMIN);
+
+    const [tab, setTab] = useState<'runner' | 'admin'>(() => (canAdmin && !canOperate ? 'admin' : 'runner'));
+    const [adminStatus, setAdminStatus] = useState<(typeof ORDER_STATUSES_ADMIN)[number]>(ORDER_STATUSES_ADMIN[0]);
+    const adminOrders = useAdminOrdersByStatus(adminStatus, polling);
+
+    const [platform, setPlatform] = useState<string>('ALL');
+    const [sortMode, setSortMode] = useState<'oldest' | 'newest'>('oldest');
+
+    const platformOptions = useMemo(() => {
+        const set = new Set<string>();
+        for (const o of orders.data ?? []) if (o.plataforma) set.add(o.plataforma);
+        for (const d of drivers.data ?? []) if (d.plataforma) set.add(d.plataforma);
+        for (const o of adminOrders.data ?? []) if (o.plataforma) set.add(o.plataforma);
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [orders.data, drivers.data, adminOrders.data]);
+
+    const ordersByStatus = useMemo(() => {
+        const all = (orders.data ?? [])
+            .filter((o) => (platform === 'ALL' ? true : o.plataforma === platform))
+            .slice()
+            .sort((a, b) => {
+                const at = Date.parse(a.created_at);
+                const bt = Date.parse(b.created_at);
+                const aTs = Number.isNaN(at) ? 0 : at;
+                const bTs = Number.isNaN(bt) ? 0 : bt;
+                return sortMode === 'oldest' ? aTs - bTs : bTs - aTs;
+            });
+        const grouped: Record<string, typeof all> = {};
+        for (const s of ORDER_STATUSES_RUNNER) grouped[s] = [];
+        for (const o of all) {
+            if (!grouped[o.estado]) grouped[o.estado] = [];
+            grouped[o.estado].push(o);
+        }
+        return grouped;
+    }, [orders.data, platform, sortMode]);
+
+    const visibleDrivers = useMemo(() => {
+        return (drivers.data ?? []).filter((d) => (platform === 'ALL' ? true : d.plataforma === platform));
+    }, [drivers.data, platform]);
+
+    const driversEsperando = useMemo(() => visibleDrivers.filter((d) => d.estado === 'ESPERANDO'), [visibleDrivers]);
+    const driversEnMatch = useMemo(() => visibleDrivers.filter((d) => d.estado === 'EN_MATCH'), [visibleDrivers]);
+
+    const toast = async (opts: { icon: 'success' | 'error' | 'warning' | 'info'; title: string; text?: string }) => {
+        await Swal.fire({
+            icon: opts.icon,
+            title: opts.title,
+            text: opts.text,
+            timer: 1600,
+            showConfirmButton: false,
+            background: '#0a0a0a',
+            color: '#fff',
+        });
+    };
+
+    const confirm = async (opts: { title: string; text: string; confirmText: string; confirmColor?: string }) => {
+        const res = await Swal.fire({
+            icon: 'warning',
+            title: opts.title,
+            text: opts.text,
+            showCancelButton: true,
+            confirmButtonText: opts.confirmText,
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: opts.confirmColor ?? '#14b8a6',
+            background: '#0a0a0a',
+            color: '#fff',
+        });
+        return res.isConfirmed;
+    };
+
+    const promptText = async (opts: { title: string; label: string; placeholder?: string; required?: boolean }) => {
+        const res = await Swal.fire({
+            title: opts.title,
+            input: 'text',
+            inputLabel: opts.label,
+            inputPlaceholder: opts.placeholder,
+            inputAttributes: { autocapitalize: 'off' },
+            showCancelButton: true,
+            confirmButtonText: 'Continuar',
+            cancelButtonText: 'Cancelar',
+            background: '#0a0a0a',
+            color: '#fff',
+            inputValidator: (v) => (opts.required && !String(v ?? '').trim() ? 'Campo requerido' : undefined),
+        });
+        if (!res.isConfirmed) return null;
+        return String(res.value ?? '').trim();
+    };
+
+    const pickDriverForManualMatch = async () => {
+        const list = (drivers.data ?? []).filter((d) => d.estado === 'ESPERANDO' || d.estado === 'EN_MATCH');
+        if (list.length === 0) {
+            await toast({ icon: 'info', title: 'Sin drivers disponibles', text: 'No hay drivers en ESPERANDO/EN_MATCH.' });
+            return null;
+        }
+        const inputOptions: Record<string, string> = {};
+        for (const d of list) {
+            inputOptions[String(d.id)] = `${d.codigo_ingresado} · ${d.plataforma} · ${d.estado}${d.placa ? ` · ${d.placa}` : ''}`;
+        }
+        const res = await Swal.fire({
+            title: 'Match manual',
+            input: 'select',
+            inputOptions,
+            inputPlaceholder: 'Selecciona un driver…',
+            showCancelButton: true,
+            confirmButtonText: 'Continuar',
+            cancelButtonText: 'Cancelar',
+            background: '#0a0a0a',
+            color: '#fff',
+        });
+        if (!res.isConfirmed || !res.value) return null;
+        return Number(res.value);
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-xl font-black tracking-tighter uppercase text-white">Delivery</h1>
+                    <p className="text-[10px] text-zinc-500 font-mono">
+                        WS: {state} {attempts ? `(reintentos: ${attempts}/3)` : ''}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            orders.refetch();
+                            drivers.refetch();
+                            adminOrders.refetch();
+                        }}
+                        className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-black uppercase tracking-widest text-white"
+                    >
+                        Refrescar
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex gap-2">
+                <button
+                    type="button"
+                    onClick={() => setTab('runner')}
+                    className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                        tab === 'runner'
+                            ? 'bg-teal-500 text-black border-teal-500/50'
+                            : 'bg-white/5 hover:bg-white/10 text-white border-white/5'
+                    }`}
+                >
+                    Runner
+                </button>
+                {canAdmin && (
+                    <button
+                        type="button"
+                        onClick={() => setTab('admin')}
+                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                            tab === 'admin'
+                                ? 'bg-teal-500 text-black border-teal-500/50'
+                                : 'bg-white/5 hover:bg-white/10 text-white border-white/5'
+                        }`}
+                    >
+                        Admin
+                    </button>
+                )}
+            </div>
+
+            {tab === 'runner' && (
+                <div className="space-y-6">
+                    <div className="bg-zinc-900/40 border border-white/5 rounded-3xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Plataforma</span>
+                            <select
+                                value={platform}
+                                onChange={(e) => setPlatform(e.target.value)}
+                                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white"
+                            >
+                                <option value="ALL">ALL</option>
+                                {platformOptions.map((p) => (
+                                    <option key={p} value={p}>
+                                        {p}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Orden</span>
+                            <select
+                                value={sortMode}
+                                onChange={(e) => setSortMode(e.target.value as any)}
+                                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white"
+                            >
+                                <option value="oldest">Más antiguo primero</option>
+                                <option value="newest">Más nuevo primero</option>
+                            </select>
+                            <span className="text-[10px] font-mono text-zinc-600">
+                                {isWsOpen ? 'WS on (sin polling)' : 'Polling 5s'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {!canOperate && (
+                        <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                                Solo lectura: no tienes permiso `delivery:operate`
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="bg-zinc-900/40 border border-white/5 rounded-3xl p-5">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Drivers</h2>
+                            <span className="text-[10px] font-mono text-zinc-600">{visibleDrivers.length}</span>
+                        </div>
+                        {drivers.isLoading ? (
+                            <p className="text-sm text-zinc-500">Cargando…</p>
+                        ) : drivers.isError ? (
+                            <p className="text-sm text-red-400">Error cargando drivers.</p>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">ESPERANDO</h3>
+                                        <span className="text-[10px] font-mono text-zinc-600">{driversEsperando.length}</span>
+                                    </div>
+                                    {driversEsperando.map((d) => (
+                                        <div key={d.id} className="p-4 rounded-2xl bg-black/30 border border-white/5">
+                                            <p className="text-sm font-bold text-white">{d.codigo_ingresado}</p>
+                                            <p className="text-[10px] font-mono text-zinc-500">
+                                                {d.plataforma} · {d.estado}
+                                                {d.placa ? ` · ${d.placa}` : ''}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    {driversEsperando.length === 0 && (
+                                        <p className="text-sm text-zinc-500">Sin drivers esperando.</p>
+                                    )}
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">EN_MATCH</h3>
+                                        <span className="text-[10px] font-mono text-zinc-600">{driversEnMatch.length}</span>
+                                    </div>
+                                    {driversEnMatch.map((d) => (
+                                        <div key={d.id} className="p-4 rounded-2xl bg-black/30 border border-white/5">
+                                            <p className="text-sm font-bold text-white">{d.codigo_ingresado}</p>
+                                            <p className="text-[10px] font-mono text-zinc-500">
+                                                {d.plataforma} · {d.estado}
+                                                {d.placa ? ` · ${d.placa}` : ''}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    {driversEnMatch.length === 0 && (
+                                        <p className="text-sm text-zinc-500">Sin drivers en match.</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+                        {ORDER_STATUSES_RUNNER.map((status) => (
+                            <div key={status} className="bg-zinc-900/40 border border-white/5 rounded-3xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{status}</h3>
+                                    <span className="text-[10px] font-mono text-zinc-600">{ordersByStatus[status]?.length ?? 0}</span>
+                                </div>
+                                {orders.isLoading ? (
+                                    <p className="text-sm text-zinc-500">Cargando…</p>
+                                ) : orders.isError ? (
+                                    <p className="text-sm text-red-400">Error cargando órdenes.</p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {(ordersByStatus[status] ?? []).map((o) => (
+                                            <div key={o.id} className="p-4 rounded-2xl bg-black/30 border border-white/5">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold text-white truncate">{o.codigo_pedido}</p>
+                                                        <p className="text-[10px] font-mono text-zinc-500">
+                                                            {o.plataforma}
+                                                            {o.numero_bolsas ? ` · bolsas: ${o.numero_bolsas}` : ''}
+                                                            {minutesSince(o.created_at) !== null ? ` · ${minutesSince(o.created_at)}m` : ''}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                                            <span className={orderStatusBadgeClass(o.estado)}>{o.estado}</span>
+                                                            {o.locked_by_runner_id ? (
+                                                                <span className="px-2 py-1 rounded-lg border border-white/10 bg-white/5 text-[9px] font-mono text-zinc-300">
+                                                                    locked_by: {o.locked_by_runner_id}
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                    {canOperate && (
+                                                        <div className="flex flex-col gap-2 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    const driverId = await pickDriverForManualMatch();
+                                                                    if (!driverId) return;
+                                                                    const ok = await confirm({
+                                                                        title: 'Confirmar match manual',
+                                                                        text: `¿Confirmas matchear ${o.codigo_pedido} con driver #${driverId}?`,
+                                                                        confirmText: 'Matchear',
+                                                                    });
+                                                                    if (!ok) return;
+                                                                    manualMatch.mutate(
+                                                                        { orderId: o.id, driverArrivalId: driverId },
+                                                                        {
+                                                                            onSuccess: () => void toast({ icon: 'success', title: 'Match aplicado' }),
+                                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo matchear' }),
+                                                                        }
+                                                                    );
+                                                                }}
+                                                                disabled={manualMatch.isPending}
+                                                                className="px-3 py-2 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                            >
+                                                                Match
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    const ok = await confirm({
+                                                                        title: 'Tomar pedido',
+                                                                        text: `¿Confirmas tomar el pedido ${o.codigo_pedido}?`,
+                                                                        confirmText: 'Tomar',
+                                                                    });
+                                                                    if (!ok) return;
+                                                                    runner.accept.mutate(o.id, {
+                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Pedido tomado' }),
+                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo tomar' }),
+                                                                    });
+                                                                }}
+                                                                disabled={runner.accept.isPending}
+                                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                            >
+                                                                Tomar
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    const ok = await confirm({
+                                                                        title: 'Marcar en estante',
+                                                                        text: `¿Confirmas marcar en estante el pedido ${o.codigo_pedido}?`,
+                                                                        confirmText: 'Marcar',
+                                                                    });
+                                                                    if (!ok) return;
+                                                                    runner.shelf.mutate(o.id, {
+                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Marcado en estante' }),
+                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
+                                                                    });
+                                                                }}
+                                                                disabled={runner.shelf.isPending}
+                                                                className="px-3 py-2 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                            >
+                                                                Estante
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    const ok = await confirm({
+                                                                        title: 'Entregar pedido',
+                                                                        text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}?`,
+                                                                        confirmText: 'Entregar',
+                                                                        confirmColor: '#22c55e',
+                                                                    });
+                                                                    if (!ok) return;
+                                                                    runner.deliver.mutate(o.id, {
+                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Pedido entregado' }),
+                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo entregar' }),
+                                                                    });
+                                                                }}
+                                                                disabled={runner.deliver.isPending}
+                                                                className="px-3 py-2 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                            >
+                                                                Entregar
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {(ordersByStatus[status] ?? []).length === 0 && (
+                                            <p className="text-sm text-zinc-500">Sin órdenes.</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {tab === 'admin' && canAdmin && (
+                <div className="bg-zinc-900/40 border border-white/5 rounded-3xl p-5 space-y-4">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div>
+                            <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Admin</h2>
+                            <p className="text-[10px] font-mono text-zinc-600">Acciones: devolución / cancelar / unlock</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Estado</label>
+                            <select
+                                value={adminStatus}
+                                onChange={(e) => setAdminStatus(e.target.value as any)}
+                                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white"
+                            >
+                                {ORDER_STATUSES_ADMIN.map((s) => (
+                                    <option key={s} value={s}>
+                                        {s}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {adminOrders.isLoading ? (
+                        <p className="text-sm text-zinc-500">Cargando…</p>
+                    ) : adminOrders.isError ? (
+                        <p className="text-sm text-red-400">Error cargando órdenes.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {(adminOrders.data ?? []).map((o) => (
+                                <div key={o.id} className="p-4 rounded-2xl bg-black/30 border border-white/5">
+                                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-white truncate">{o.codigo_pedido}</p>
+                                            <p className="text-[10px] font-mono text-zinc-500">
+                                                {o.plataforma} · {o.estado}
+                                                {o.locked_by_runner_id ? ` · locked_by: ${o.locked_by_runner_id}` : ''}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                                <span className={orderStatusBadgeClass(o.estado)}>{o.estado}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const ok = await confirm({
+                                                        title: 'Marcar devolución',
+                                                        text: `¿Confirmas marcar DEVOLUCIÓN para ${o.codigo_pedido}?`,
+                                                        confirmText: 'Marcar',
+                                                        confirmColor: '#f97316',
+                                                    });
+                                                    if (!ok) return;
+                                                    admin.markDevolucion.mutate(o.id, {
+                                                        onSuccess: () => void toast({ icon: 'success', title: 'Marcado como devolución' }),
+                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
+                                                    });
+                                                }}
+                                                disabled={admin.markDevolucion.isPending}
+                                                className="px-3 py-2 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                            >
+                                                Devolución
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const reason = await promptText({
+                                                        title: 'Cancelar pedido',
+                                                        label: 'Motivo (reason)',
+                                                        placeholder: 'Ej: cliente se retiró / error de pedido / duplicado…',
+                                                        required: true,
+                                                    });
+                                                    if (!reason) return;
+                                                    const note = await promptText({
+                                                        title: 'Cancelar pedido',
+                                                        label: 'Nota (opcional)',
+                                                        placeholder: 'Detalle adicional para auditoría…',
+                                                        required: false,
+                                                    });
+                                                    const ok = await confirm({
+                                                        title: 'Confirmar cancelación',
+                                                        text: `¿Confirmas CANCELAR el pedido ${o.codigo_pedido}?`,
+                                                        confirmText: 'Cancelar',
+                                                        confirmColor: '#ef4444',
+                                                    });
+                                                    if (!ok) return;
+                                                    admin.cancel.mutate(
+                                                        { orderId: o.id, payload: { reason, note: note || undefined } },
+                                                        {
+                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido cancelado' }),
+                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo cancelar' }),
+                                                        }
+                                                    );
+                                                }}
+                                                disabled={admin.cancel.isPending}
+                                                className="px-3 py-2 rounded-xl bg-red-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                            >
+                                                Cancelar
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const note = await promptText({
+                                                        title: 'Unlock pedido',
+                                                        label: 'Nota (opcional)',
+                                                        placeholder: 'Motivo del unlock…',
+                                                    });
+                                                    const ok = await confirm({
+                                                        title: 'Confirmar unlock',
+                                                        text: `¿Confirmas desbloquear el pedido ${o.codigo_pedido}?`,
+                                                        confirmText: 'Unlock',
+                                                    });
+                                                    if (!ok) return;
+                                                    admin.unlock.mutate(
+                                                        { orderId: o.id, payload: { note: note || undefined } },
+                                                        {
+                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido desbloqueado' }),
+                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo desbloquear' }),
+                                                        }
+                                                    );
+                                                }}
+                                                disabled={admin.unlock.isPending}
+                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                            >
+                                                Unlock
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {(adminOrders.data ?? []).length === 0 && (
+                                <p className="text-sm text-zinc-500">Sin resultados para {adminStatus}.</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {tab === 'admin' && !canAdmin && (
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                        No tienes permiso `delivery:admin`
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default DeliveryPanel;
+

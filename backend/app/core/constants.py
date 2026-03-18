@@ -33,3 +33,26 @@ MESES_ES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ]
+
+# Helpers (Delivery/Locatarios)
+# LOCATARIOS_BY_CODIGO = {loc["codigo"]: loc for loc in LOCATARIOS}
+# LOCATARIO_CODE_BY_FULL = {loc["codigo"]: loc["codigo"].split("_", 1)[0] for loc in LOCATARIOS}
+# LOCATARIO_CODES = set(LOCATARIO_CODE_BY_FULL.values())
+
+
+# def get_locatario_code_from_full(full_code: str) -> str:
+#     if not full_code:
+#         return ""
+#     return str(full_code).split("_", 1)[0].strip()
+
+
+# def build_codigo_comunicacion(codigo_negocio: str, nombre: str) -> str:
+#     codigo_negocio = (codigo_negocio or "").strip()
+#     nombre = (nombre or "").strip()
+#     if not codigo_negocio and not nombre:
+#         return ""
+#     if not codigo_negocio:
+#         return nombre
+#     if not nombre:
+#         return codigo_negocio
+#     return f"{codigo_negocio} - {nombre}"

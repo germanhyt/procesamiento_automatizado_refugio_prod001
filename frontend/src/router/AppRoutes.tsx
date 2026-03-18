@@ -9,6 +9,7 @@ import LegacyFlow from '@/LegacyFlow';
 import PowerBIDashboard from '@/pages/PowerBIDashboard';
 import UserManagement from '@/pages/UserManagement';
 import FuentesDatos from '@/pages/FuentesDatos';
+import DeliveryPanel from '@/pages/delivery/DeliveryPanel';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -49,6 +50,9 @@ const AppRoutes: React.FC = () => {
                     <Route path="legacy" element={<LegacyFlow />} />
                     <Route path="powerbi" element={<PowerBIDashboard />} />
                     <Route path="users" element={<UserManagement />} />
+                    <Route element={<PrivateRoute permission="delivery:view" />}>
+                        <Route path="delivery" element={<DeliveryPanel />} />
+                    </Route>
                 </Route>
             </Route>
 

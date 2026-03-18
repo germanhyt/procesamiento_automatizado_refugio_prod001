@@ -1,5 +1,6 @@
 from app.database import SessionLocal, engine, Base
 from app.models.auth import User, Role, Permission
+from app.models.delivery import Restaurant, Order, DriverArrival
 from app.core.security import get_password_hash
 import sys
 

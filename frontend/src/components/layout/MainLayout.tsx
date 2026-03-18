@@ -13,6 +13,7 @@ import {
     Users,
     Home,
     User as UserIcon,
+    Truck,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -33,6 +34,7 @@ interface MenuItemConfig {
 const MENU_ITEMS_CONFIG: MenuItemConfig[] = [
     { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view' },
     { id: 'legacy', path: '/legacy', label: 'Flujo Diario Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process' },
+    { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view' },
     { id: 'dashboard', path: '', label: 'Procesamiento Automático', icon: <Zap size={18} />, permission: 'dashboard:view', disabled: true },
     { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage' },
 ];
@@ -168,7 +170,7 @@ const MainLayout: React.FC = () => {
                 </button>
             </motion.aside>
 
-            <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-[radial-gradient(circle_at_top_right,_#111,_#050505)]">
+            <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-[radial-gradient(circle_at_top_right,#111,#050505)]">
                 <header className="h-20 border-b border-white/5 px-4 sm:px-10 flex items-center justify-between bg-[#050505]/40 backdrop-blur-3xl shrink-0 overflow-hidden">
                     <div className="flex items-center gap-4 min-w-0">
                         <div className="flex items-center gap-2 text-zinc-600 font-black text-[10px] truncate">
@@ -183,7 +185,7 @@ const MainLayout: React.FC = () => {
                             <StatusBadge active={status?.drive_connected} label="Drive" loading={isStatusLoading} />
                             <StatusBadge active={status?.config_exists} label="Config" loading={isStatusLoading} />
                         </div>
-                        <div className="h-6 w-[1px] bg-white/10 hidden xs:block" />
+                        <div className="h-6 w-px bg-white/10 hidden xs:block" />
                         <div className="flex items-center gap-3">
                             <div className="text-right hidden md:block">
                                 <p className="text-[9px] font-black text-white uppercase tracking-tighter">{user?.username}</p>
