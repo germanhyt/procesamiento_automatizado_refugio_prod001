@@ -1,67 +1,82 @@
-import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { SymbolView } from 'expo-symbols';
-import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+import { Tabs } from 'expo-router';
+import { TouchableOpacity } from 'react-native';
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { useRunnerTheme } from '@/context/ThemeContext';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { theme, palette: p, toggleTheme } = useRunnerTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
+        tabBarActiveTintColor: p.accent,
+        tabBarInactiveTintColor: p.muted,
+        tabBarStyle: {
+          backgroundColor: p.bg,
+          borderTopColor: p.border,
+          borderTopWidth: 1,
+          height: 62,
+          paddingBottom: 10,
+          paddingTop: 6,
+        },
+        headerShown: true,
+        headerStyle: { backgroundColor: p.topBarBg },
+        headerShadowVisible: false,
+        headerTitleStyle: {
+          color: p.text,
+          fontWeight: '900',
+          fontSize: 20,
+          letterSpacing: 0.5,
+        },
+        headerRight: () => (
+          <TouchableOpacity
+            onPress={toggleTheme}
+            accessibilityLabel={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+            style={{
+              marginRight: 20,
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              backgroundColor: p.themeToggleBg,
+              borderWidth: 1,
+              borderColor: p.themeToggleBorder,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons
+              name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'}
+              size={20}
+              color={p.text}
+            />
+          </TouchableOpacity>
+        ),
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
+          title: 'Pedidos RefuChasky',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
+              name={{ ios: 'list.bullet.rectangle', android: 'list', web: 'list' }}
               tintColor={color}
-              size={28}
+              size={24}
             />
-          ),
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 15 }}>
-                {({ pressed }) => (
-                  <SymbolView
-                    name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                    size={25}
-                    tintColor={Colors[colorScheme].text}
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
           ),
         }}
       />
       <Tabs.Screen
         name="two"
         options={{
-          title: 'Tab Two',
+          title: 'Ajustes',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
+              name={{ ios: 'gearshape.fill', android: 'settings', web: 'settings' }}
               tintColor={color}
-              size={28}
+              size={24}
             />
           ),
         }}

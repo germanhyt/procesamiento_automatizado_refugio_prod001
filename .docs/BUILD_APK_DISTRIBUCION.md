@@ -188,7 +188,7 @@ npx expo prebuild --platform android
 **Linux / macOS / Git Bash:**
 
 ```bash
-cd android
+cd androids
 ./gradlew assembleRelease
 ```
 

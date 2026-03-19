@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { kioskArrival, kioskListWaitingDrivers } from '@refugio/delivery-api';
+import { kioskArrival, kioskListDeliveredOrdersToday, kioskListWaitingDrivers } from '@refugio/delivery-api';
 import { DRIVER_STATUS } from '@refugio/constants';
 import {
   KIOSK_CODE_MAX_LEN,
@@ -31,7 +31,19 @@ import type { KioskPalette } from '@/constants/kioskTheme';
 const QUEUE_GRID_GAP = 10;
 const QUEUE_CARD_MIN_W = 140;
 const QUEUE_MAX_ITEMS = 24;
+const DELIVERED_PREVIEW_ITEMS = 12;
 const MODAL_SUCCESS_CLOSE_MS = 1400;
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '--:--';
+  return new Intl.DateTimeFormat('es-PE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Lima',
+  }).format(d);
+}
 
 function queueGridMetrics(innerWidth: number): { cols: number; cardWidth: number } {
   if (innerWidth <= 0) return { cols: 1, cardWidth: 0 };
@@ -110,6 +122,7 @@ export default function KioskScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const [queuePanelWidth, setQueuePanelWidth] = useState(0);
   const [registerModalVisible, setRegisterModalVisible] = useState(false);
+  const [deliveredExpanded, setDeliveredExpanded] = useState(false);
   const [plataforma, setPlataforma] = useState<KioskPlatform>(KIOSK_PLATFORM_OPTIONS[0]);
   const [codigo, setCodigo] = useState('');
   const [placa, setPlaca] = useState('');
@@ -128,11 +141,18 @@ export default function KioskScreen() {
     refetchInterval: KIOSK_DRIVER_POLLING_MS,
   });
 
+  const deliveredQuery = useQuery({
+    queryKey: ['delivery', 'kiosk', 'orders', 'delivered-today'],
+    queryFn: kioskListDeliveredOrdersToday,
+    refetchInterval: KIOSK_DRIVER_POLLING_MS,
+  });
+
   const arrivalMutation = useMutation({
     mutationFn: async (payload: { plataforma: string; codigo_ingresado: string; placa?: string | null; alias_conductor?: string | null }) =>
       kioskArrival(payload),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['delivery', 'drivers', 'waiting'] });
+      await qc.invalidateQueries({ queryKey: ['delivery', 'kiosk', 'orders', 'delivered-today'] });
     },
   });
 
@@ -214,6 +234,11 @@ export default function KioskScreen() {
         .slice(0, QUEUE_MAX_ITEMS),
     [driversQuery.data],
   );
+  const deliveredToday = useMemo(() => deliveredQuery.data ?? [], [deliveredQuery.data]);
+  const deliveredPreview = useMemo(
+    () => deliveredToday.slice(0, deliveredExpanded ? deliveredToday.length : DELIVERED_PREVIEW_ITEMS),
+    [deliveredToday, deliveredExpanded],
+  );
 
   const gridInnerW =
     queuePanelWidth > 0 ? Math.max(0, queuePanelWidth - 48) : Math.max(0, windowWidth - 48);
@@ -256,7 +281,7 @@ export default function KioskScreen() {
             <Ionicons name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={palette.text} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.openModalBtn, { backgroundColor: palette.accent }]} onPress={openRegisterModal}>
-            <Text style={[styles.openModalBtnText, { color: palette.accentText }]}>REGISTRAR DRIVER</Text>
+            <Text style={[styles.openModalBtnText, { color: palette.accentText }]}>REGISTRATE</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -287,6 +312,54 @@ export default function KioskScreen() {
                 layoutWidth={gridInnerW}
                 palette={palette}
               />
+
+              <View style={[styles.deliveredBlock, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
+                <TouchableOpacity
+                  style={styles.deliveredHeader}
+                  onPress={() => setDeliveredExpanded((v) => !v)}
+                  activeOpacity={0.85}
+                >
+                  <View>
+                    <Text style={[styles.deliveredTitle, { color: palette.text }]}>Entregados hoy</Text>
+                    <Text style={[styles.deliveredCount, { color: palette.muted }]}>
+                      {deliveredToday.length} pedidos
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={deliveredExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={palette.muted}
+                  />
+                </TouchableOpacity>
+
+                {deliveredExpanded && (
+                  <View style={styles.deliveredList}>
+                    {deliveredQuery.isLoading ? (
+                      <Text style={[styles.queueHint, { color: palette.muted }]}>Cargando entregados…</Text>
+                    ) : deliveredQuery.isError ? (
+                      <Text style={[styles.queueHint, { color: palette.error }]}>No se pudo cargar entregados.</Text>
+                    ) : deliveredPreview.length === 0 ? (
+                      <Text style={[styles.queueHint, { color: palette.muted }]}>Sin entregados hoy.</Text>
+                    ) : (
+                      deliveredPreview.map((o) => (
+                        <View key={o.id} style={[styles.deliveredItem, { borderColor: palette.border, backgroundColor: palette.bg }]}>
+                          <View style={styles.deliveredTopRow}>
+                            <Text style={[styles.deliveredCode, { color: palette.text }]} numberOfLines={1}>
+                              {o.codigo_pedido}
+                            </Text>
+                            <Text style={[styles.deliveredTime, { color: palette.muted }]}>
+                              {formatTime(o.updated_at)}
+                            </Text>
+                          </View>
+                          <Text style={[styles.deliveredMeta, { color: palette.muted }]} numberOfLines={1}>
+                            {o.plataforma} · bolsas: {o.numero_bolsas ?? 0}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                )}
+              </View>
             </View>
           )}
         </ScrollView>
@@ -422,6 +495,56 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 4, fontSize: 12 },
   queueHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   queueSections: { gap: 12, marginTop: 10 },
+  deliveredBlock: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+  },
+  deliveredHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  deliveredTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  deliveredCount: {
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  deliveredList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  deliveredItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  deliveredTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deliveredCode: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  deliveredTime: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  deliveredMeta: {
+    marginTop: 3,
+    fontSize: 10,
+    fontWeight: '700',
+  },
   queueTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 1 },
   queueHint: { marginTop: 8, fontSize: 12 },
   wsHint: { fontSize: 11, fontWeight: '700' },

@@ -9,7 +9,6 @@ def main():
     parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8080"), help="API base URL")
     parser.add_argument("--api-key", default=os.getenv("FIDELIO_API_KEY", ""), help="X-API-Key header value")
     parser.add_argument("--restaurant-id", required=True, help="restaurant_fidelio_id (e.g. A03)")
-    parser.add_argument("--restaurant-nombre", default=None, help="Nombre restaurante")
     parser.add_argument("--plataforma", required=True, help="RAPPI / PEDIDOSYA / etc.")
     parser.add_argument("--codigo-pedido", required=True, help="Codigo pedido")
     parser.add_argument("--bolsas", type=int, default=None, help="Numero bolsas")
@@ -18,7 +17,6 @@ def main():
     url = args.base_url.rstrip("/") + "/api/delivery/webhooks/fidelio/order-ready"
     payload = {
         "restaurant_fidelio_id": args.restaurant_id,
-        "restaurant_nombre": args.restaurant_nombre,
         "plataforma": args.plataforma,
         "codigo_pedido": args.codigo_pedido,
         "numero_bolsas": args.bolsas,
@@ -41,7 +39,6 @@ if __name__ == "__main__":
 # # PAYLOAD:
 # python tools/mock_fidelio_sender.py \
 #   --restaurant-id A03_BARRIO_MANCORA \
-#   --restaurant-nombre "Barrio Mancora" \
 #   --plataforma RAPPI \
 #   --codigo-pedido RAPPI-TEST-001 \
 #   --bolsas 2 \
@@ -52,8 +49,32 @@ if __name__ == "__main__":
 
 # payload = {
 #         "restaurant_fidelio_id": "",
-#         "restaurant_nombre": "",
 #         "plataforma": "",
 #         "codigo_pedido": "",
 #         "numero_bolsas": "",
 # }
+
+
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-005 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-006 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-007 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"

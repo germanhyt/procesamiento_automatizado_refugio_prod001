@@ -11,6 +11,7 @@ export interface Order {
     estado: OrderStatus;
     numero_bolsas?: number | null;
     locked_by_runner_id?: number | null;
+    matched_driver_arrival_id?: number | null;
     created_at: string;
     updated_at: string;
 }

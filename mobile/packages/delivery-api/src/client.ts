@@ -19,6 +19,14 @@ export const http = axios.create({
   timeout: 15000,
 });
 
+export function setAuthToken(token: string | null) {
+  if (token) {
+    http.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete http.defaults.headers.common['Authorization'];
+  }
+}
+
 export function wsUrl(token?: string) {
   const base = getWsBaseUrl();
   const path = token ? `/api/delivery/ws?token=${encodeURIComponent(token)}` : '/api/delivery/ws';

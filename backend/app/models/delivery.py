@@ -41,6 +41,10 @@ class Order(Base):
     restaurant = relationship("Restaurant", back_populates="orders")
     matched_driver_arrival = relationship("DriverArrival", back_populates="matched_order", uselist=False)
 
+    @property
+    def matched_driver_arrival_id(self) -> int | None:
+        return self.matched_driver_arrival.id if self.matched_driver_arrival else None
+
     __table_args__ = (
         Index("ix_orders_plataforma_estado", "plataforma", "estado"),
     )

@@ -45,7 +45,6 @@ def fidelio_order_ready(cfg: Cfg, codigo_pedido: str, numero_bolsas: Optional[in
     url = _url(cfg.base_url, "/api/delivery/webhooks/fidelio/order-ready")
     payload: Dict[str, Any] = {
         "restaurant_fidelio_id": cfg.restaurant_fidelio_id,
-        "restaurant_nombre": None,
         "plataforma": cfg.plataforma,
         "codigo_pedido": codigo_pedido,
         "numero_bolsas": numero_bolsas,

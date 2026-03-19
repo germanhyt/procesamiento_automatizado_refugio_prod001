@@ -275,6 +275,8 @@ cd backend
 | `yarn runner` | Levantar app runner |
 | `yarn runner:web` | Runner en navegador |
 
+**Aclaración:** `yarn kiosk:web` y `yarn runner:web` arrancan **una sola app** cada una (solo el workspace correspondiente dentro del monorepo `mobile/`). No levantan el backend FastAPI ni el frontend Vite; para probar contra API local, ejecuta backend (y si aplica, frontend) en otras terminales según [Resumen rápido](#resumen-rápido).
+
 ---
 
 ### Por app (desde `mobile/apps/kiosk` o `mobile/apps/runner`)

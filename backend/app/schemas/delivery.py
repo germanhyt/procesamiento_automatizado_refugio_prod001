@@ -31,6 +31,7 @@ class OrderBase(BaseModel):
 class OrderOut(OrderBase):
     id: int
     locked_by_runner_id: Optional[int] = None
+    matched_driver_arrival_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -64,7 +65,6 @@ class DeliveryStatus(BaseModel):
 
 class FidelioOrderReadyIn(BaseModel):
     restaurant_fidelio_id: str
-    restaurant_nombre: Optional[str] = None
     plataforma: str
     codigo_pedido: str
     numero_bolsas: Optional[int] = None

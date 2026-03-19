@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import os
 import re
@@ -167,6 +168,19 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+def _lima_today_range_utc() -> tuple[datetime, datetime]:
+    """
+    Rango [inicio, fin) del día actual en zona horaria Lima convertido a UTC.
+    """
+    lima_tz = ZoneInfo("America/Lima")
+    now_lima = datetime.now(lima_tz)
+    start_lima = now_lima.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_lima = start_lima.replace(day=start_lima.day)  # same date object baseline
+    # Sumamos un día usando timestamp para evitar dependencias extra.
+    end_lima = datetime.fromtimestamp(start_lima.timestamp() + 86400, tz=lima_tz)
+    return start_lima.astimezone(timezone.utc), end_lima.astimezone(timezone.utc)
+
+
 def _get_state_ts(obj) -> datetime:
     return getattr(obj, "estado_changed_at", None) or getattr(obj, "updated_at", None) or getattr(obj, "created_at")
 
@@ -281,27 +295,10 @@ async def fidelio_order_ready(
         .first()
     )
     if not rest:
-        codigo_negocio = _extract_locatario_codigo(payload.restaurant_fidelio_id)
-        rest = Restaurant(
-            fidelio_id=payload.restaurant_fidelio_id,
-            nombre=payload.restaurant_nombre or payload.restaurant_fidelio_id,
-            is_active=True,
+        raise HTTPException(
+            status_code=404,
+            detail=f"Restaurante con fidelio_id '{payload.restaurant_fidelio_id}' no registrado en la base de datos"
         )
-        rest.codigo_negocio = codigo_negocio
-        rest.codigo_comunicacion = build_codigo_comunicacion(codigo_negocio, rest.nombre)
-        db.add(rest)
-        db.commit()
-        db.refresh(rest)
-    else:
-        # Mantener nombre actualizado si llega uno “mejor”
-        if payload.restaurant_nombre and payload.restaurant_nombre.strip():
-            if (rest.nombre or "").strip() != payload.restaurant_nombre.strip():
-                rest.nombre = payload.restaurant_nombre.strip()
-                if not rest.codigo_negocio:
-                    rest.codigo_negocio = _extract_locatario_codigo(payload.restaurant_fidelio_id)
-                if not rest.codigo_comunicacion:
-                    rest.codigo_comunicacion = build_codigo_comunicacion(rest.codigo_negocio, rest.nombre)
-                db.commit()
 
     plataforma = payload.plataforma.strip().upper()
     codigo = payload.codigo_pedido.strip()
@@ -539,6 +536,21 @@ async def list_active_orders(
     )
     return orders
 
+@router.get("/orders/{order_id}", response_model=OrderOut)
+async def get_order_by_id(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtener detalles de un pedido específico.
+    """
+    _require_permission(current_user, "delivery:view")
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    return order
+
 
 @router.get("/drivers/waiting", response_model=List[DriverArrivalOut])
 async def list_waiting_drivers(
@@ -578,6 +590,34 @@ async def kiosk_list_waiting_drivers(
         .all()
     )
     return drivers
+
+
+@router.get("/kiosk/orders/delivered/today", response_model=List[OrderOut])
+async def kiosk_list_delivered_orders_today(
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint público para Kiosk (sin JWT).
+    Retorna pedidos ENTREGADO del día actual (zona Lima), ordenados por más recientes.
+    """
+    timeouts_res = apply_timeouts(db)
+    if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
+        await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+
+    start_utc, end_utc = _lima_today_range_utc()
+    orders = (
+        db.query(Order)
+        .filter(
+            Order.estado == ORDER_STATUS_ENTREGADO,
+            Order.estado_changed_at.isnot(None),
+            Order.estado_changed_at >= start_utc,
+            Order.estado_changed_at < end_utc,
+        )
+        .order_by(Order.estado_changed_at.desc(), Order.id.desc())
+        .limit(DEFAULT_QUERY_LIMIT)
+        .all()
+    )
+    return orders
 
 
 @router.post("/orders/{order_id}/manual-match", response_model=KioskArrivalResult)
@@ -753,6 +793,13 @@ async def runner_deliver_order(
         raise HTTPException(status_code=403, detail="No tiene permisos sobre este pedido")
     if order.estado in [ORDER_STATUS_CANCELADO, ORDER_STATUS_DEVOLUCION]:
         raise HTTPException(status_code=400, detail="Pedido no es entregable por estado")
+
+    # REGLA DE NEGOCIO: No se puede entregar sin driver matcheado
+    if not order.matched_driver_arrival:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede entregar: no hay driver matcheado para este pedido"
+        )
 
     now = _utcnow()
     order.estado = ORDER_STATUS_ENTREGADO

@@ -3,7 +3,7 @@ from sqlalchemy import text
 from app.database import engine, SessionLocal, Base
 from app.models.auth import Permission, Role
 from app.models.delivery import Restaurant
-# from app.core.constants import LOCATARIOS, get_locatario_code_from_full, build_codigo_comunicacion
+from app.core.constants import LOCATARIOS, get_locatario_code_from_full, build_codigo_comunicacion
 
 
 def ensure_columns():
@@ -63,49 +63,49 @@ def ensure_permissions_and_roles():
         db.close()
 
 
-# def seed_locatarios():
-#     """
-#     Fidelio option A:
-#     - restaurants.fidelio_id = full code (e.g. A03_BARRIO_MANCORA)
-#     - codigo_negocio = prefix (A03)
-#     - codigo_comunicacion = "A03 - Barrio Mancora"
-#     """
-#     db = SessionLocal()
-#     try:
-#         for loc in LOCATARIOS:
-#             fidelio_id = loc["codigo"]
-#             nombre = loc["name"]
-#             codigo_negocio = get_locatario_code_from_full(fidelio_id)
-#             codigo_comunicacion = build_codigo_comunicacion(codigo_negocio, nombre)
+def seed_locatarios():
+    """
+    Fidelio option A:
+    - restaurants.fidelio_id = full code (e.g. A03_BARRIO_MANCORA)
+    - codigo_negocio = prefix (A03)
+    - codigo_comunicacion = "A03 - Barrio Mancora"
+    """
+    db = SessionLocal()
+    try:
+        for loc in LOCATARIOS:
+            fidelio_id = loc["codigo"]
+            nombre = loc["name"]
+            codigo_negocio = get_locatario_code_from_full(fidelio_id)
+            codigo_comunicacion = build_codigo_comunicacion(codigo_negocio, nombre)
 
-#             row = db.query(Restaurant).filter(Restaurant.fidelio_id == fidelio_id).first()
-#             if not row:
-#                 row = Restaurant(
-#                     fidelio_id=fidelio_id,
-#                     nombre=nombre,
-#                     codigo_negocio=codigo_negocio,
-#                     codigo_comunicacion=codigo_comunicacion,
-#                     is_active=True,
-#                 )
-#                 db.add(row)
-#             else:
-#                 row.nombre = nombre or row.nombre
-#                 if not row.codigo_negocio:
-#                     row.codigo_negocio = codigo_negocio
-#                 if not row.codigo_comunicacion:
-#                     row.codigo_comunicacion = codigo_comunicacion
-#                 if row.is_active is None:
-#                     row.is_active = True
-#         db.commit()
-#     finally:
-#         db.close()
+            row = db.query(Restaurant).filter(Restaurant.fidelio_id == fidelio_id).first()
+            if not row:
+                row = Restaurant(
+                    fidelio_id=fidelio_id,
+                    nombre=nombre,
+                    codigo_negocio=codigo_negocio,
+                    codigo_comunicacion=codigo_comunicacion,
+                    is_active=True,
+                )
+                db.add(row)
+            else:
+                row.nombre = nombre or row.nombre
+                if not row.codigo_negocio:
+                    row.codigo_negocio = codigo_negocio
+                if not row.codigo_comunicacion:
+                    row.codigo_comunicacion = codigo_comunicacion
+                if row.is_active is None:
+                    row.is_active = True
+        db.commit()
+    finally:
+        db.close()
 
 
 def main():
     print(">>> Patching DB: delivery columns + permissions/roles")
     ensure_columns()
-    # ensure_permissions_and_roles()
-    # seed_locatarios()
+    ensure_permissions_and_roles()
+    seed_locatarios()
     print(">>> Patch completado.")
 
 

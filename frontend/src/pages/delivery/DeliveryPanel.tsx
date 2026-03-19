@@ -217,8 +217,8 @@ const DeliveryPanel: React.FC = () => {
                     type="button"
                     onClick={() => setTab('runner')}
                     className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
-                            ? 'bg-teal-500 text-black border-teal-500/50'
-                            : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
+                        ? 'bg-teal-500 text-black border-teal-500/50'
+                        : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                         }`}
                 >
                     Runner
@@ -228,8 +228,8 @@ const DeliveryPanel: React.FC = () => {
                         type="button"
                         onClick={() => setTab('admin')}
                         className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
-                                ? 'bg-teal-500 text-black border-teal-500/50'
-                                : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
+                            ? 'bg-teal-500 text-black border-teal-500/50'
+                            : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                             }`}
                     >
                         Admin
@@ -354,76 +354,98 @@ const DeliveryPanel: React.FC = () => {
                                                                     locked_by: {o.locked_by_runner_id}
                                                                 </span>
                                                             ) : null}
+                                                            {o.matched_driver_arrival_id ? (
+                                                                <span className="px-2 py-1 rounded-lg border border-teal-500/20 bg-teal-500/5 text-[9px] font-mono text-teal-400">
+                                                                    DRIVER MATCHEADO ✅
+                                                                </span>
+                                                            ) : null}
                                                         </div>
                                                     </div>
                                                     {canOperate && (
-                                                        <div className="flex flex-col gap-2 shrink-0">
+                                                        <div className="flex flex-col gap-1 shrink-0">
+                                                            {/* Match: Siempre disponible para Admin/Operador si no está entregado */}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => openMatchModal({ id: o.id, codigo_pedido: o.codigo_pedido })}
                                                                 disabled={manualMatch.isPending}
-                                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
                                                             >
                                                                 Match
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={async () => {
-                                                                    const ok = await confirm({
-                                                                        title: 'Tomar pedido',
-                                                                        text: `¿Confirmas tomar el pedido ${o.codigo_pedido}?`,
-                                                                        confirmText: 'Tomar',
-                                                                    });
-                                                                    if (!ok) return;
-                                                                    runner.accept.mutate(o.id, {
-                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Pedido tomado' }),
-                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo tomar' }),
-                                                                    });
-                                                                }}
-                                                                disabled={runner.accept.isPending}
-                                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                                            >
-                                                                Tomar
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={async () => {
-                                                                    const ok = await confirm({
-                                                                        title: 'Marcar en estante',
-                                                                        text: `¿Confirmas marcar en estante el pedido ${o.codigo_pedido}?`,
-                                                                        confirmText: 'Marcar',
-                                                                    });
-                                                                    if (!ok) return;
-                                                                    runner.shelf.mutate(o.id, {
-                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Marcado en estante' }),
-                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
-                                                                    });
-                                                                }}
-                                                                disabled={runner.shelf.isPending}
-                                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                                            >
-                                                                Estante
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={async () => {
-                                                                    const ok = await confirm({
-                                                                        title: 'Entregar pedido',
-                                                                        text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}?`,
-                                                                        confirmText: 'Entregar',
-                                                                        confirmColor: '#22c55e',
-                                                                    });
-                                                                    if (!ok) return;
-                                                                    runner.deliver.mutate(o.id, {
-                                                                        onSuccess: () => void toast({ icon: 'success', title: 'Pedido entregado' }),
-                                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo entregar' }),
-                                                                    });
-                                                                }}
-                                                                disabled={runner.deliver.isPending}
-                                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                                            >
-                                                                Entregar
-                                                            </button>
+
+                                                            {/* Tomar: Solo si LISTO o LISTO_PARA_ENTREGAR y no es mío */}
+                                                            {(o.estado === 'LISTO' || o.estado === 'LISTO_PARA_ENTREGAR') && o.locked_by_runner_id !== user?.id && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        const ok = await confirm({
+                                                                            title: 'Tomar pedido',
+                                                                            text: `¿Confirmas tomar el pedido ${o.codigo_pedido}?`,
+                                                                            confirmText: 'Tomar',
+                                                                        });
+                                                                        if (!ok) return;
+                                                                        runner.accept.mutate(o.id, {
+                                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido tomado' }),
+                                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo tomar' }),
+                                                                        });
+                                                                    }}
+                                                                    disabled={runner.accept.isPending}
+                                                                    className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                >
+                                                                    Tomar
+                                                                </button>
+                                                            )}
+
+                                                            {/* Estante: Solo si yo lo tengo (PENDIENTE_RECOJO) */}
+                                                            {o.estado === 'PENDIENTE_RECOJO' && o.locked_by_runner_id === user?.id && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        const ok = await confirm({
+                                                                            title: 'Marcar en estante',
+                                                                            text: `¿Confirmas marcar en estante el pedido ${o.codigo_pedido}?`,
+                                                                            confirmText: 'Marcar',
+                                                                        });
+                                                                        if (!ok) return;
+                                                                        runner.shelf.mutate(o.id, {
+                                                                            onSuccess: () => void toast({ icon: 'success', title: 'Marcado en estante' }),
+                                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
+                                                                        });
+                                                                    }}
+                                                                    disabled={runner.shelf.isPending}
+                                                                    className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                >
+                                                                    Estante
+                                                                </button>
+                                                            )}
+
+                                                            {/* Entregar: Si lo tengo yo (PENDIENTE_RECOJO o PROCESO_ENTREGA) */}
+                                                            {(o.estado === 'PENDIENTE_RECOJO' || o.estado === 'PROCESO_ENTREGA' || o.estado === 'LISTO_PARA_ENTREGAR') && o.locked_by_runner_id === user?.id && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        const ok = await confirm({
+                                                                            title: 'Entregar pedido',
+                                                                            text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}?`,
+                                                                            confirmText: 'Entregar',
+                                                                            confirmColor: '#22c55e',
+                                                                        });
+                                                                        if (!ok) return;
+                                                                        runner.deliver.mutate(o.id, {
+                                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido entregado' }),
+                                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo entregar' }),
+                                                                        });
+                                                                    }}
+                                                                    disabled={runner.deliver.isPending || !o.matched_driver_arrival_id}
+                                                                    title={!o.matched_driver_arrival_id ? "Requiere match con driver para entregar" : ""}
+                                                                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-30 ${o.matched_driver_arrival_id
+                                                                        ? 'bg-teal-500 text-black'
+                                                                        : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                                                        }`}
+                                                                >
+                                                                    Entregar
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

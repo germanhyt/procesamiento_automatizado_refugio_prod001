@@ -80,3 +80,21 @@ Estado: **Fase 3 aplicada en app Kiosk**: hook `useKioskTheme` (`hooks/useKioskT
 9) 
 Genera la guía con los comandos para realizar el build de las apk, colocando icon, y luego una guía para ditribuirlo a compañeros paso a paso, no se publicará en un store 
 
+
+
+10)
+**`yarn kiosk:web` (desde `mobile/`):** solo levanta la app **Kiosk** en el navegador (Expo web del workspace `kiosk`). No inicia Runner, ni el backend, ni el SPA del frontend: esos siguen siendo terminales/procesos aparte. Aclaración añadida en [COMMANDS.md](./COMMANDS.md) → *Aplicación móvil*.
+
+
+11) 
+Observaciones
+- En el monorepo del runner me sale error 404 en:
+http://localhost:8080/api/delivery/orders/12
+- Requiero refactorizar estilos, nos guiamos del mono reporte de kiok para ello, además considerar el tema de dark/light theme
+
+completamos la refactorización de estilos para el monorepo del runner
+
+
+12)
+Recomiendas en la apk de kiosk, agregamos como la sección última los pedidos entregados del día? como ux/ui,
+aplicamos la funcionalidad,
