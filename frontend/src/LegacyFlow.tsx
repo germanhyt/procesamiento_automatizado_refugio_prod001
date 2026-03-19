@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import Select from 'react-select';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     RefreshCcw, Play, CheckCircle,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { LOCATARIOS } from '@/constants/locatarios';
+import AppSelect from '@/components/ui/AppSelect';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
 const FUENTES_URL = `${API_URL}/fuentes`;
@@ -22,37 +22,16 @@ interface CierreCajaFile {
     modified: string;
 }
 
-interface Negocio {
+interface NegocioOption {
     value: string;
     label: string;
 }
-
-const customSelectStyles = {
-    control: (base: any) => ({
-        ...base,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        borderColor: 'rgba(255,255,255,0.05)',
-        borderRadius: '12px',
-        fontSize: '11px',
-        color: '#fff',
-        padding: '2px',
-        '&:hover': { borderColor: 'rgba(20, 184, 166, 0.5)' }
-    }),
-    menu: (base: any) => ({ ...base, backgroundColor: '#111', borderRadius: '12px', zIndex: 999 }),
-    option: (base: any, state: any) => ({
-        ...base,
-        backgroundColor: state.isFocused ? 'rgba(20, 184, 166, 0.1)' : 'transparent',
-        color: state.isFocused ? '#2dd4bf' : '#999',
-        fontSize: '11px'
-    }),
-    singleValue: (base: any) => ({ ...base, color: '#fff' })
-};
 
 const LegacyFlow: React.FC = () => {
     const [logs, setLogs] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState<string | null>(null);
     const [files, setFiles] = useState<CierreCajaFile[]>([]);
-    const [negocios, setNegocios] = useState<Negocio[]>([]);
+    const [negocios, setNegocios] = useState<NegocioOption[]>([]);
 
     const [selectedFile, setSelectedFile] = useState('');
     const [selectedNegocio, setSelectedNegocio] = useState<any>(null);
@@ -324,42 +303,42 @@ const LegacyFlow: React.FC = () => {
                 </div>
 
                 {/* Explorador y Asociación */}
-                <div className="bg-zinc-900/40 p-6 sm:p-10 rounded-[40px] border border-white/5 grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
+                <div className="bg-app-card p-6 sm:p-10 rounded-[40px] border border-app-border grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between flex-wrap gap-2">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 flex items-center gap-3">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent flex items-center gap-3">
                                 <Search size={14} /> Explorador CierreCaja
                             </h3>
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={openFilesModal} className="bg-zinc-800 hover:bg-teal-500/20 text-zinc-400 hover:text-teal-500 px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-white/5">
+                                <button type="button" onClick={openFilesModal} className="bg-app-input hover:bg-app-accent-muted-bg text-app-muted hover:text-app-accent px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-app-border">
                                     <FolderOpen size={12} />
                                     <span className="text-[9px] font-black uppercase tracking-widest">Gestionar Archivos</span>
                                 </button>
-                                <label className="cursor-pointer bg-teal-500/10 hover:bg-teal-500/20 text-teal-500 px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-teal-500/20 group">
+                                <label className="cursor-pointer bg-app-accent-muted-bg hover:bg-app-accent-muted-bg-hover text-app-accent px-3 py-1.5 rounded-xl transition-all flex items-center gap-2 border border-app-accent-muted group">
                                     <Upload size={12} className="group-hover:scale-110 transition-transform" />
                                     <span className="text-[9px] font-black uppercase tracking-widest">Subir</span>
                                     <input type="file" className="hidden" onChange={handleUpload} multiple />
                                 </label>
                             </div>
                         </div>
-                        <div className="bg-black/40 rounded-3xl border border-white/5 h-64 overflow-y-auto scrollbar-hide">
+                        <div className="bg-app-input rounded-3xl border border-app-border h-64 overflow-y-auto scrollbar-hide">
                             {files.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center opacity-20"><File size={32} className="mb-2" /><span className="text-[10px]">Sin archivos pendientes</span></div>
+                                <div className="h-full flex flex-col items-center justify-center text-app-muted opacity-70"><File size={32} className="mb-2" /><span className="text-[10px]">Sin archivos pendientes</span></div>
                             ) : (
                                 files.map((f, i) => (
                                     <button
                                         key={i}
                                         onClick={() => setSelectedFile(f.name)}
-                                        className={`w-full p-4 flex items-center justify-between transition-all border-b border-white/5 last:border-0 ${selectedFile === f.name ? 'bg-teal-500/10' : 'hover:bg-white/5'}`}
+                                        className={`w-full p-4 flex items-center justify-between transition-all border-b border-app-border last:border-0 ${selectedFile === f.name ? 'bg-app-accent-muted-bg' : 'hover:bg-app-surface'}`}
                                     >
                                         <div className="flex items-center gap-4">
-                                            <FileCode className={`w-5 h-5 ${f.name.endsWith('.xlsx') ? 'text-emerald-500' : 'text-blue-400'}`} />
+                                            <FileCode className={`w-5 h-5 ${f.name.endsWith('.xlsx') ? 'text-emerald-600' : 'text-blue-500'}`} />
                                             <div className="text-left">
-                                                <div className="text-[10px] font-black truncate max-w-[180px]">{f.name}</div>
-                                                <div className="text-[8px] text-zinc-600 font-mono">{f.modified}</div>
+                                                <div className="text-[10px] font-black truncate max-w-[180px] text-app-text">{f.name}</div>
+                                                <div className="text-[8px] text-app-muted font-mono">{f.modified}</div>
                                             </div>
                                         </div>
-                                        <div className="text-[8px] font-mono text-zinc-500">{(f.size / 1024).toFixed(1)} KB</div>
+                                        <div className="text-[8px] font-mono text-app-muted">{(f.size / 1024).toFixed(1)} KB</div>
                                     </button>
                                 ))
                             )}
@@ -367,34 +346,34 @@ const LegacyFlow: React.FC = () => {
                     </div>
 
                     <div className="space-y-6">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 flex items-center gap-3">
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent flex items-center gap-3">
                             <Plus size={14} /> Asociación Manual
                         </h3>
                         <div className="space-y-4">
                             <div className="space-y-2">
-                                <label className="text-[9px] font-black text-zinc-500 ml-1 uppercase">Negocio Destino</label>
-                                <Select
-                                    styles={customSelectStyles}
+                                <label className="text-[9px] font-black text-app-muted ml-1 uppercase">Negocio Destino</label>
+                                <AppSelect<string>
                                     options={negocios}
                                     value={selectedNegocio}
-                                    onChange={(val) => setSelectedNegocio(val)}
+                                    onChange={setSelectedNegocio}
                                     placeholder="Buscar por código..."
+                                    isSearchable
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-zinc-500 ml-1 uppercase">Inicio</label>
-                                    <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-xl p-3 text-[10px] text-white focus:border-teal-500/50 outline-none transition-all" />
+                                    <label className="text-[9px] font-black text-app-muted ml-1 uppercase">Inicio</label>
+                                    <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full bg-app-input border border-app-border rounded-xl p-3 text-[10px] text-app-text focus:border-app-accent outline-none transition-all" />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-zinc-500 ml-1 uppercase">Fin</label>
-                                    <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-xl p-3 text-[10px] text-white focus:border-teal-500/50 outline-none transition-all" />
+                                    <label className="text-[9px] font-black text-app-muted ml-1 uppercase">Fin</label>
+                                    <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full bg-app-input border border-app-border rounded-xl p-3 text-[10px] text-app-text focus:border-app-accent outline-none transition-all" />
                                 </div>
                             </div>
                             <button
                                 onClick={handleManualLink}
                                 disabled={!selectedFile || !selectedNegocio || isProcessing !== null}
-                                className="w-full py-4 bg-zinc-800 hover:bg-teal-500 hover:text-black transition-all rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-20 flex items-center justify-center gap-3"
+                                className="w-full py-4 bg-app-input hover:bg-teal-500 hover:text-black transition-all rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-20 flex items-center justify-center gap-3 text-app-text"
                             >
                                 Vincular Registro
                             </button>
@@ -403,16 +382,16 @@ const LegacyFlow: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4 mt-2">
                                 <button
                                     onClick={() => handleOpenPreview('sales')}
-                                    className="py-3 bg-zinc-800/40 hover:bg-zinc-700/60 border border-white/5 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"
+                                    className="py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-xl text-[9px] font-black uppercase text-app-muted hover:text-app-text transition-all flex items-center justify-center gap-2"
                                 >
-                                    <Table size={12} className="text-teal-500" />
+                                    <Table size={12} className="text-app-accent" />
                                     Ver sales_df
                                 </button>
                                 <button
                                     onClick={() => handleOpenPreview('realizadas')}
-                                    className="py-3 bg-zinc-800/40 hover:bg-zinc-700/60 border border-white/5 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"
+                                    className="py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-xl text-[9px] font-black uppercase text-app-muted hover:text-app-text transition-all flex items-center justify-center gap-2"
                                 >
-                                    <Database size={12} className="text-blue-400" />
+                                    <Database size={12} className="text-blue-500" />
                                     Ver Resumen
                                 </button>
                             </div>
@@ -425,24 +404,22 @@ const LegacyFlow: React.FC = () => {
 
             {/* Consola */}
             <div className="xl:col-span-4 h-full flex flex-col min-h-[300px] sm:min-h-[500px]">
-                <div className="flex-1 bg-zinc-900/30 border border-white/5 rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
-                    <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
-                        {/* <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">Live Feedback</h3> */}
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-teal-500">
-                            {/* Live Feedback */}
+                <div className="flex-1 bg-app-card border border-app-border rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
+                    <div className="p-8 border-b border-app-border flex items-center justify-between bg-app-input">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent">
                             Flujo procesos
                         </h3>
-                        <button onClick={() => setLogs([])} className="text-[8px] font-black uppercase text-zinc-600 hover:text-white transition-colors">Clean</button>
+                        <button onClick={() => setLogs([])} className="text-[8px] font-black uppercase text-app-muted hover:text-app-text transition-colors">Clean</button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-8 space-y-4 scrollbar-hide font-mono">
                         <AnimatePresence initial={false}>
                             {logs.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center opacity-10 italic text-[10px]">Awaiting system signals...</div>
+                                <div className="h-full flex flex-col items-center justify-center text-app-muted opacity-50 italic text-[10px]">Awaiting system signals...</div>
                             ) : (
                                 logs.map((log, i) => (
-                                    <motion.div key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="p-4 rounded-2xl bg-white/5 border border-white/5 text-[10px] flex gap-4 leading-relaxed">
-                                        <ChevronRight size={14} className="shrink-0 text-zinc-600 mt-0.5" />
-                                        <span className={log.includes('✅') ? 'text-emerald-400' : log.includes('❌') ? 'text-rose-400' : 'text-zinc-400'}>{log}</span>
+                                    <motion.div key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="p-4 rounded-2xl bg-app-surface border border-app-border text-[10px] flex gap-4 leading-relaxed">
+                                        <ChevronRight size={14} className="shrink-0 text-app-muted mt-0.5" />
+                                        <span className={log.includes('✅') ? 'text-emerald-600' : log.includes('❌') ? 'text-rose-500' : 'text-app-muted'}>{log}</span>
                                     </motion.div>
                                 ))
                             )}
@@ -458,41 +435,38 @@ const LegacyFlow: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+                        className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
                         onClick={() => setIsFilesModalOpen(false)}
                     >
                         <motion.div
                             initial={{ scale: 0.95, y: 10 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.95, y: 10 }}
-                            className="bg-zinc-900 border border-white/10 w-full max-w-4xl max-h-[90vh] rounded-[30px] flex flex-col overflow-hidden shadow-xl"
+                            className="bg-app-panel border border-app-border w-full max-w-4xl max-h-[90vh] rounded-[30px] flex flex-col overflow-hidden shadow-xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                                <h3 className="text-sm font-black uppercase tracking-widest text-teal-500 flex items-center gap-2">
+                            <div className="p-6 border-b border-app-border flex items-center justify-between">
+                                <h3 className="text-sm font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
                                     <FolderOpen size={20} /> Gestionar archivos por semana (FileStore)
                                 </h3>
-                                <button type="button" onClick={() => setIsFilesModalOpen(false)} className="p-2 hover:bg-white/5 rounded-xl text-zinc-500 hover:text-white">
+                                <button type="button" onClick={() => setIsFilesModalOpen(false)} className="p-2 hover:bg-app-card-hover rounded-xl text-app-muted hover:text-app-accent">
                                     <X size={20} />
                                 </button>
                             </div>
                             <div className="p-6 overflow-y-auto flex-1 space-y-6">
                                 <div className="flex flex-wrap items-center gap-4">
-                                    <label className="text-[10px] font-black uppercase text-zinc-500">Semana</label>
-                                    <select
-                                        value={selectedSemanaFiles}
-                                        onChange={(e) => {
-                                            const s = e.target.value;
+                                    <label className="text-[10px] font-black uppercase text-app-muted">Semana</label>
+                                    <AppSelect<string>
+                                        options={semanasList.map((s) => ({ value: s, label: s }))}
+                                        value={selectedSemanaFiles ? { value: selectedSemanaFiles, label: selectedSemanaFiles } : null}
+                                        onChange={(opt) => {
+                                            const s = opt?.value ?? '';
                                             setSelectedSemanaFiles(s);
                                             fetchArchivosForSemana(s);
                                         }}
-                                        className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white"
-                                    >
-                                        {semanasList.length === 0 && <option value="">Sin semanas</option>}
-                                        {semanasList.map((s) => (
-                                            <option key={s} value={s}>{s}</option>
-                                        ))}
-                                    </select>
+                                        placeholder="Sin semanas"
+                                        className="min-w-[180px]"
+                                    />
                                     <button
                                         type="button"
                                         onClick={() => selectedSemanaFiles && downloadZip(selectedSemanaFiles)}
@@ -506,22 +480,22 @@ const LegacyFlow: React.FC = () => {
                                 ) : (
                                     <div className="space-y-6">
                                         {archivosFileStore.map((grupo) => (
-                                            <div key={`${grupo.semana}-${grupo.locatario}`} className="bg-black/30 rounded-2xl border border-white/5 p-4">
+                                            <div key={`${grupo.semana}-${grupo.locatario}`} className="bg-app-input rounded-2xl border border-app-border p-4">
                                                 <div className="flex items-center justify-between mb-3">
                                                     <span className="text-[10px] font-black uppercase text-teal-500">{grupo.locatario}</span>
                                                     <div className="flex items-center gap-2">
-                                                        <button type="button" onClick={() => downloadZip(grupo.semana, grupo.locatario)} className="text-[9px] font-black uppercase text-zinc-400 hover:text-teal-500 flex items-center gap-1">
+                                                        <button type="button" onClick={() => downloadZip(grupo.semana, grupo.locatario)} className="text-[9px] font-black uppercase text-app-muted hover:text-app-accent flex items-center gap-1">
                                                             <Download size={12} /> ZIP
                                                         </button>
                                                     </div>
                                                 </div>
                                                 <ul className="space-y-2">
                                                     {grupo.archivos.map((nombre) => (
-                                                        <li key={nombre} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0 text-[10px]">
-                                                            <span className="flex items-center gap-2 text-zinc-300">
+                                                        <li key={nombre} className="flex items-center justify-between py-2 border-b border-app-border last:border-0 text-[10px]">
+                                                            <span className="flex items-center gap-2 text-app-text">
                                                                 <FileCode size={14} className="text-emerald-500/80" /> {nombre}
                                                             </span>
-                                                            <button type="button" onClick={() => deleteFileStoreFile(grupo.semana, grupo.locatario, nombre)} className="p-1.5 rounded-lg text-zinc-500 hover:bg-red-500/20 hover:text-red-500" title="Eliminar">
+                                                            <button type="button" onClick={() => deleteFileStoreFile(grupo.semana, grupo.locatario, nombre)} className="p-1.5 rounded-lg text-app-muted hover:bg-red-500/20 hover:text-red-500" title="Eliminar">
                                                                 <Trash2 size={14} />
                                                             </button>
                                                         </li>
@@ -530,23 +504,20 @@ const LegacyFlow: React.FC = () => {
                                             </div>
                                         ))}
                                         {archivosFileStore.length === 0 && !filesModalLoading && (
-                                            <p className="text-zinc-500 text-sm text-center py-8">No hay archivos en esta semana.</p>
+                                            <p className="text-app-muted text-sm text-center py-8">No hay archivos en esta semana.</p>
                                         )}
                                     </div>
                                 )}
-                                <div className="border-t border-white/5 pt-6">
-                                    <h4 className="text-[10px] font-black uppercase text-zinc-500 mb-3">Cargar en bloque</h4>
+                                <div className="border-t border-app-border pt-6">
+                                    <h4 className="text-[10px] font-black uppercase text-app-muted mb-3">Cargar en bloque</h4>
                                     <div className="flex flex-wrap items-center gap-3">
-                                        <select
-                                            value={bulkLocatario}
-                                            onChange={(e) => setBulkLocatario(e.target.value)}
-                                            className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white min-w-[200px]"
-                                        >
-                                            <option value="">— Locatario —</option>
-                                            {LOCATARIOS.map((l) => (
-                                                <option key={l.codigo} value={l.codigo}>{l.name}</option>
-                                            ))}
-                                        </select>
+                                        <AppSelect<string>
+                                            options={LOCATARIOS.map((l) => ({ value: l.codigo, label: `${l.name} (${l.codigo})` }))}
+                                            value={bulkLocatario ? { value: bulkLocatario, label: LOCATARIOS.find((l) => l.codigo === bulkLocatario)?.name ?? bulkLocatario } : null}
+                                            onChange={(opt) => setBulkLocatario(opt?.value ?? '')}
+                                            placeholder="— Locatario —"
+                                            className="min-w-[200px]"
+                                        />
                                         <label className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-500/20 text-teal-500 hover:bg-teal-500/30 text-[10px] font-black uppercase">
                                             <Upload size={14} /> Seleccionar archivos (reemplaza si existe)
                                             <input type="file" className="hidden" accept=".xlsx,.csv" multiple onChange={handleBulkUpload} />
@@ -572,9 +543,9 @@ const LegacyFlow: React.FC = () => {
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
-                            className="bg-zinc-900 border border-white/10 w-full max-w-7xl h-[90vh] sm:h-[80vh] rounded-[30px] sm:rounded-[40px] flex flex-col overflow-hidden shadow-[0_0_100px_rgba(45,212,191,0.1)]"
+                            className="bg-app-panel border border-app-border w-full max-w-7xl h-[90vh] sm:h-[80vh] rounded-[30px] sm:rounded-[40px] flex flex-col overflow-hidden shadow-2xl"
                         >
-                            <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
+                            <div className="p-8 border-b border-app-border flex items-center justify-between bg-app-input">
                                 <div className="flex items-center gap-4">
                                     <div className="p-3 bg-teal-500 rounded-2xl text-black">
                                         <Table size={20} />
@@ -583,12 +554,12 @@ const LegacyFlow: React.FC = () => {
                                         <h3 className="text-sm font-black uppercase tracking-widest">
                                             Vista Previa: {previewType === 'sales' ? 'sales_df' : 'Realizadas'}
                                         </h3>
-                                        <p className="text-[10px] text-zinc-500">Últimos 100 registros detectados en Configuracion.xlsx</p>
+                                        <p className="text-[10px] text-app-muted">Últimos 100 registros detectados en Configuracion.xlsx</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={() => setIsPreviewOpen(false)}
-                                    className="p-3 hover:bg-white/5 rounded-2xl transition-colors text-zinc-500 hover:text-white"
+                                    className="p-3 hover:bg-app-card-hover rounded-2xl transition-colors text-app-muted hover:text-app-accent"
                                 >
                                     <X size={20} />
                                 </button>
@@ -602,18 +573,18 @@ const LegacyFlow: React.FC = () => {
                                     </div>
                                 ) : (
                                     <table className="w-full text-left border-collapse min-w-[1200px]">
-                                        <thead className="sticky top-0 bg-black/40 backdrop-blur-md">
+                                        <thead className="sticky top-0 bg-app-input backdrop-blur-md">
                                             <tr>
                                                 {previewData?.columns.map((col: string) => (
-                                                    <th key={col} className="p-4 text-[9px] font-black uppercase tracking-tighter text-teal-500 border-b border-white/5">{col}</th>
+                                                    <th key={col} className="p-4 text-[9px] font-black uppercase tracking-tighter text-app-accent border-b border-app-border">{col}</th>
                                                 ))}
                                             </tr>
                                         </thead>
                                         <tbody className="text-[10px]">
                                             {previewData?.data.map((row: any, i: number) => (
-                                                <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                                <tr key={i} className="border-b border-app-border hover:bg-app-surface transition-colors">
                                                     {previewData.columns.map((col: string) => (
-                                                        <td key={`${i}-${col}`} className="p-4 text-zinc-400 font-mono italic">
+                                                        <td key={`${i}-${col}`} className="p-4 text-app-muted font-mono italic">
                                                             {String(row[col])}
                                                         </td>
                                                     ))}
@@ -624,9 +595,9 @@ const LegacyFlow: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="p-4 sm:p-6 border-t border-white/5 bg-black/20 flex flex-col sm:flex-row gap-4 justify-between items-center px-6 sm:px-10">
-                                <div className="text-[10px] text-zinc-600 font-mono">
-                                    Total de filas en base: <span className="text-white">{previewData?.total_rows || 0}</span>
+                            <div className="p-4 sm:p-6 border-t border-app-border bg-app-input flex flex-col sm:flex-row gap-4 justify-between items-center px-6 sm:px-10">
+                                <div className="text-[10px] text-app-muted font-mono">
+                                    Total de filas en base: <span className="text-app-text">{previewData?.total_rows || 0}</span>
                                 </div>
                                 <button
                                     onClick={() => setIsPreviewOpen(false)}
@@ -647,15 +618,15 @@ const StepButton = ({ icon, title, desc, onClick, loading, isExtra, fullWidth }:
     <button
         onClick={onClick}
         disabled={loading}
-        className={`group p-8 rounded-[35px] border text-left transition-all relative overflow-hidden h-full flex flex-col ${fullWidth ? 'w-full' : ''} ${loading ? 'bg-teal-500/10 border-teal-500/30' : isExtra ? 'bg-blue-500/5 border-blue-500/10 hover:border-blue-500/40' : 'bg-zinc-900/40 border-white/5 hover:border-teal-500/40'}`}
+        className={`group p-8 rounded-[35px] border text-left transition-all relative overflow-hidden h-full flex flex-col ${fullWidth ? 'w-full' : ''} ${loading ? 'bg-app-accent-muted-bg border-app-accent-muted' : isExtra ? 'bg-blue-500/5 border-blue-500/10 hover:border-blue-500/40' : 'bg-app-card border-app-border hover:border-app-accent-muted'}`}
     >
-        <div className={`p-4 rounded-2xl mb-6 w-fit scale-110 ${loading ? 'bg-teal-500 text-black animate-spin' : isExtra ? 'bg-blue-500/20 text-blue-400 group-hover:bg-blue-400 group-hover:text-black transition-all' : 'bg-zinc-800 text-teal-500 group-hover:bg-teal-500 group-hover:text-black transition-all'}`}>
+        <div className={`p-4 rounded-2xl mb-6 w-fit scale-110 ${loading ? 'bg-teal-500 text-black animate-spin' : isExtra ? 'bg-blue-500/20 text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all' : 'bg-app-icon text-app-accent group-hover:bg-teal-500 group-hover:text-black transition-all'}`}>
             {loading ? <RefreshCcw size={20} /> : icon}
         </div>
-        <h4 className="font-black text-[10px] uppercase tracking-widest mb-1">{title}</h4>
-        <p className="text-[9px] text-refugio-muted font-medium leading-tight">{desc}</p>
+        <h4 className="font-black text-[10px] uppercase tracking-widest mb-1 text-app-text">{title}</h4>
+        <p className="text-[9px] text-app-muted font-medium leading-tight">{desc}</p>
         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-            <ChevronRight size={14} className={isExtra ? 'text-blue-400' : 'text-teal-500/50'} />
+            <ChevronRight size={14} className={isExtra ? 'text-blue-500' : 'text-app-accent-muted'} />
         </div>
     </button>
 );

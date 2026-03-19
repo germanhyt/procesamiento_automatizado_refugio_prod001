@@ -30,7 +30,7 @@ from app.database import get_db, SessionLocal
 from app.api.auth import get_current_user
 from app.models.auth import User
 from app.models.delivery import Restaurant, Order, DriverArrival
-from app.core.constants import LOCATARIO_CODES, build_codigo_comunicacion
+# from app.core.constants import LOCATARIO_CODES, build_codigo_comunicacion
 from app.core import security
 from jose import jwt, JWTError
 from app.schemas.delivery import (
@@ -91,19 +91,19 @@ async def _emit(event_type: str, payload: Dict[str, Any]) -> None:
     )
 
 
-def _extract_locatario_codigo(value: str) -> str:
-    """
-    Extrae un código tipo A03, IS01, L17 desde un string y lo valida contra LOCATARIO_CODES.
-    """
-    if not value:
-        return ""
-    s = str(value).strip().upper()
-    # IS01, A03, L17, etc.
-    m = re.search(r"\b([A-Z]{1,2}\d{2})\b", s)
-    if not m:
-        return ""
-    code = m.group(1)
-    return code if code in LOCATARIO_CODES else ""
+# def _extract_locatario_codigo(value: str) -> str:
+#     """
+#     Extrae un código tipo A03, IS01, L17 desde un string y lo valida contra LOCATARIO_CODES.
+#     """
+#     if not value:
+#         return ""
+#     s = str(value).strip().upper()
+#     # IS01, A03, L17, etc.
+#     m = re.search(r"\b([A-Z]{1,2}\d{2})\b", s)
+#     if not m:
+#         return ""
+#     code = m.group(1)
+#     return code if code in LOCATARIO_CODES else ""
 
 
 def _try_match_waiting_driver_for_order(db: Session, order: Order) -> Optional[DriverArrival]:
@@ -420,6 +420,7 @@ async def kiosk_arrival(
     arrival = DriverArrival(
         plataforma=plataforma,
         placa=(payload.placa.strip().upper() if payload.placa else None),
+        alias_conductor=(payload.alias_conductor.strip() if payload.alias_conductor else None),
         codigo_ingresado=codigo_ingresado,
         estado=DRIVER_STATUS_ESPERANDO,
     )
@@ -545,6 +546,27 @@ async def list_waiting_drivers(
     current_user: User = Depends(get_current_user),
 ):
     _require_permission(current_user, "delivery:view")
+    timeouts_res = apply_timeouts(db)
+    if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
+        await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+    drivers = (
+        db.query(DriverArrival)
+        .filter(DriverArrival.estado.in_([DRIVER_STATUS_ESPERANDO, DRIVER_STATUS_EN_MATCH]))
+        .order_by(DriverArrival.id.desc())
+        .limit(DEFAULT_QUERY_LIMIT)
+        .all()
+    )
+    return drivers
+
+
+@router.get("/kiosk/drivers/waiting", response_model=List[DriverArrivalOut])
+async def kiosk_list_waiting_drivers(
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint público para Kiosk (sin JWT).
+    Retorna drivers en estados ESPERANDO/EN_MATCH para mostrar cola en SUNMI.
+    """
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)

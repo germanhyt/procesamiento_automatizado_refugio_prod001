@@ -20,6 +20,7 @@ export interface DriverArrival {
     plataforma: string;
     codigo_ingresado: string;
     placa?: string | null;
+   alias_conductor?: string | null;
     estado: DriverStatus;
     matched_order_id?: number | null;
     created_at: string;

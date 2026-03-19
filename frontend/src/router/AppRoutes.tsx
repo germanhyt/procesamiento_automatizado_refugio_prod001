@@ -21,7 +21,7 @@ const AppRoutes: React.FC = () => {
 
     if (isLoading) {
         return (
-            <div className="h-screen w-screen bg-[#050505] flex items-center justify-center">
+            <div className="h-screen w-screen flex items-center justify-center" style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-text)' }}>
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin" />
                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Cargando Sistema...</p>

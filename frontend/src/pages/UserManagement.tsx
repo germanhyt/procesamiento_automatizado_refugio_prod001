@@ -101,12 +101,12 @@ const UserManagement: React.FC = () => {
         <div className="space-y-8 h-full">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Gestión de Usuarios</h2>
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">Control de Acceso & RBAC</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter text-app-text">Gestión de Usuarios</h2>
+                    <p className="text-[10px] text-app-muted uppercase tracking-widest mt-1">Control de Acceso & RBAC</p>
                 </div>
 
                 <div className="flex gap-4 w-full sm:w-auto">
-                    <button onClick={() => setIsRoleModalOpen(true)} className="flex-1 sm:flex-none px-6 py-3 bg-zinc-800/40 hover:bg-zinc-800 border border-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3">
+                    <button onClick={() => setIsRoleModalOpen(true)} className="flex-1 sm:flex-none px-6 py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 text-app-muted hover:text-app-text">
                         <Shield size={14} className="text-teal-500" />
                         Gestionar Roles
                     </button>
@@ -118,14 +118,14 @@ const UserManagement: React.FC = () => {
             </div>
 
             <div className="relative group max-w-xl">
-                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-teal-500 transition-colors" size={18} />
-                <input type="text" placeholder="Buscar por usuario o correo..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-zinc-900/40 border border-white/5 rounded-2xl py-5 pl-16 pr-6 text-sm text-white focus:border-teal-500/50 outline-none transition-all" />
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-app-muted group-focus-within:text-app-accent transition-colors" size={18} />
+                <input type="text" placeholder="Buscar por usuario o correo..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-app-input border border-app-border rounded-2xl py-5 pl-16 pr-6 text-sm text-app-text focus:border-app-accent outline-none transition-all" />
             </div>
 
-            <div className="bg-zinc-900/30 border border-white/5 rounded-[40px] overflow-hidden shadow-2xl">
+            <div className="bg-app-card border border-app-border rounded-[40px] overflow-hidden shadow-2xl">
                 <div className="overflow-x-auto scrollbar-hide">
                     <table className="w-full text-left border-collapse min-w-[1000px]">
-                        <thead className="bg-black/20 text-teal-500 uppercase text-[9px] font-black tracking-widest">
+                        <thead className="bg-app-input text-app-accent uppercase text-[9px] font-black tracking-widest">
                             <tr>
                                 <th className="p-8">Usuario</th>
                                 <th className="p-8">Email</th>
@@ -135,33 +135,33 @@ const UserManagement: React.FC = () => {
                                 <th className="p-8 text-right">Acciones</th>
                             </tr>
                         </thead>
-                        <tbody className="text-[11px] text-zinc-400">
+                        <tbody className="text-[11px] text-app-muted">
                             {loading ? (
-                                <tr><td colSpan={6} className="p-20 text-center"><RefreshCcw className="animate-spin text-teal-500 mx-auto mb-4" size={32} /><span className="uppercase font-black text-zinc-600">Sincronizando...</span></td></tr>
+                                <tr><td colSpan={6} className="p-20 text-center"><RefreshCcw className="animate-spin text-app-accent mx-auto mb-4" size={32} /><span className="uppercase font-black text-app-muted">Sincronizando...</span></td></tr>
                             ) : filteredUsers.map(user => (
-                                <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                <tr key={user.id} className="border-b border-app-border hover:bg-app-surface transition-colors">
                                     <td className="p-8 flex items-center gap-4">
                                         <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-500 border border-teal-500/20 font-black">{user.username.substring(0, 2).toUpperCase()}</div>
                                         <div>
-                                            <div className="text-white font-black uppercase text-xs">{user.username}</div>
-                                            <div className="text-[9px] font-mono text-zinc-600">ID: {user.id.toString().padStart(4, '0')}</div>
+                                            <div className="text-app-text font-black uppercase text-xs">{user.username}</div>
+                                            <div className="text-[9px] font-mono text-app-muted">ID: {user.id.toString().padStart(4, '0')}</div>
                                         </div>
                                     </td>
                                     <td className="p-8 font-medium italic">{user.email}</td>
                                     <td className="p-8">
                                         <div className="flex flex-wrap gap-2">
                                             {user.roles.map((r: any) => (
-                                                <span key={r.id} className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black uppercase text-zinc-300">{r.name}</span>
+                                                <span key={r.id} className="px-3 py-1 bg-app-surface border border-app-border rounded-lg text-[8px] font-black uppercase text-app-text">{r.name}</span>
                                             ))}
                                         </div>
                                     </td>
                                     <td className="p-8">
                                         <button onClick={() => handleToggleStatus(user)} className={`px-4 py-1.5 rounded-full border text-[8px] font-black uppercase w-fit cursor-pointer transition-all hover:scale-105 ${user.is_active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>{user.is_active ? 'Activo' : 'Baja'}</button>
                                     </td>
-                                    <td className="p-8 font-mono text-zinc-600">{new Date(user.created_at).toLocaleDateString()}</td>
+                                    <td className="p-8 font-mono text-app-muted">{new Date(user.created_at).toLocaleDateString()}</td>
                                     <td className="p-8 text-right flex justify-end gap-2">
-                                        <button onClick={() => setEditingUser(user)} className="p-3 text-zinc-600 hover:text-white transition-colors"><Edit3 size={16} /></button>
-                                        <button onClick={() => handleDeleteUser(user)} className="p-3 text-zinc-600 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                        <button onClick={() => setEditingUser(user)} className="p-3 text-app-muted hover:text-app-accent transition-colors"><Edit3 size={16} /></button>
+                                        <button onClick={() => handleDeleteUser(user)} className="p-3 text-app-muted hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
                                     </td>
                                 </tr>
                             ))}

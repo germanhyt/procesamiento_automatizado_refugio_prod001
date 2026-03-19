@@ -38,8 +38,8 @@ const Login: React.FC = () => {
                     text: 'Acceso concedido al motor Refugio.',
                     timer: 2000,
                     showConfirmButton: false,
-                    background: '#0a0a0a',
-                    color: '#fff',
+                    background: 'var(--app-panel)',
+                    color: 'var(--app-text)',
                 });
                 navigate('/bienvenida', { replace: true });
             }
@@ -48,9 +48,9 @@ const Login: React.FC = () => {
                 icon: 'error',
                 title: 'Error de Acceso',
                 text: 'Credenciales inválidas o servidor no responde.',
-                background: '#0a0a0a',
-                color: '#fff',
-                confirmButtonColor: '#14b8a6'
+                background: 'var(--app-panel)',
+                color: 'var(--app-text)',
+                confirmButtonColor: 'var(--app-accent)',
             });
         } finally {
             setIsLoading(false);
@@ -58,39 +58,38 @@ const Login: React.FC = () => {
     };
 
     return (
-        <div className="h-screen w-screen flex items-center justify-center bg-[#050505] overflow-hidden relative">
-            {/* Background elements */}
-            <div className="absolute top-1/4 -left-20 w-80 h-80 bg-teal-500/10 blur-[120px] rounded-full"></div>
-            <div className="absolute bottom-1/4 -right-20 w-80 h-80 bg-blue-500/10 blur-[120px] rounded-full"></div>
+        <div className="h-screen w-screen flex items-center justify-center overflow-hidden relative bg-app-bg text-app-text">
+            {/* Background elements - tema-aware */}
+            <div className="absolute top-1/4 -left-20 w-80 h-80 rounded-full blur-[120px] [background:var(--app-accent)] opacity-[0.08]"></div>
+            <div className="absolute bottom-1/4 -right-20 w-80 h-80 rounded-full blur-[120px] [background:var(--app-accent)] opacity-[0.06]"></div>
 
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-[90%] sm:max-w-md p-6 sm:p-10 bg-zinc-900/40 border border-white/5 backdrop-blur-3xl rounded-[30px] sm:rounded-[40px] shadow-2xl z-10"
+                className="w-full max-w-[90%] sm:max-w-md p-6 sm:p-10 backdrop-blur-3xl rounded-[30px] sm:rounded-[40px] shadow-2xl z-10 border border-app-border bg-app-surface"
             >
                 <div className="flex flex-col items-center mb-10">
                     {/* <div className="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-500/20 mb-6"> */}
                     <div className="relative shrink-0 my-2">
-                        <div className="absolute inset-0 bg-teal-500/30 blur-2xl rounded-full"></div>
-                        <img src={logo} alt="Refugio Logo" className="w-14 h-14 rounded-full border-2 border-teal-500/50 object-cover relative shadow-inner shadow-teal-500/20" />
+                        <div className="absolute inset-0 rounded-full blur-2xl [background:var(--app-accent)] opacity-30"></div>
+                        <img src={logo} alt="Refugio Logo" className="w-14 h-14 rounded-full border-2 border-app-accent-muted object-cover relative shadow-lg" />
                     </div>
-                    {/* </div> */}
-                    <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Refugio Data</h1>
+                    <h1 className="text-2xl font-black uppercase tracking-tighter text-app-text">Refugio Data</h1>
                     {/* <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">Seguridad & Autenticación</p> */}
-                    <p className="text-[10px] text-refugio-muted uppercase tracking-widest mt-2">Login</p>
+                    <p className="text-[10px] text-app-muted uppercase tracking-widest mt-2">Login</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-refugio-muted ml-4 tracking-widest">Usuario</label>
+                        <label className="text-[10px] font-black uppercase text-app-muted ml-4 tracking-widest">Usuario</label>
                         <div className="relative group">
-                            <User className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-teal-500 transition-colors" size={18} />
+                            <User className="absolute left-5 top-1/2 -translate-y-1/2 text-app-muted group-focus-within:text-app-accent transition-colors" size={18} />
                             <input
                                 type="text"
                                 required
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                className="w-full bg-black/40 border border-white/5 rounded-2xl py-5 pl-14 pr-6 text-sm text-white focus:border-teal-500/50 outline-none transition-all group-hover:border-white/10"
+                                className="w-full bg-app-input border border-app-border rounded-2xl py-5 pl-14 pr-6 text-sm text-app-text placeholder:text-app-muted focus:border-app-accent outline-none transition-all hover:border-app-accent-muted"
                                 placeholder="Ingresa tu usuario..."
                             />
                         </div>
@@ -99,19 +98,19 @@ const Login: React.FC = () => {
                     <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase text-refugio-muted ml-4 tracking-widest">Contraseña</label>
                         <div className="relative group">
-                            <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-teal-500 transition-colors" size={18} />
+                            <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-app-muted group-focus-within:text-app-accent transition-colors" size={18} />
                             <input
                                 type={showPassword ? 'text' : 'password'}
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-black/40 border border-white/5 rounded-2xl py-5 pl-14 pr-14 text-sm text-white focus:border-teal-500/50 outline-none transition-all group-hover:border-white/10"
+                                className="w-full bg-app-input border border-app-border rounded-2xl py-5 pl-14 pr-14 text-sm text-app-text focus:border-app-accent outline-none transition-all"
                                 placeholder="••••••••"
                             />
                             <button
                                 type="button"
                                 onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 text-refugio-muted hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                                className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 text-app-muted hover:text-app-accent transition-colors rounded-lg hover:bg-app-card-hover"
                                 title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
                                 aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
                             >

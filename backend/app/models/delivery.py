@@ -53,6 +53,7 @@ class DriverArrival(Base):
 
     plataforma = Column(String(30), nullable=False, index=True)
     placa = Column(String(20), nullable=True)
+    alias_conductor = Column(String(120), nullable=True)
     codigo_ingresado = Column(String(80), nullable=False, index=True)
 
     estado = Column(String(40), nullable=False, index=True)  # ESPERANDO, EN_MATCH, ...

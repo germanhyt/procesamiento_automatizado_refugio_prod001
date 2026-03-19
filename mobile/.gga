@@ -1,0 +1,8 @@
+# Gentleman Guardian Angel Configuration (mobile)
+PROVIDER="cursor"
+FILE_PATTERNS="*.ts,*.tsx,*.js,*.jsx"
+EXCLUDE_PATTERNS="*.test.ts,*.spec.ts,*.test.tsx,*.spec.tsx,*.d.ts"
+RULES_FILE="../AGENTS.md"
+STRICT_MODE="true"
+TIMEOUT="300"
+

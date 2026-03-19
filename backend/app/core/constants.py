@@ -34,7 +34,7 @@ MESES_ES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ]
 
-# Helpers (Delivery/Locatarios)
+# # Helpers (Delivery/Locatarios)
 # LOCATARIOS_BY_CODIGO = {loc["codigo"]: loc for loc in LOCATARIOS}
 # LOCATARIO_CODE_BY_FULL = {loc["codigo"]: loc["codigo"].split("_", 1)[0] for loc in LOCATARIOS}
 # LOCATARIO_CODES = set(LOCATARIO_CODE_BY_FULL.values())

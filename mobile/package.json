@@ -1,0 +1,21 @@
+{
+  "name": "refugio-mobile",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "kiosk": "yarn workspace kiosk start",
+    "kiosk:web": "yarn workspace kiosk web",
+    "runner": "yarn workspace runner start",
+    "runner:web": "yarn workspace runner web"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.91.0",
+    "axios": "^1.13.6",
+    "expo-secure-store": "^55.0.9",
+    "zustand": "^5.0.12"
+  }
+}

@@ -35,3 +35,13 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+# gcbso@soportecomputer MINGW64 ~/Downloads/DATA Y AUTOMATIZACIÓN/Scripts/Proyecto - carga de Datos a Big Query v2/001_procesamiento_refugio (master)
+# $ python backend/tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --restaurant-nombre "Barrio Mancora" \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-001 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+# status: 200

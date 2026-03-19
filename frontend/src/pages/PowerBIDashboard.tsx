@@ -47,21 +47,21 @@ const PowerBIDashboard: React.FC = () => {
         <div className="h-full flex flex-col space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Análisis de Data</h2>
-                    <p className="text-[10px] text-refugio-muted uppercase tracking-widest mt-1">Dashboard Interactivo | Power BI Service</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter text-app-text">Análisis de Data</h2>
+                    <p className="text-[10px] text-app-muted uppercase tracking-widest mt-1">Dashboard Interactivo | Power BI Service</p>
                 </div>
 
                 <div className="flex gap-3">
                     <button
                         onClick={handleFullScreen}
-                        className="px-6 py-3 bg-zinc-800/40 hover:bg-zinc-800 border border-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 text-zinc-400 hover:text-white"
+                        className="px-6 py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 text-app-muted hover:text-app-text"
                     >
                         <Maximize2 size={14} />
                         Vista Completa
                     </button>
                     <button
                         onClick={fetchEmbedParams}
-                        className="px-6 py-3 bg-zinc-800/40 hover:bg-zinc-800 border border-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 text-zinc-400 hover:text-white"
+                        className="px-6 py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 text-app-muted hover:text-app-text"
                     >
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                         Refrescar Datos
@@ -69,19 +69,19 @@ const PowerBIDashboard: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex-1 bg-zinc-900/30 border border-white/5 rounded-[40px] overflow-hidden shadow-2xl relative min-h-[500px] sm:min-h-[600px] md:min-h-[700px]">
+            <div className="flex-1 bg-app-card border border-app-border rounded-[40px] overflow-hidden shadow-2xl relative min-h-[500px] sm:min-h-[600px] md:min-h-[700px]">
                 {loading && (
-                    <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center">
-                        <RefreshCcw className="animate-spin text-teal-500 mb-4" size={40} />
-                        <span className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.2em]">Sincronizando Reporte...</span>
+                    <div className="absolute inset-0 z-10 bg-app-surface/90 backdrop-blur-sm flex flex-col items-center justify-center">
+                        <RefreshCcw className="animate-spin text-app-accent mb-4" size={40} />
+                        <span className="text-[10px] font-black uppercase text-app-muted tracking-[0.2em]">Sincronizando Reporte...</span>
                     </div>
                 )}
 
                 {error && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-10 text-center">
                         <AlertCircle className="text-red-500 mb-6" size={48} />
-                        <h3 className="text-xl font-black uppercase text-white mb-2">Error de Autenticación</h3>
-                        <p className="text-zinc-500 text-sm max-w-md mb-8">{error}</p>
+                        <h3 className="text-xl font-black uppercase text-app-text mb-2">Error de Autenticación</h3>
+                        <p className="text-app-muted text-sm max-w-md mb-8">{error}</p>
                         <button
                             onClick={fetchEmbedParams}
                             className="bg-teal-500 text-black px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:scale-105 active:scale-95 transition-all"
@@ -117,7 +117,7 @@ const PowerBIDashboard: React.FC = () => {
                 )}
 
                 {!loading && !error && !embedParams && (
-                    <div className="flex flex-col items-center justify-center h-full text-zinc-600">
+                    <div className="flex flex-col items-center justify-center h-full text-app-muted">
                         <LayoutDashboard size={64} className="mb-6 opacity-20" />
                         <p className="uppercase font-black tracking-widest text-[10px]">Esperando Inicialización</p>
                     </div>

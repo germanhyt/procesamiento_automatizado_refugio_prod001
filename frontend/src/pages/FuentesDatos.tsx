@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
 
 import logo from '@/assets/logo.png';
+import AppSelect from '@/components/ui/AppSelect';
 import { LOCATARIOS, type Locatario } from '@/constants/locatarios';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
@@ -141,15 +142,21 @@ const FuentesDatos: React.FC = () => {
     );
 
     return (
-        <div className="min-h-screen w-screen bg-[#050505] text-zinc-100 font-sans flex flex-col">
-            <header className="border-b border-white/5 px-4 sm:px-10 py-6 flex items-center justify-between bg-[#050505]/80 backdrop-blur-xl">
+        <div
+            className="min-h-screen w-screen font-sans flex flex-col"
+            style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-text)' }}
+        >
+            <header
+                className="border-b px-4 sm:px-10 py-6 flex items-center justify-between backdrop-blur-xl"
+                style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
+            >
                 <Link
                     to="/"
                     className="flex items-center gap-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/50"
                 >
                     <img src={logo} alt="Refugio" className="w-10 h-10 rounded-full border-2 border-teal-500/50 object-cover" />
                     <div>
-                        <h1 className="text-sm font-black uppercase tracking-tighter text-white">Refugio Data</h1>
+                        <h1 className="text-sm font-black uppercase tracking-tighter text-app-text">Refugio Data</h1>
                         <p className="text-[9px] text-teal-500 font-mono tracking-widest">Fuentes de datos</p>
                     </div>
                 </Link>
@@ -186,21 +193,12 @@ const FuentesDatos: React.FC = () => {
                         <label className="text-[10px] font-black uppercase text-refugio-muted tracking-widest block mb-2">
                             Locatario
                         </label>
-                        <select
-                            value={locatario?.codigo ?? ''}
-                            onChange={(e) => {
-                                const codigo = e.target.value;
-                                setLocatario(LOCATARIOS.find((l) => l.codigo === codigo) ?? null);
-                            }}
-                            className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 px-5 text-sm text-white focus:border-teal-500/50 outline-none"
-                        >
-                            <option value="">— Selecciona locatario —</option>
-                            {LOCATARIOS.map((l) => (
-                                <option key={l.codigo} value={l.codigo}>
-                                    {l.name} ({l.codigo})
-                                </option>
-                            ))}
-                        </select>
+                        <AppSelect<string>
+                            options={LOCATARIOS.map((l) => ({ value: l.codigo, label: `${l.name} (${l.codigo})` }))}
+                            value={locatario ? { value: locatario.codigo, label: `${locatario.name} (${locatario.codigo})` } : null}
+                            onChange={(opt) => setLocatario(opt ? LOCATARIOS.find((l) => l.codigo === opt.value) ?? null : null)}
+                            placeholder="— Selecciona locatario —"
+                        />
                     </div>
 
                     {/* Zona de carga */}
@@ -235,7 +233,7 @@ const FuentesDatos: React.FC = () => {
                     </div>
 
                     {/* Lista de archivos de la semana */}
-                    <div className="bg-zinc-900/40 border border-white/5 rounded-[30px] p-6 sm:p-8">
+                    <div className="bg-app-card border border-app-border rounded-[30px] p-6 sm:p-8">
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-refugio-muted mb-4">
                             Archivos cargados esta semana
                         </h3>
@@ -255,7 +253,7 @@ const FuentesDatos: React.FC = () => {
                                             {grupo.archivos.map((nombre) => (
                                                 <li
                                                     key={nombre}
-                                                    className="flex items-center gap-2 text-sm text-zinc-300"
+                                                    className="flex items-center gap-2 text-sm text-app-text"
                                                 >
                                                     {nombre.toLowerCase().endsWith('.xlsx') ? (
                                                         <FileSpreadsheet size={14} className="text-emerald-500 shrink-0" />

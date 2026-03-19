@@ -42,6 +42,7 @@ class DriverArrivalBase(BaseModel):
     plataforma: str
     codigo_ingresado: str
     placa: Optional[str] = None
+    alias_conductor: Optional[str] = None
     estado: str
 
 
@@ -73,6 +74,7 @@ class KioskArrivalIn(BaseModel):
     plataforma: str
     codigo_ingresado: str
     placa: Optional[str] = None
+    alias_conductor: Optional[str] = None
 
 
 class KioskArrivalResult(BaseModel):
