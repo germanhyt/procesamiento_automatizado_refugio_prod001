@@ -61,3 +61,8 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 
+
+
+# gcbso@soportecomputer MINGW64 ~/Downloads/DATA Y AUTOMATIZACIÓN/Scripts/Proyecto - carga de Datos a Big Query v2/001_procesamiento_refugio/backend (master)
+# python tools/cleanup_delivery_test_data.py --
+# prefix RAPPI-TEST-001

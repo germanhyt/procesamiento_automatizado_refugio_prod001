@@ -74,28 +74,57 @@ export interface AppSelectProps<T = string> extends Omit<Props<AppSelectOption<T
     size?: 'sm' | 'md';
 }
 
-function getSizeStyles(size: 'sm' | 'md') {
-    if (size === 'sm') {
-        return {
-            control: (base: object) => ({ ...base, minHeight: 36, padding: '0 2px', fontSize: '10px' }),
-            option: (base: object) => ({ ...base, fontSize: '10px' }),
-        };
-    }
-    return {};
+type SelectSize = NonNullable<AppSelectProps['size']>;
+type SelectStyleKeys =
+    | 'control'
+    | 'option'
+    | 'singleValue'
+    | 'placeholder'
+    | 'input'
+    | 'dropdownIndicator'
+    | 'clearIndicator';
+
+/**
+ * Variantes de tamaño (parciales) sobre el resultado tematizado.
+ * Nota: no incluye estilos base de react-select para no pisar el tema del sistema.
+ */
+const SIZE_VARIANTS: Record<SelectSize, Partial<Record<SelectStyleKeys, object>>> = {
+    md: {},
+    sm: {
+        control: { minHeight: 36, padding: '0 2px', fontSize: '10px' },
+        option: { fontSize: '10px' },
+        singleValue: { fontSize: '10px' },
+        placeholder: { fontSize: '10px' },
+        input: { fontSize: '10px' },
+        dropdownIndicator: { padding: '4px' },
+        clearIndicator: { padding: '4px' },
+    },
+};
+
+/**
+ * Combina:
+ * - base de react-select (entregado por el callback)
+ * - variante del sistema (`themeStyles`)
+ * - variante de tamaño (`sm`/`md`)
+ */
+function mergeStyleVariant(baseStyle: object, variantPartial?: object) {
+    return variantPartial ? ({ ...baseStyle, ...variantPartial } as object) : baseStyle;
 }
 
 function AppSelectInner<T = string>({ options, value, onChange, styles, size = 'md', ...rest }: AppSelectProps<T>) {
     const mergedStyles = useMemo(() => {
-        const sizeOverrides = getSizeStyles(size);
+        const sizePartials = SIZE_VARIANTS[size];
+
         return {
             ...themeStyles,
-            ...(typeof sizeOverrides.control === 'function'
-                ? {
-                      control: (b: object, s: object) =>
-                          ({ ...(themeStyles.control as Function)(b, s), ...(sizeOverrides.control as Function)(b) } as object),
-                  }
-                : {}),
-            ...(sizeOverrides.option ? { option: (b: object, s: object) => ({ ...(themeStyles.option as Function)(b, s), ...(sizeOverrides.option as Function)(b) } as object) } : {}),
+            control: (b: object, s: object) => mergeStyleVariant((themeStyles.control as Function)(b, s), sizePartials.control),
+            option: (b: object, s: object) => mergeStyleVariant((themeStyles.option as Function)(b, s), sizePartials.option),
+            singleValue: (b: object) => mergeStyleVariant((themeStyles.singleValue as Function)(b), sizePartials.singleValue),
+            placeholder: (b: object) => mergeStyleVariant((themeStyles.placeholder as Function)(b), sizePartials.placeholder),
+            input: (b: object) => mergeStyleVariant((themeStyles.input as Function)(b), sizePartials.input),
+            dropdownIndicator: (b: object) =>
+                mergeStyleVariant((themeStyles.dropdownIndicator as Function)(b), sizePartials.dropdownIndicator),
+            clearIndicator: (b: object) => mergeStyleVariant((themeStyles.clearIndicator as Function)(b), sizePartials.clearIndicator),
             ...styles,
         } as StylesConfig<AppSelectOption<T>, false>;
     }, [size, styles]);
@@ -106,6 +135,8 @@ function AppSelectInner<T = string>({ options, value, onChange, styles, size = '
             value={value ?? null}
             onChange={(opt) => onChange?.(opt ?? null)}
             styles={mergedStyles}
+            menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+            menuPosition="fixed"
             {...rest}
         />
     );

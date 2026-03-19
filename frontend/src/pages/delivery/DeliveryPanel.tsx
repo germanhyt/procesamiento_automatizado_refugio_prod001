@@ -216,11 +216,10 @@ const DeliveryPanel: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setTab('runner')}
-                    className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                        tab === 'runner'
+                    className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
                             ? 'bg-teal-500 text-black border-teal-500/50'
                             : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
-                    }`}
+                        }`}
                 >
                     Runner
                 </button>
@@ -228,11 +227,10 @@ const DeliveryPanel: React.FC = () => {
                     <button
                         type="button"
                         onClick={() => setTab('admin')}
-                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                            tab === 'admin'
+                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
                                 ? 'bg-teal-500 text-black border-teal-500/50'
                                 : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
-                        }`}
+                            }`}
                     >
                         Admin
                     </button>

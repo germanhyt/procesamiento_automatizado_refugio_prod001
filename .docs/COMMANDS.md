@@ -14,6 +14,7 @@ Referencia de comandos para manejar el proyecto en **desarrollo local** y **prod
 6. [Mantenimiento y logs](#mantenimiento-y-logs)
 7. [Desarrollo y calidad](#desarrollo-y-calidad)
 8. [Aplicación móvil](#aplicación-móvil)
+9. [Build APK e instalación interna](#build-apk-e-instalación-interna)
 
 ---
 
@@ -297,6 +298,14 @@ EXPO_PUBLIC_WS_URL=ws://localhost:8080
 ```
 
 Para producción, usar la URL pública de la API (HTTPS/WSS).
+
+---
+
+## Build APK e instalación interna
+
+Para generar APK (iconos, EAS o Gradle, y distribución entre compañeros sin Play Store), ver la guía detallada:
+
+**[BUILD_APK_DISTRIBUCION.md](./BUILD_APK_DISTRIBUCION.md)**
 
 ---
 
