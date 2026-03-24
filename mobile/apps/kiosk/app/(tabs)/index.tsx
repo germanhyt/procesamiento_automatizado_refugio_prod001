@@ -267,7 +267,7 @@ export default function KioskScreen() {
             style={{ width: 60, height: 60 }}
           />
           <View>
-            <Text style={[styles.title, { color: palette.text }]}>KIOSK REFUGIO</Text>
+            <Text style={[styles.title, { color: palette.text }]}>RefuChasky KIOSK</Text>
             <Text style={[styles.subtitle, { color: palette.muted }]}>Cola de drivers</Text>
           </View>
         </View>

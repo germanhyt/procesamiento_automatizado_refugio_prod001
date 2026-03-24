@@ -1,71 +1,59 @@
 import React, { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 import { motion } from 'framer-motion';
-import { Upload, FileSpreadsheet, FileText, Calendar, Loader2, CheckCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, FileText, Calendar, Loader2, CheckCircle, FolderArchive } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
 
 import logo from '@/assets/logo.png';
 import AppSelect from '@/components/ui/AppSelect';
 import { LOCATARIOS, type Locatario } from '@/constants/locatarios';
+import { fetchSemanaActual, fetchArchivosCierreCaja, uploadFuentesFile, type LocatarioArchivos } from '@/services/fuentesService';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
-const FUENTES_BASE = `${API_URL}/fuentes`;
-
-interface SemanaActual {
-    carpeta: string;
-    numero_semana: number;
-    lunes: string;
-    domingo: string;
-}
-
-interface ArchivoGrupo {
-    semana: string;
-    locatario: string;
-    archivos: string[];
-}
+const ACCEPT = {
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    'text/csv': ['.csv'],
+    'application/csv': ['.csv'],
+} as const;
 
 const FuentesDatos: React.FC = () => {
     const queryClient = useQueryClient();
     const [locatario, setLocatario] = useState<Locatario | null>(null);
     const [uploading, setUploading] = useState(false);
-    const [dragOver, setDragOver] = useState(false);
 
-    const { data: semana, isLoading: loadingSemana } = useQuery<SemanaActual>({
+    const { data: semana, isLoading: loadingSemana } = useQuery({
         queryKey: ['fuentes-semana'],
-        queryFn: async () => {
-            const res = await axios.get(`${FUENTES_BASE}/semana-actual`);
-            return res.data;
-        },
+        queryFn: fetchSemanaActual,
     });
 
-    const { data: archivosData, isLoading: loadingArchivos } = useQuery<{ semana: string; archivos: ArchivoGrupo[] }>({
-        queryKey: ['fuentes-archivos', semana?.carpeta],
-        queryFn: async () => {
-            const res = await axios.get(`${FUENTES_BASE}/archivos`, {
-                params: semana?.carpeta ? { semana: semana.carpeta } : undefined,
-            });
-            return res.data;
-        },
-        enabled: !!semana?.carpeta,
+    const { data: archivosResp, isLoading: loadingArchivos } = useQuery({
+        queryKey: ['fuentes-archivos-cierre'],
+        queryFn: fetchArchivosCierreCaja,
     });
 
-    const uploadFile = useCallback(
-        async (file: File) => {
+    const porLocatario: LocatarioArchivos[] = archivosResp?.por_locatario ?? [];
+
+    const uploadManyFiles = useCallback(
+        async (files: File[]) => {
             if (!locatario) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Selecciona locatario',
-                    text: 'Elige un locatario antes de subir el archivo.',
+                    text: 'Elige un locatario antes de subir archivos.',
                     background: '#0a0a0a',
                     color: '#fff',
                     confirmButtonColor: '#14b8a6',
                 });
                 return;
             }
-            const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
-            if (ext !== '.xlsx' && ext !== '.csv') {
+            const lower = (n: string) => n.toLowerCase();
+            const valid = files.filter((f) => {
+                const n = lower(f.name);
+                return n.endsWith('.xlsx') || n.endsWith('.csv');
+            });
+            if (!valid.length) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Formato no válido',
@@ -76,70 +64,65 @@ const FuentesDatos: React.FC = () => {
                 });
                 return;
             }
+
             setUploading(true);
+            const ok: string[] = [];
+            const fail: string[] = [];
             try {
-                const formData = new FormData();
-                formData.append('file', file);
-                await axios.post(
-                    `${FUENTES_BASE}/upload?locatario_codigo=${encodeURIComponent(locatario.codigo)}`,
-                    formData,
-                    { headers: { 'Content-Type': 'multipart/form-data' } }
-                );
-                await queryClient.invalidateQueries({ queryKey: ['fuentes-archivos'] });
-                Swal.fire({
-                    icon: 'success',
-                    title: 'Archivo subido',
-                    text: `Guardado en ${semana?.carpeta ?? ''} / ${locatario.name}`,
-                    timer: 2500,
-                    showConfirmButton: false,
-                    background: '#0a0a0a',
-                    color: '#fff',
-                });
-            } catch (err: unknown) {
-                const msg = axios.isAxiosError(err) ? err.response?.data?.detail ?? err.message : String(err);
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error al subir',
-                    text: msg,
-                    background: '#0a0a0a',
-                    color: '#fff',
-                    confirmButtonColor: '#14b8a6',
-                });
+                for (const file of valid) {
+                    try {
+                        await uploadFuentesFile(locatario.codigo, file);
+                        ok.push(file.name);
+                    } catch (err: unknown) {
+                        const msg = axios.isAxiosError(err) ? err.response?.data?.detail ?? err.message : String(err);
+                        fail.push(`${file.name}: ${msg}`);
+                    }
+                }
+                await queryClient.invalidateQueries({ queryKey: ['fuentes-archivos-cierre'] });
+
+                if (fail.length === 0) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: `${ok.length} archivo(s) subido(s)`,
+                        html: `<div class="text-left text-sm">${ok.map((n) => `• ${n}`).join('<br/>')}</div>`,
+                        background: '#0a0a0a',
+                        color: '#fff',
+                        confirmButtonColor: '#14b8a6',
+                    });
+                } else {
+                    Swal.fire({
+                        icon: ok.length ? 'warning' : 'error',
+                        title: 'Resultado de carga',
+                        html: `<div class="text-left text-xs space-y-2"><p class="text-emerald-400">OK (${ok.length})</p>${ok.map((n) => `• ${n}`).join('<br/>')}<p class="text-rose-400 mt-2">Errores (${fail.length})</p>${fail.join('<br/>')}</div>`,
+                        background: '#0a0a0a',
+                        color: '#fff',
+                        confirmButtonColor: '#14b8a6',
+                    });
+                }
             } finally {
                 setUploading(false);
             }
         },
-        [locatario, queryClient, semana?.carpeta]
+        [locatario, queryClient]
     );
 
     const onDrop = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            setDragOver(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) uploadFile(file);
+        (acceptedFiles: File[]) => {
+            if (acceptedFiles.length) void uploadManyFiles(acceptedFiles);
         },
-        [uploadFile]
+        [uploadManyFiles]
     );
 
-    const onDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setDragOver(true);
-    }, []);
+    const dropzoneDisabled = uploading || !locatario;
 
-    const onDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setDragOver(false);
-    }, []);
-
-    const onSelectFile = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            if (file) uploadFile(file);
-            e.target.value = '';
-        },
-        [uploadFile]
-    );
+    const { getRootProps, getInputProps, isDragActive, fileRejections, open } = useDropzone({
+        onDrop,
+        accept: ACCEPT,
+        multiple: true,
+        disabled: dropzoneDisabled,
+        noClick: true,
+        noKeyboard: true,
+    });
 
     return (
         <div
@@ -169,12 +152,7 @@ const FuentesDatos: React.FC = () => {
             </header>
 
             <main className="flex-1 p-6 sm:p-10 max-w-4xl mx-auto w-full">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="space-y-8"
-                >
-                    {/* Semana actual */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
                     <div className="flex items-center gap-3 text-refugio-muted">
                         {loadingSemana ? (
                             <Loader2 size={18} className="animate-spin" />
@@ -183,12 +161,11 @@ const FuentesDatos: React.FC = () => {
                         )}
                         <span className="text-[10px] font-black uppercase tracking-widest">
                             {semana
-                                ? `Semana ${semana.numero_semana} · ${semana.lunes.slice(0, 10)} – ${semana.domingo.slice(0, 10)} (Lima)`
-                                : 'Cargando semana...'}
+                                ? `Ref. semana ${semana.numero_semana} · ${semana.lunes.slice(0, 10)} – ${semana.domingo.slice(0, 10)} (Lima) · carga → cierre_caja`
+                                : 'Cargando...'}
                         </span>
                     </div>
 
-                    {/* Selector locatario */}
                     <div>
                         <label className="text-[10px] font-black uppercase text-refugio-muted tracking-widest block mb-2">
                             Locatario
@@ -201,76 +178,107 @@ const FuentesDatos: React.FC = () => {
                         />
                     </div>
 
-                    {/* Zona de carga */}
                     <div
-                        onDrop={onDrop}
-                        onDragOver={onDragOver}
-                        onDragLeave={onDragLeave}
-                        className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-4 transition-all ${
-                            dragOver ? 'border-teal-500/50 bg-teal-500/5' : 'border-white/10 hover:border-white/20'
-                        } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+                        {...getRootProps({
+                            className: `border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-4 transition-all outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 ${
+                                isDragActive ? 'border-teal-500/50 bg-teal-500/5' : 'border-white/10 hover:border-white/20'
+                            } ${uploading ? 'opacity-60 pointer-events-none' : ''} ${!locatario && !uploading ? 'opacity-80' : ''}`,
+                        })}
                     >
+                        <input {...getInputProps()} />
                         {uploading ? (
                             <Loader2 size={40} className="text-teal-500 animate-spin" />
                         ) : (
                             <Upload size={40} className="text-refugio-muted" />
                         )}
-                        <span className="text-[10px] font-black uppercase tracking-widest text-refugio-muted">
-                            {uploading ? 'Subiendo...' : 'Arrastra aquí un archivo .xlsx o .csv'}
+                        <span className="text-[10px] font-black uppercase tracking-widest text-refugio-muted text-center">
+                            {uploading
+                                ? 'Subiendo archivos...'
+                                : isDragActive
+                                  ? 'Suelta los archivos aquí'
+                                  : 'Arrastra uno o varios .xlsx / .csv'}
                         </span>
-                        <label className="cursor-pointer">
-                            <span className="inline-block bg-teal-500 text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-400 transition-colors">
-                                Seleccionar archivo
+                        {!locatario && (
+                            <span className="text-[9px] text-amber-500/90 font-mono uppercase tracking-wide">
+                                Selecciona locatario para activar la zona de carga
                             </span>
-                            <input
-                                type="file"
-                                accept=".xlsx,.csv"
-                                className="hidden"
-                                onChange={onSelectFile}
-                                disabled={uploading}
-                            />
-                        </label>
+                        )}
+                        {fileRejections.length > 0 && (
+                            <span className="text-[9px] text-rose-400 text-center max-w-md">
+                                Algunos archivos no son válidos (solo .xlsx y .csv).
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => open()}
+                            disabled={dropzoneDisabled}
+                            className="inline-block bg-teal-500 text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                            Seleccionar archivos
+                        </button>
                     </div>
 
-                    {/* Lista de archivos de la semana */}
                     <div className="bg-app-card border border-app-border rounded-[30px] p-6 sm:p-8">
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-refugio-muted mb-4">
-                            Archivos cargados esta semana
+                            Cierre caja (pendientes y consolidados por locatario)
                         </h3>
                         {loadingArchivos ? (
                             <div className="flex items-center gap-2 text-refugio-muted py-6">
                                 <Loader2 size={18} className="animate-spin" />
                                 <span className="text-sm">Cargando...</span>
                             </div>
-                        ) : archivosData?.archivos?.length ? (
-                            <ul className="space-y-4">
-                                {archivosData.archivos.map((grupo) => (
-                                    <li key={`${grupo.semana}-${grupo.locatario}`}>
+                        ) : porLocatario.length ? (
+                            <ul className="space-y-6">
+                                {porLocatario.map((grupo) => (
+                                    <li key={grupo.locatario}>
                                         <p className="text-[9px] font-black text-teal-500 uppercase tracking-widest mb-2">
                                             {grupo.locatario}
                                         </p>
-                                        <ul className="space-y-1 pl-2">
-                                            {grupo.archivos.map((nombre) => (
-                                                <li
-                                                    key={nombre}
-                                                    className="flex items-center gap-2 text-sm text-app-text"
-                                                >
-                                                    {nombre.toLowerCase().endsWith('.xlsx') ? (
-                                                        <FileSpreadsheet size={14} className="text-emerald-500 shrink-0" />
-                                                    ) : (
-                                                        <FileText size={14} className="text-teal-500 shrink-0" />
-                                                    )}
-                                                    {nombre}
-                                                </li>
-                                            ))}
-                                        </ul>
+                                        {grupo.pendientes?.length ? (
+                                            <div className="mb-3">
+                                                <p className="text-[8px] font-bold text-refugio-muted uppercase mb-1">Pendientes</p>
+                                                <ul className="space-y-1 pl-2">
+                                                    {grupo.pendientes.map((nombre) => (
+                                                        <li
+                                                            key={`p-${nombre}`}
+                                                            className="flex items-center gap-2 text-sm text-app-text"
+                                                        >
+                                                            {nombre.toLowerCase().endsWith('.xlsx') ? (
+                                                                <FileSpreadsheet size={14} className="text-emerald-500 shrink-0" />
+                                                            ) : (
+                                                                <FileText size={14} className="text-teal-500 shrink-0" />
+                                                            )}
+                                                            {nombre}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ) : null}
+                                        {grupo.consolidados?.length ? (
+                                            <div>
+                                                <p className="text-[8px] font-bold text-refugio-muted uppercase mb-1 flex items-center gap-1">
+                                                    <FolderArchive size={12} /> _consolidados
+                                                </p>
+                                                <ul className="space-y-1 pl-2">
+                                                    {grupo.consolidados.map((nombre) => (
+                                                        <li
+                                                            key={`c-${nombre}`}
+                                                            className="flex items-center gap-2 text-sm text-app-text opacity-90"
+                                                        >
+                                                            <FileText size={14} className="text-amber-500/90 shrink-0" />
+                                                            {nombre}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ) : null}
                                     </li>
                                 ))}
                             </ul>
                         ) : (
                             <div className="flex items-center gap-2 text-refugio-muted py-6">
                                 <CheckCircle size={18} className="shrink-0" />
-                                <span className="text-sm">Aún no hay archivos cargados para esta semana.</span>
+                                <span className="text-sm">Aún no hay archivos en cierre_caja.</span>
                             </div>
                         )}
                     </div>

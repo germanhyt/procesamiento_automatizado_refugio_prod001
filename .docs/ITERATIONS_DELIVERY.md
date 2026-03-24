@@ -91,10 +91,16 @@ Observaciones
 - En el monorepo del runner me sale error 404 en:
 http://localhost:8080/api/delivery/orders/12
 - Requiero refactorizar estilos, nos guiamos del mono reporte de kiok para ello, además considerar el tema de dark/light theme
-
 completamos la refactorización de estilos para el monorepo del runner
 
 
 12)
 Recomiendas en la apk de kiosk, agregamos como la sección última los pedidos entregados del día? como ux/ui,
 aplicamos la funcionalidad,
+
+13) 
+solo responde,
+he actualizado el "ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
+",
+pero obsevo que se cierre sesión cada cierto tiempo, cuál es al causa
+

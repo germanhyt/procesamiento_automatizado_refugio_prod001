@@ -13,7 +13,7 @@ Experto en la capa de datos: Big Query, PostgreSQL, Power BI, GDrive, FileStore.
 |--------|---------|-----|
 | Usuario | Nginx | HTTPS: frontend estático + API |
 | Backend | PostgreSQL | Usuarios, roles, permisos, estado de procesamiento |
-| Backend | Big Query | Carga de ventas (p. ej. `stg_sales_raw`) |
+| Backend | Big Query | Carga de ventas (p. ej. `stg_silver_raw`) |
 | Backend | Google Drive | Configuración y archivos (legacy) |
 | Backend | Power BI Service | Token embed (App Owns Data) |
 | Fuentes de datos | `uploads/` | `.xlsx` / `.csv` por semana y locatario |
@@ -36,7 +36,7 @@ Experto en la capa de datos: Big Query, PostgreSQL, Power BI, GDrive, FileStore.
 
 ## Big Query
 
-- Tablas destino (ej. `stg_sales_raw`) según configuración
+- Tablas destino (ej. `stg_silver_raw`) según configuración
 - Credenciales GCP en `config/`
 
 ## Uploads (FileStore)

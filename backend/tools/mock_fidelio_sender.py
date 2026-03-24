@@ -52,7 +52,6 @@ if __name__ == "__main__":
 #         "plataforma": "",
 #         "codigo_pedido": "",
 #         "numero_bolsas": "",
-# }
 
 
 
@@ -76,5 +75,20 @@ if __name__ == "__main__":
 #   --restaurant-id A03_BARRIO_MANCORA \
 #   --plataforma RAPPI \
 #   --codigo-pedido RAPPI-TEST-007 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-008 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-009 \
 #   --bolsas 2 \
 #   --api-key "mi-clave-secreta"

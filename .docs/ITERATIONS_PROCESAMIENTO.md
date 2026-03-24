@@ -2,7 +2,7 @@
 
 1)
 
-Al procesar en Bigquery, y hacer un select stg_sales_raw los resultado de búsqueda me da "[{
+Al procesar en Bigquery, y hacer un select stg_silver_raw los resultado de búsqueda me da "[{
   "Fecha": "2026-03-02",
   "Hora": null,
   "FechaHora": null,
@@ -727,6 +727,97 @@ Además:
 Estoy requiriendo poder tener un modal en el módulo para poder gestionar los archivos excel por semana, permitir visaulizar los archivos, descargar en bloque (.zip), y cargar en bloque y si coincide nombres reemplazarlos, cargar un nuevo archivo o poder eliminar. Esto ya que verificaré el contenido de los archivos y de ser necesario se modificará de forma interna (limpieza)
 
 
+13)
+
+- Genera el resumen detallado de la lógica de procesamiento manual que se ha planteado o que se tiene implementado, considera graficar con lineas el flujo 
+
+- Está ocurriendo un problema y es que los archivos que se están cargando en fuentes son de la semana anterior pero recién lo están cargando ahora,
+la cuestión es que si bien lo pueden cargar las fuentes en cualquier fecha, la cuestión es que en el flujo de procesamiento poder permitirm al usuario pueda elegir el rango de fechas, ahora no es que se pueda guardar los archivos en una carpeta solamente sino en varias y ahí el tema también, qué me recomiendas y dame los pros y contras
+
+
+
+Para el módulo de flujo diario, pienso lo siguiente:
+- en /fuentes donde cargamos los reportes, a la carpeta donde se carga los llamamos "cierre_caja/locatario" como la idea de pendientes que me comentas, y que luego de procesarlo los pasamos a una carpeta de "procesados/fecha_actual_de_carga/locatario" en el ecosistema filestore, revisando al cargar un archivo el usuario concatenar el hash de fecha luego del nombre del archivo ejemplo "SISA_20260322_221334"
+
+- ya dentro del procesamiento para no complicar al operador, podría darle opciones que diga "Procesar semana actual", "Procesar ultima semana completa", "Procesar rango libre"; esto para aplicarlo en el proceso de "consolidar", "Conversión" que debe apuntar al fileStore también, y el de "Asociar"
+
+- ahora para la asociación manual "Explorador CierreCaja", tendría que apuntar al cierre_caja pero del filestore, además la idea es refactorizar el "Gestionar archivos" a como se está planificando
+
+- Refactorizaar frontend de /fuentes /legacy respetando la arquiectectura y diseño del sistema
+
+**Implementado (FileStore cierre_caja):**
+- Estructura: `uploads/cierre_caja/{locatario}/` pendientes; `uploads/cierre_caja/{locatario}/_consolidados/{etiqueta}.csv`; `uploads/procesados/{YYYY-MM-DD}/{locatario}/` (API listado; mover a procesados pendiente de automatizar al cerrar flujo).
+- Upload añade sufijo `_YYYYMMDD_HHmmss` si el nombre aún no lo trae; `upload-bulk` con `replace=true` conserva el nombre del cliente (sobrescribe).
+- Consolidar por locatario + parámetros `modo_rango`, `fecha_inicio`, `fecha_fin`. Criterio de inclusión: fecha en nombre `_YYYYMMDD_` en rango **o** fecha de modificación del archivo (Lima) en rango **o** sin fecha en nombre (legacy); si tras el filtro no queda ningún archivo pero hay pendientes, se consolidan **todos** los pendientes del locatario. Tras unir archivos, `Fecha` se normaliza antes de `drop_duplicates`.
+- Asociar igual para fechas en Activas.
+- Gestionar archivos (modal): pestaña **Cierre caja** (pendientes + _consolidados, eliminar por zona) y **Procesados** (solo visualización por fecha).
+- **Migración manual:** archivos antiguos en `uploads/semana*_.../` no se leen con la nueva lógica; mover a `cierre_caja/{codigo_locatario}/`.
+
+
+- Refactorizamos el drag an drop principal usando react-dropzone y permitiendo subir varios archivos a la vez
+
+- revisamos la lógica del proceso opcional de consolidar, veo que no se está consolidando los archivos los registros de los archivos individuales
+
+
+- En "Vista previa: sales_df" opción de lazy loading, para cargar los demás datos del sales_df
+
+- En "Gestionar archivos" no está funcional la sección de "Cargar en Bloque (Cierre de caja)" corregimos
+
+
+....
+
+- ya tengo los archivos individuales lo he consolidaod también, he aplicado la conversión aunque no era necesario, lo he asociado y luego ahora al procesar las ventas veo que no se llega a cargar en sales_df en el archivo Config,  en el alert mostrar la cantidade  registros procesados,
+- además también el procesamiento hacia bigquery observo que registros se ingestan con campos nulos,
+verificamos el correcto funcionamiento de estos, si es necesario hacemos test
+
+
+- ya vi un error  notorio al usarlo, en el consolidado al aplicar por semana anterior (solo se procesa 16 al 18 de marzo cuando en realidad debe consolidar entre el 16 al 26), al aplicar por semana actual (si se consolida con todos los datos cuando en realidad la semana actual va desde 23 al 29), por rango si se obedece, mi consulta es se está referenciando el campo "fecha" para la consolidación?,
+revisemos, testeamos y corregimos
+
+
+
+- consuta, no modifiques,
+dame el flujo lógica a detalle de cada proceso del flujo de procesamiento,
+desde la limpieza, consolidado, convertir, asociar, procesa_ventas, y procesar_nube,
+cada uno de estos con diferentes escenario
+
+## Qué pasaba
+
+1. **La semana no se definía con la columna `Fecha` del CSV**  
+   En `semana_actual` y `ultima_semana` solo se usaba `archivo_en_rango_consolidacion` (fecha del sufijo `_YYYYMMDD_` en el nombre + `mtime`). Eso **no** es la fecha de operación del reporte. Muchos archivos tienen en el nombre la **fecha de carga** (p. ej. `..._20260323_...` aunque el reporte sea del 19/03), así que:
+   - En **última semana** quedaban fuera días que sí estaban en el CSV → solo veías algo como 16–18.
+   - En **semana actual**, si **ningún** archivo pasaba el filtro, el código hacía **fallback y consolidaba todos los pendientes** → mezclabas semanas enteras.
+
+2. **`rango_libre` ya filtraba por `Fecha`**; los otros modos no.
+
+## Cambios hechos
+
+- **`consolidar_desde_filestore`**: para cada locatario se leen **todos los archivos pendientes** y el recorte del período es **siempre** por la columna **`Fecha`** en `[rango_inicio, rango_fin]` (igual criterio que en rango libre). Eliminado el fallback que metía todos los archivos cuando el filtro por nombre fallaba.
+- **`filtrar_filas_por_rango_fecha`** en `file_store_service.py`: centraliza el filtro; usa `pd.to_datetime(..., format="mixed", dayfirst=True)` para que en una misma columna convivan **ISO** (`2026-03-20`) y **d/m/Y** sin que pandas deje filas en `NaT` (bug típico del `to_datetime` vectorizado con formatos mezclados).
+- **`rango_desde_modo`**: alias `semana_anterior` / `ultima_semana_completa` → `ultima_semana` por si en algún cliente llega otro nombre.
+- **Tests**: `backend/tools/test_consolidacion_rango_fecha.py` (filtro por fechas + semana actual / anterior con fecha fija simulada).
+
+```bash
+cd backend && python tools/test_consolidacion_rango_fecha.py
+```
+## Sobre el calendario
+La **semana** sigue siendo **lunes–domingo** en **America/Lima** (p. ej. con hoy 25/03/2026: semana actual **23–29/03**, anterior **16–22/03**). Si decías “16 al 26”, en calendario ISO serían **dos semanas** distintas; si necesitas un bloque personalizado, usa **rango libre**.
+
+**Nota:** al leer todos los pendientes por locatario, si en el futuro hay muchísimos archivos históricos en la misma carpeta, podría pesar más CPU; si hace falta, se puede añadir un filtro previo por nombre/mes siempre **después** de seguir filtrando por `Fecha`.
+
+
+
+- al procesar a bgiquery veo que no se carga por completo los registros del archiv config>sales_df, de un tal apróx de 300 registros solo 27 se están cargando, revisamos a qué se debe? testeamos si es necesario,
+
+
+- al procesar las ventas a sales_df, veo que no se está procesando de forma correcta los registros me sale "No se procesaron filas: revise Activas (Cargar=1), rutas en FileStore y BaseCarga por locatario.", estos cómo se están procesando y qué pasa con los archivos al aplicarse el consolidado?, se procesan y se guarda en la otra carpeta de procesados?
+
+
+
+- ok, veo que hay un problema en la lógica de procesar ventas, entiendo desde el aplicar o no consolidación, veo que al aplicar el consolidado y siguiendo con los pasos hasta procesar ventas veo que solo se procesar el primer archivo individual y no el consolidado como tál, además requiero primero plantear bien la solución en este caso para que el flujo pueda cubrir los difernetes escenarios incluso luego al moverse los archivos a procesados
+
+
+- en "Gestionar archivos" generamos una preview en de los archivos
 
 
 
@@ -738,31 +829,7 @@ Estoy requiriendo poder tener un modal en el módulo para poder gestionar los ar
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+....
 
 ## Despliegue en VPS (Docker)
 

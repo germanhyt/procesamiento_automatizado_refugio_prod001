@@ -85,7 +85,7 @@ flowchart TB
 | Usuario | Nginx | HTTPS: frontend estático + API |
 | Frontend | Backend `/api/*` | Auth, fuentes, procesamiento, usuarios, Power BI |
 | Backend | PostgreSQL | Usuarios, roles, permisos, estado de procesamiento |
-| Backend | Big Query | Carga de ventas (p. ej. `stg_sales_raw`) |
+| Backend | Big Query | Carga de ventas (p. ej. `stg_silver_raw`) |
 | Backend | Google Drive | Configuración y archivos (legacy) |
 | Backend | Power BI Service | Token embed (App Owns Data) |
 | Fuentes de datos | `uploads/` | `.xlsx` / `.csv` por semana y locatario |

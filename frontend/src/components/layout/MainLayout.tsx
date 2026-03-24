@@ -35,12 +35,13 @@ interface MenuItemConfig {
 }
 
 const MENU_ITEMS_CONFIG: MenuItemConfig[] = [
-    { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view' },
-    { id: 'legacy', path: '/legacy', label: 'Flujo Diario Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process' },
-    { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view' },
-    { id: 'dashboard', path: '', label: 'Procesamiento Automático', icon: <Zap size={18} />, permission: 'dashboard:view', disabled: true },
     { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage' },
+    { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view' },
+    { id: 'legacy', path: '/legacy', label: 'Procesam. Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process' },
+    { id: 'dashboard', path: '', label: 'Procesam. Automático', icon: <Zap size={18} />, permission: 'dashboard:view', disabled: true },
+    { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view' },
 ];
+
 
 const MainLayout: React.FC = () => {
     const { user, logout } = useAuth();
@@ -143,13 +144,12 @@ const MainLayout: React.FC = () => {
                                 key={item.id}
                                 type="button"
                                 onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
-                                className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 ${
-                                    isActive
+                                className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 ${isActive
                                         ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]'
                                         : item.disabled
-                                          ? 'opacity-40 cursor-not-allowed grayscale'
-                                          : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
-                                }`}
+                                            ? 'opacity-40 cursor-not-allowed grayscale'
+                                            : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
+                                    }`}
                             >
                                 <span className="shrink-0 relative z-10">{item.icon}</span>
                                 <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
@@ -181,9 +181,8 @@ const MainLayout: React.FC = () => {
                 style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
             >
                 <div
-                    className={`flex items-center gap-5 transition-all duration-300 ${
-                        sidebarOpen ? 'p-8 mb-4' : 'p-0 h-24 mb-4 justify-center'
-                    }`}
+                    className={`flex items-center gap-5 transition-all duration-300 ${sidebarOpen ? 'p-8 mb-4' : 'p-0 h-24 mb-4 justify-center'
+                        }`}
                 >
                     <button
                         type="button"
@@ -215,12 +214,11 @@ const MainLayout: React.FC = () => {
                                 onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
                                 className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl
                                     ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
-                                    ${
-                                        isActive
-                                            ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]'
-                                            : item.disabled
-                                              ? 'opacity-40 cursor-not-allowed grayscale'
-                                              : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
+                                    ${isActive
+                                        ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]'
+                                        : item.disabled
+                                            ? 'opacity-40 cursor-not-allowed grayscale'
+                                            : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
                                     }`}
                             >
                                 <span className="shrink-0 relative z-10">{item.icon}</span>

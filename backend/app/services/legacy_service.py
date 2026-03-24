@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import pandas as pd
 import shutil
 import logging
@@ -14,7 +15,27 @@ from fuzzywuzzy import fuzz
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
+from app.core.constants import FILE_STORE_SUB_CONSOLIDADOS, get_locatario_code_from_full
+
 logger = logging.getLogger(__name__)
+
+
+def _activar_cargar(val) -> bool:
+    """Excel puede devolver Cargar como 1, 1.0, '1', True, etc."""
+    if val is None:
+        return False
+    if isinstance(val, (float, np.floating)) and np.isnan(val):
+        return False
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    if isinstance(val, (int, np.integer, float, np.floating)):
+        try:
+            return int(float(val)) == 1
+        except (TypeError, ValueError):
+            return False
+    s = str(val).strip().lower()
+    return s in ("1", "true", "sí", "si", "yes", "y")
+
 
 class LegacyService:
     def __init__(self, gdrive_service, drive_id_config: str, drive_id_ventas: str, drive_id_procesados: str, bq_project_id: str, bq_dataset: str, bq_creds_path: str):
@@ -125,9 +146,11 @@ class LegacyService:
         for i in range(7):
             date = (monday_last_week + timedelta(days=i)).date()
             record = {col: '' for col in column_names}
+            fh = f"{date.strftime('%Y-%m-%d')} 06:00:00"
             record.update({
                 'Fecha': date,
                 'Hora': "06:00:00",
+                'FechaHora': fh,
                 'Monto': 0.0,
                 'Producto': '-',
                 'Cliente': 'Sistema',
@@ -137,6 +160,7 @@ class LegacyService:
                 'CodigoUbicacion': codigo_ubicacion,
                 'FechaCarga': now.strftime("%Y-%m-%d"),
                 'Estado': 0,
+                'FormaPago': '-',
                 'EstadoNegocio': estado_negocio if pd.notna(estado_negocio) else "INACTIVO",
                 'TipoNegocio': tipo_negocio if pd.notna(tipo_negocio) else '',
                 'Area': area if pd.notna(area) else ''
@@ -146,37 +170,147 @@ class LegacyService:
 
     # ... (métodos existentes de conversión y archivos) ...
 
-    async def list_cierre_caja_files(self) -> Dict[str, Any]:
-        """Lista archivos actualmente en CierreCaja desde Google Drive."""
+    def _resolve_filestore_path_for_ventas(self, ruta_archivo: str) -> str | None:
+        """Resuelve ruta local: loc/archivo, loc/_consolidados/archivo, o nombre único en cierre_caja."""
+        from app.services.file_store_service import resolve_cierre_caja_path, iter_cierre_caja_archivos_procesamiento, get_upload_base
+        from app.core.constants import FILE_STORE_CIERRE_CAJA, FILE_STORE_SUB_CONSOLIDADOS
+
+        r = str(ruta_archivo).strip()
+        if "/" in r:
+            segs = r.split("/")
+            if len(segs) == 3 and segs[1] in (FILE_STORE_SUB_CONSOLIDADOS, "_consolidados"):
+                p = get_upload_base() / FILE_STORE_CIERRE_CAJA / segs[0] / FILE_STORE_SUB_CONSOLIDADOS / segs[2]
+                if p.is_file():
+                    return str(p)
+            loc, fname = segs[0], "/".join(segs[1:])
+            p = resolve_cierre_caja_path(loc, fname.strip())
+            if p and p.is_file():
+                return str(p)
+            return None
+        base_name = os.path.basename(r)
+        matches = []
+        for _loc, name, path in iter_cierre_caja_archivos_procesamiento():
+            if name == base_name:
+                matches.append(path)
+        if len(matches) == 1:
+            return str(matches[0])
+        return None
+
+    def _resolve_codigo_negocio_basecarga(self, codigo_negocio: Any, base_carga_df: pd.DataFrame) -> Any:
+        """Alinea código de Activas (ej. A03) con fila de BaseCarga (ej. A03_BARRIO_MANCORA)."""
+        if base_carga_df is None or base_carga_df.empty or "CodigoNegocio" not in base_carga_df.columns:
+            return codigo_negocio
+        codigos = base_carga_df["CodigoNegocio"].dropna().astype(str).str.strip().unique().tolist()
+        c_str = str(codigo_negocio).strip() if pd.notna(codigo_negocio) else ""
+        if not c_str:
+            return codigo_negocio
+        if c_str in codigos:
+            return codigo_negocio
+        prefix = c_str.split("_", 1)[0] if "_" in c_str else c_str
+        for cand in codigos:
+            if cand == c_str or cand.endswith(c_str) or c_str.endswith(cand):
+                logger.info("BaseCarga: usando CodigoNegocio %s (Activas tenía %s)", cand, codigo_negocio)
+                return cand
+        for cand in codigos:
+            cp = cand.split("_", 1)[0] if "_" in cand else cand
+            if cp == prefix:
+                logger.info("BaseCarga: usando CodigoNegocio %s por prefijo (Activas %s)", cand, codigo_negocio)
+                return cand
+        logger.warning("BaseCarga: sin coincidencia para CodigoNegocio=%s; extracción puede fallar", codigo_negocio)
+        return codigo_negocio
+
+    @staticmethod
+    def _ruta_archivo_es_consolidado_filestore(ruta_archivo: str) -> bool:
+        r = str(ruta_archivo or "").replace("\\", "/")
+        return f"/{FILE_STORE_SUB_CONSOLIDADOS}/" in r or "/_consolidados/" in r.lower()
+
+    def _codigo_negocio_para_carpeta_loc(self, hoja_negocios: pd.DataFrame, loc: str) -> Any:
+        """Mapea carpeta FileStore (ej. A03_BARRIO_MANCORA) a CodigoNegocio en hoja Negocios."""
+        if hoja_negocios is None or hoja_negocios.empty or "CodigoNegocio" not in hoja_negocios.columns:
+            return None
+        loc_s = str(loc).strip()
+        codes = hoja_negocios["CodigoNegocio"].dropna().astype(str).str.strip()
+        exact = hoja_negocios.loc[codes == loc_s]
+        if not exact.empty:
+            return exact.iloc[0]["CodigoNegocio"]
+        pref = get_locatario_code_from_full(loc_s)
+        by_pref = hoja_negocios.loc[codes == pref]
+        if not by_pref.empty:
+            return by_pref.iloc[0]["CodigoNegocio"]
+        for _, row in hoja_negocios.iterrows():
+            cn = str(row.get("CodigoNegocio", "")).strip()
+            if cn and (loc_s == cn or loc_s.startswith(cn + "_")):
+                return row["CodigoNegocio"]
+        return None
+
+    def _infer_loc_zona_from_filestore_path(self, file_path: str) -> Tuple[str, str] | None:
+        """Devuelve (locatario, 'pendiente'|'consolidado') desde ruta absoluta bajo cierre_caja."""
+        from app.core.constants import FILE_STORE_CIERRE_CAJA, FILE_STORE_SUB_CONSOLIDADOS
+
         try:
-            if not self.drive_id_ventas:
-                return {"success": False, "error": "ID de la carpeta CierreCaja no proporcionado"}
-            
-            files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
+            p = Path(file_path).resolve()
+            parts = p.parts
+        except OSError:
+            return None
+        for i, seg in enumerate(parts):
+            if seg != FILE_STORE_CIERRE_CAJA or i + 2 >= len(parts):
+                continue
+            loc = parts[i + 1]
+            if parts[i + 2] == FILE_STORE_SUB_CONSOLIDADOS and i + 3 < len(parts):
+                return loc, "consolidado"
+            return loc, "pendiente"
+        return None
+
+    async def list_cierre_caja_files(self) -> Dict[str, Any]:
+        """Lista archivos en FileStore (cierre_caja): pendientes y consolidados por locatario."""
+        try:
+            from app.services.file_store_service import list_cierre_caja_por_locatario
+
             formatted_files = []
-            for f in files:
-                formatted_files.append({
-                    "name": f.get("name"),
-                    "size": int(f.get("size", 0)),
-                    "modified": f.get("modifiedTime")
-                })
+            for row in list_cierre_caja_por_locatario():
+                loc = row["locatario"]
+                for name in row.get("pendientes") or []:
+                    from app.services.file_store_service import get_upload_base
+                    from app.core.constants import FILE_STORE_CIERRE_CAJA
+
+                    p = get_upload_base() / FILE_STORE_CIERRE_CAJA / loc / name
+                    st = p.stat() if p.is_file() else None
+                    formatted_files.append({
+                        "name": f"{loc}/{name}",
+                        "size": int(st.st_size) if st else 0,
+                        "modified": datetime.fromtimestamp(st.st_mtime).isoformat() if st else "",
+                        "zona": "pendiente",
+                    })
+                cons_dir_name = "_consolidados"
+                for name in row.get("consolidados") or []:
+                    from app.services.file_store_service import get_upload_base
+                    from app.core.constants import FILE_STORE_CIERRE_CAJA, FILE_STORE_SUB_CONSOLIDADOS
+
+                    p = get_upload_base() / FILE_STORE_CIERRE_CAJA / loc / FILE_STORE_SUB_CONSOLIDADOS / name
+                    st = p.stat() if p.is_file() else None
+                    formatted_files.append({
+                        "name": f"{loc}/{cons_dir_name}/{name}",
+                        "size": int(st.st_size) if st else 0,
+                        "modified": datetime.fromtimestamp(st.st_mtime).isoformat() if st else "",
+                        "zona": "consolidado",
+                    })
             return {"success": True, "files": formatted_files}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def save_upload_file(self, filename: str, content: bytes) -> Dict[str, Any]:
-        """Guarda un archivo subido temporal y lo sube a Drive en CierreCaja."""
+    async def save_upload_file(self, filename: str, content: bytes, locatario_codigo: str | None = None) -> Dict[str, Any]:
+        """Guarda en FileStore (cierre_caja). Requiere locatario_codigo en la petición."""
         try:
-            temp_path = os.path.join(self.temp_dir, filename)
-            with open(temp_path, "wb") as f:
-                f.write(content)
-            
-            file_id = self.gdrive.upload_new_file(temp_path, filename, self.drive_id_ventas)
-            os.remove(temp_path)
-            
-            if file_id:
-                return {"success": True, "message": f"Archivo {filename} guardado en Drive"}
-            return {"success": False, "error": "Error subiendo archivo a Drive"}
+            from app.services.file_store_service import save_file
+            from app.core.constants import CODIGOS_LOCATARIOS_VALIDOS
+
+            loc = (locatario_codigo or "").strip()
+            if not loc:
+                return {"success": False, "error": "Indique locatario_codigo para subir al FileStore"}
+            if loc not in CODIGOS_LOCATARIOS_VALIDOS:
+                return {"success": False, "error": f"Locatario no válido: {loc}"}
+            rel = save_file(loc, filename, content, add_hash=True, replace=False)
+            return {"success": True, "message": f"Archivo guardado en FileStore: {rel}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -185,41 +319,28 @@ class LegacyService:
     # ==========================================
     async def convertir_xlsx_to_csv(self) -> Dict[str, Any]:
         """
-        Descarga los .xlsx desde Drive, los convierte a CSV y los resube a CierreCaja. Luego envía a papelera el original.
+        Convierte .xlsx a CSV (;) solo en pendientes de FileStore (cierre_caja/{loc}/), elimina el xlsx.
         """
+        from app.services.file_store_service import iter_cierre_caja_archivos_procesamiento
+
         results = []
         try:
-            if not self.drive_id_ventas:
-                return {"success": False, "error": "ID de la carpeta CierreCaja no proporcionado"}
-
-            files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
-            xlsx_files = [f for f in files if f.get('name', '').lower().endswith('.xlsx')]
-            
-            for file_info in xlsx_files:
-                filename = file_info.get('name')
-                file_id = file_info.get('id')
-                
-                xlsx_temp_path = os.path.join(self.temp_dir, filename)
-                csv_filename = filename.rsplit('.', 1)[0] + '.csv'
-                csv_path = os.path.join(self.temp_dir, csv_filename)
-                
+            count_ok = 0
+            for loc, name, path in iter_cierre_caja_archivos_procesamiento(solo_pendientes=True):
+                if not name.lower().endswith(".xlsx"):
+                    continue
                 try:
-                    self.gdrive.download_file(file_id, xlsx_temp_path)
-                    
-                    df = pd.read_excel(xlsx_temp_path)
+                    csv_name = name.rsplit(".", 1)[0] + ".csv"
+                    csv_path = path.parent / csv_name
+                    df = pd.read_excel(path)
                     df.to_csv(csv_path, index=False, sep=";")
-                    
-                    self.gdrive.upload_new_file(csv_path, csv_filename, self.drive_id_ventas, "text/csv")
-                    self.gdrive.trash_file(file_id)
-                    
-                    if os.path.exists(xlsx_temp_path): os.remove(xlsx_temp_path)
-                    if os.path.exists(csv_path): os.remove(csv_path)
-
-                    results.append(f"Convertido: {filename}")
+                    path.unlink()
+                    results.append(f"Convertido: {loc}/{name} -> {csv_name}")
+                    count_ok += 1
                 except Exception as e:
-                    results.append(f"Error en {filename}: {str(e)}")
+                    results.append(f"Error {loc}/{name}: {str(e)}")
 
-            return {"success": True, "details": results, "count": len(xlsx_files)}
+            return {"success": True, "details": results, "count": count_ok}
         except Exception as e:
             logger.error(f"Error en convertir_xlsx_to_csv: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -269,71 +390,127 @@ class LegacyService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def asociar_negocios_automatico(self) -> Dict[str, Any]:
+    async def asociar_negocios_automatico(
+        self,
+        modo_rango: str = "ultima_semana",
+        fecha_inicio: str | None = None,
+        fecha_fin: str | None = None,
+    ) -> Dict[str, Any]:
         """
-        Replica la lógica de AsociarNegociosActualOfi.py:
-        Aplica fuzzy matching entre archivos de CierreCaja y la lista de negocios.
-        Actualiza las hojas 'Asociaciones' y 'Activas' con fechas de la última semana.
+        Asocia archivos FileStore → Activas.
+        Por locatario: si hay archivos en _consolidados, solo el más reciente (mtime) y ruta explícita
+        {loc}/_consolidados/{nombre}. Si no, una fila por pendiente con fuzzy nombre ↔ Descripcion.
         """
+        from app.services.file_store_service import iter_cierre_caja_archivos_procesamiento, rango_desde_modo
+
         try:
             self._download_config()
-            # 1. Cargar Negocios y Archivos
             hoja_negocios = pd.read_excel(self.config_path, sheet_name="Negocios")
             tiendas = hoja_negocios["Descripcion"].dropna().unique().tolist()
-            
-            drive_files = self.gdrive.list_files_in_folder(self.drive_id_ventas)
-            # Detectamos ambos formatos: CSV y XLSX
-            archivos_pendientes = [f.get('name') for f in drive_files if f.get('name', '').lower().endswith(('.csv', '.xlsx'))]
-            
-            # 2. Fuzzy Matching
-            asociaciones = []
-            for archivo in archivos_pendientes.copy():
-                mejor_tienda = None
-                mejor_puntaje = 0
-                for tienda in tiendas:
-                    puntaje = fuzz.partial_ratio(tienda.lower(), archivo.lower())
-                    if puntaje > 80 and puntaje > mejor_puntaje:
-                        mejor_tienda = tienda
-                        mejor_puntaje = puntaje
-                
-                if mejor_tienda:
-                    asociaciones.append({"Archivo": archivo, "Tienda": mejor_tienda})
-                    tiendas.remove(mejor_tienda)
+
+            by_loc: Dict[str, Dict[str, list]] = {}
+            for loc, name, path in iter_cierre_caja_archivos_procesamiento():
+                low = name.lower()
+                if not (low.endswith(".csv") or low.endswith(".xlsx")):
+                    continue
+                if loc not in by_loc:
+                    by_loc[loc] = {"pend": [], "cons": []}
+                parts_lower = [p.lower() for p in path.parts]
+                if FILE_STORE_SUB_CONSOLIDADOS in path.parts or "_consolidados" in parts_lower:
+                    by_loc[loc]["cons"].append((name, path))
+                else:
+                    by_loc[loc]["pend"].append((name, path))
+
+            asociaciones: list[dict] = []
+            activas_rows: list[dict] = []
+            d0, d1, _ = rango_desde_modo(modo_rango, fecha_inicio, fecha_fin)
+            d0s, d1s = d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d")
+
+            def _codigo_por_tienda(tienda: str):
+                try:
+                    return hoja_negocios.loc[hoja_negocios["Descripcion"] == tienda, "CodigoNegocio"].values[0]
+                except Exception:
+                    return None
+
+            for loc, buckets in sorted(by_loc.items()):
+                con_list = buckets.get("cons") or []
+                pend_list = buckets.get("pend") or []
+
+                if con_list:
+                    name, path = max(con_list, key=lambda x: x[1].stat().st_mtime)
+                    ruta_completa = f"{loc}/{FILE_STORE_SUB_CONSOLIDADOS}/{name}"
+                    codigo_negocio = self._codigo_negocio_para_carpeta_loc(hoja_negocios, loc)
+                    tienda_guess = None
+                    if codigo_negocio is not None:
+                        try:
+                            m = hoja_negocios.loc[hoja_negocios["CodigoNegocio"] == codigo_negocio, "Descripcion"]
+                            if not m.empty:
+                                tienda_guess = m.iloc[0]
+                        except Exception:
+                            pass
+                    if codigo_negocio is None:
+                        mejor_t = None
+                        mejor_p = 0
+                        for tienda in tiendas:
+                            p = fuzz.partial_ratio(tienda.lower(), name.lower())
+                            if p > 80 and p > mejor_p:
+                                mejor_p = p
+                                mejor_t = tienda
+                        if mejor_t:
+                            codigo_negocio = _codigo_por_tienda(mejor_t)
+                            tienda_guess = mejor_t
+                    if codigo_negocio is None:
+                        logger.warning("Asociar: sin CodigoNegocio para consolidado %s, se omite.", ruta_completa)
+                        continue
+                    asociaciones.append({
+                        "Archivo": ruta_completa,
+                        "Tienda": tienda_guess or "",
+                        "Origen": "consolidado",
+                    })
+                    activas_rows.append({
+                        "CodigoNegocio": codigo_negocio,
+                        "RutaArchivo": ruta_completa,
+                        "Cargar": 1,
+                        "Añadir": 0,
+                        "FechaInicio": d0s,
+                        "FechaFin": d1s,
+                    })
+                    continue
+
+                for name, _path in sorted(pend_list, key=lambda x: x[0]):
+                    mejor_tienda = None
+                    mejor_puntaje = 0
+                    for tienda in tiendas:
+                        puntaje = fuzz.partial_ratio(tienda.lower(), name.lower())
+                        if puntaje > 80 and puntaje > mejor_puntaje:
+                            mejor_tienda = tienda
+                            mejor_puntaje = puntaje
+                    if not mejor_tienda:
+                        continue
+                    ruta_completa = f"{loc}/{name}"
+                    codigo_negocio = _codigo_por_tienda(mejor_tienda)
+                    asociaciones.append({
+                        "Archivo": ruta_completa,
+                        "Tienda": mejor_tienda,
+                        "Puntaje": mejor_puntaje,
+                        "Origen": "pendiente",
+                    })
+                    activas_rows.append({
+                        "CodigoNegocio": codigo_negocio,
+                        "RutaArchivo": ruta_completa,
+                        "Cargar": 1,
+                        "Añadir": 0,
+                        "FechaInicio": d0s,
+                        "FechaFin": d1s,
+                    })
 
             df_asoc = pd.DataFrame(asociaciones)
-            
             if df_asoc.empty:
                 return {"success": True, "message": "No se encontraron nuevas asociaciones automáticas", "count": 0}
 
-            # 3. Calcular fechas de última semana
-            hoy = datetime.now().date()
-            dias_desde_lunes = hoy.weekday()
-            ultimo_lunes = hoy - timedelta(days=dias_desde_lunes + 7) if dias_desde_lunes != 0 else hoy - timedelta(days=7)
-            ultimo_domingo = ultimo_lunes + timedelta(days=6)
-
-            # 4. Preparar hoja 'Activas'
-            activas_rows = []
-            for _, row in df_asoc.iterrows():
-                tienda = row["Tienda"]
-                archivo = row["Archivo"]
-                try:
-                    codigo_negocio = hoja_negocios.loc[hoja_negocios["Descripcion"] == tienda, "CodigoNegocio"].values[0]
-                except:
-                    codigo_negocio = None
-                
-                activas_rows.append({
-                    "CodigoNegocio": codigo_negocio,
-                    "RutaArchivo": archivo,
-                    "Cargar": 1,
-                    "Añadir": 0,
-                    "FechaInicio": ultimo_lunes.strftime("%Y-%m-%d"),
-                    "FechaFin": ultimo_domingo.strftime("%Y-%m-%d")
-                })
-            
             df_activas = pd.DataFrame(activas_rows)
 
-            # 5. Guardar en Excel
-            with pd.ExcelWriter(self.config_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            with pd.ExcelWriter(self.config_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
                 df_asoc.to_excel(writer, sheet_name="Asociaciones", index=False)
                 df_activas.to_excel(writer, sheet_name="Activas", index=False)
 
@@ -343,16 +520,172 @@ class LegacyService:
             logger.error(f"Error en asociar_negocios: {str(e)}")
             return {"success": False, "error": str(e)}
 
+    def _normalizar_df_ventas_legacy(
+        self,
+        processed_df: pd.DataFrame,
+        codigo_negocio: Any,
+        codigo_ubicacion: str,
+        estado_negocio: str,
+        tipo_negocio: str,
+        area: Any,
+        *,
+        ruta_log: str = "",
+    ) -> pd.DataFrame | None:
+        """
+        Normaliza un DataFrame ya alineado a columnas de venta (Fecha, Monto, …),
+        tanto si vino de extracción por BaseCarga como de CSV consolidado.
+        """
+        if processed_df is None or processed_df.empty:
+            return None
+        if "Monto" not in processed_df.columns or "Fecha" not in processed_df.columns:
+            logger.warning(
+                "Ventas: faltan columnas Fecha/Monto en %s (¿layout distinto al consolidado/BaseCarga?)",
+                ruta_log or "df",
+            )
+            return None
+
+        def force_numeric_safe(val):
+            if pd.isna(val):
+                return 0.0
+            try:
+                clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
+                clean_str = re.sub(r"[^0-9.]", "", clean_str)
+                if not clean_str or clean_str == ".":
+                    return 0.0
+                num_val = float(clean_str)
+                if num_val > 50000:
+                    logger.warning(
+                        "⚠️ Monto detectado como irreal (%s). Posible ID capturado como Monto. Seteando a 0.",
+                        num_val,
+                    )
+                    return 0.0
+                return round(num_val, 4)
+            except Exception:
+                return 0.0
+
+        if "Monto" in processed_df.columns:
+            processed_df = processed_df.copy()
+            processed_df["Monto"] = processed_df["Monto"].apply(force_numeric_safe)
+
+        processed_df = self._group_by_transaction(processed_df, codigo_negocio)
+
+        processed_df = processed_df.loc[:, ~processed_df.columns.str.contains("^Unnamed")]
+        if processed_df.empty:
+            return None
+        if "Fecha" in processed_df.columns and "Monto" in processed_df.columns:
+            processed_df = processed_df.dropna(subset=["Fecha", "Monto"], how="all")
+        if processed_df.empty:
+            logger.warning("Sin filas con Fecha/Monto tras limpieza inicial: %s", ruta_log)
+            return None
+
+        def get_h(val):
+            s = str(val).split(" ")
+            return s[1] if len(s) > 1 else None
+
+        def get_f(val):
+            return str(val).split(" ")[0] if val else None
+
+        if "Hora" not in processed_df.columns or processed_df["Hora"].isna().all():
+            processed_df["Hora"] = processed_df["Fecha"].apply(get_h)
+            processed_df["Fecha"] = processed_df["Fecha"].apply(get_f)
+        else:
+            mask_h_null = processed_df["Hora"].isna() | (processed_df["Hora"] == "")
+            if mask_h_null.any():
+                processed_df.loc[mask_h_null, "Hora"] = processed_df.loc[mask_h_null, "Fecha"].apply(get_h)
+                processed_df.loc[mask_h_null, "Fecha"] = processed_df.loc[mask_h_null, "Fecha"].apply(get_f)
+
+        if "Hora" in processed_df.columns:
+            processed_df["Hora"] = (
+                processed_df["Hora"].astype(str).str.strip().replace(["nan", "None", "NaT"], "06:00:00")
+            )
+            processed_df["Hora"] = processed_df["Hora"].apply(lambda x: x if ":" in x else "06:00:00")
+
+        def clean_currency(value):
+            if value is None or (isinstance(value, float) and np.isnan(value)):
+                return 0.0
+            if isinstance(value, (int, float)):
+                return round(float(value), 4)
+            clean_str = str(value).strip().replace("S/", "").replace(",", ".").replace(" ", "")
+            try:
+                clean_str = re.sub(r"[^0-9.\-]", "", clean_str)
+                if not clean_str or clean_str == ".":
+                    return 0.0
+                num_val = float(clean_str)
+                if num_val > 50000:
+                    return 0.0
+                return round(num_val, 4)
+            except Exception:
+                return 0.0
+
+        processed_df["Monto"] = processed_df["Monto"].apply(clean_currency)
+        processed_df["Fecha"] = pd.to_datetime(processed_df["Fecha"], errors="coerce")
+
+        processed_df = self._group_by_transaction(processed_df, codigo_negocio)
+
+        processed_df = processed_df[(processed_df["Monto"] > 0) & (processed_df["Fecha"].notna())]
+        if processed_df.empty:
+            return None
+
+        processed_df = processed_df.copy()
+        processed_df["CodigoNegocio"] = codigo_negocio
+        processed_df["FechaCarga"] = datetime.now().strftime("%Y-%m-%d")
+        processed_df["Estado"] = 0.0
+        processed_df["CodigoUbicacion"] = codigo_ubicacion
+        processed_df["EstadoNegocio"] = estado_negocio
+        processed_df["TipoNegocio"] = tipo_negocio
+        processed_df["Area"] = area
+
+        if "Cantidad" in processed_df.columns:
+            processed_df["Cantidad"] = pd.to_numeric(processed_df["Cantidad"], errors="coerce").fillna(1).astype(int)
+        else:
+            processed_df["Cantidad"] = 1
+        if "Cantidad" in processed_df.columns:
+            processed_df["Cantidad"] = processed_df["Cantidad"].replace(0, 1)
+
+        if "CodigoTransaccion" in processed_df.columns:
+            processed_df["CodigoTransaccion"] = processed_df["CodigoTransaccion"].fillna("-").replace("", "-")
+        else:
+            processed_df["CodigoTransaccion"] = "-"
+
+        if "Cliente" in processed_df.columns:
+            processed_df["Cliente"] = processed_df["Cliente"].fillna("-").replace("", "-")
+        else:
+            processed_df["Cliente"] = "-"
+
+        if "Producto" in processed_df.columns:
+            processed_df["Producto"] = processed_df["Producto"].fillna("-").replace("", "-")
+        else:
+            processed_df["Producto"] = "-"
+
+        if "FormaPago" in processed_df.columns:
+            processed_df["FormaPago"] = processed_df["FormaPago"].fillna("-").replace("", "-")
+        else:
+            processed_df["FormaPago"] = "-"
+
+        h_str = processed_df["Hora"].fillna("06:00:00").astype(str).str.strip()
+        h_str = h_str.replace({"nan": "06:00:00", "None": "06:00:00", "NaT": "06:00:00", "": "06:00:00"})
+        fd = pd.to_datetime(processed_df["Fecha"], errors="coerce")
+        processed_df["FechaHora"] = fd.dt.strftime("%Y-%m-%d") + " " + h_str
+
+        return processed_df
+
     # ==========================================
     # PASO 3: CARGAR VENTAS (PROCESAR ACTIVAS)
     # ==========================================
-    async def cargar_ventas_legacy(self, clear_data: bool = False) -> Dict[str, Any]:
+    async def cargar_ventas_legacy(
+        self,
+        clear_data: bool = False,
+        archivar_pendientes_tras_consolidado: bool = False,
+    ) -> Dict[str, Any]:
         """
         Replica la lógica de CargaVentas_csvOfi.py:
         1. Limpia sales_df y Realizadas si clear_data es True.
-        2. Procesa la hoja 'Activas', extrae datos según 'BaseCarga' y 'excel_cell_to_csv_indices'.
-        3. Realiza el append en 'sales_df' y actualiza la hoja 'Realizadas'.
-        4. Mueve archivos procesados a /Procesados/YYYY-MM-DD_cloud/.
+        2. Procesa la hoja 'Activas': CSV/XLSX en ruta .../_consolidados/... se leen como tabla
+           (salida de consolidar_desde_filestore); el resto usa BaseCarga + coordenadas.
+        3. Append en 'sales_df', actualiza 'Realizadas', limpia Activas.
+        4. Mueve archivos a Drive procesados o FileStore uploads/procesados/...
+        5. Opcional (archivar_pendientes_tras_consolidado): tras mover un consolidado FileStore,
+           mueve también todos los .csv/.xlsx pendientes de ese locatario (riesgo si hay datos de otra semana).
         """
         try:
             self._download_config()
@@ -389,6 +722,7 @@ class LegacyService:
                 Realizadas_df = pd.DataFrame()
 
             processed_dataframes = []
+            pendientes_extra_movidos: list[str] = []
             column_names = [col for col in base_carga_df.columns if col != 'CodigoNegocio']
             
             # Carpeta de destino con formato específico: YYYY-MM-DD_cloud
@@ -399,16 +733,26 @@ class LegacyService:
             # 2. Iterar sobre Activas
             for _, config_row in config_activas_df.iterrows():
                 codigo_negocio = config_row['CodigoNegocio']
+                codigo_basecarga = self._resolve_codigo_negocio_basecarga(codigo_negocio, base_carga_df)
                 ruta_archivo = config_row['RutaArchivo']
                 cargar = config_row['Cargar']
-                # Aceptamos tanto CSV como XLSX para procesar
+                # Aceptamos tanto CSV como XLSX para procesar (Cargar puede venir como "1" desde Excel)
                 ext = str(ruta_archivo).lower()
-                if cargar != 1 or not (ext.endswith('.csv') or ext.endswith('.xlsx')):
+                if not _activar_cargar(cargar) or not (ext.endswith('.csv') or ext.endswith('.xlsx')):
                     continue
 
-                # Extraer info del negocio
+                # Extraer info del negocio (coincidencia por código de Activas o por código alineado a BaseCarga)
                 try:
-                    neg_info = negocios_df[negocios_df['CodigoNegocio'] == codigo_negocio].iloc[0]
+                    neg_info = None
+                    for cn_try in (codigo_negocio, codigo_basecarga):
+                        if cn_try is None or (isinstance(cn_try, float) and np.isnan(cn_try)):
+                            continue
+                        sub = negocios_df[negocios_df['CodigoNegocio'] == cn_try]
+                        if not sub.empty:
+                            neg_info = sub.iloc[0]
+                            break
+                    if neg_info is None:
+                        raise KeyError("sin fila en Negocios")
                     codigo_ubicacion = neg_info.get('CodigoUbicacion', '')
                     
                     # Lógica de EstadoNegocio (Fórmula: =SI(K2>=HOY();"ACTIVO";"INACTIVO"))
@@ -437,16 +781,24 @@ class LegacyService:
                 except:
                     codigo_ubicacion, estado_negocio, tipo_negocio, area = '', 'ACTIVO', '', ''
 
-                file_id = drive_files_dict.get(str(ruta_archivo))
-                if not file_id:
-                    logger.warning(f"Archivo no encontrado en Drive: {ruta_archivo}. Intentando crear registros por defecto...")
+                ruta_str = str(ruta_archivo)
+                file_id = drive_files_dict.get(ruta_str) or drive_files_dict.get(os.path.basename(ruta_str))
+                file_path = None
+                if file_id:
+                    file_path = os.path.join(self.temp_dir, os.path.basename(ruta_str))
+                    self.gdrive.download_file(file_id, file_path)
+                else:
+                    file_path = self._resolve_filestore_path_for_ventas(ruta_str)
+                    if file_path and not os.path.isfile(file_path):
+                        file_path = None
+
+                if not file_path or not os.path.isfile(file_path):
+                    logger.warning(
+                        f"Archivo no encontrado (Drive/FileStore): {ruta_archivo}. Intentando crear registros por defecto..."
+                    )
                     processed_df = self._create_default_records(codigo_negocio, codigo_ubicacion, estado_negocio, tipo_negocio, area, column_names)
                     processed_dataframes.append(processed_df)
                     continue
-
-                # Cargar archivo (detección automática de formato)
-                file_path = os.path.join(self.temp_dir, str(ruta_archivo))
-                self.gdrive.download_file(file_id, file_path)
                 
                 if str(ruta_archivo).lower().endswith('.xlsx'):
                     sheet = pd.read_excel(file_path)
@@ -462,183 +814,124 @@ class LegacyService:
                 if sheet.empty:
                     continue
 
-                # 3. Extraer datos por coordenadas (Lógica Legacy)
-                # ... (bloque previo de reglas L17, A06) ...
-                
-                # [BLOQUE DE EXTRACCIÓN MEJORADO]
-                data = {col: [] for col in column_names}
-                max_length = 0
-                for col in column_names:
-                    try:
-                        cell_address = base_carga_df.loc[base_carga_df['CodigoNegocio'] == codigo_negocio, col].values[0]
-                        if pd.notna(cell_address):
-                            r_idx, c_idx = self._excel_cell_to_csv_indices(str(cell_address))
-                            col_vals = sheet.iloc[r_idx:, c_idx].tolist()
-                            data[col] = col_vals
-                            max_length = max(max_length, len(col_vals))
-                    except:
-                        data[col] = []
-                
-                for col in column_names:
-                    if len(data[col]) < max_length:
-                        data[col].extend([None]*(max_length - len(data[col])))
+                es_consolidado_fs = (
+                    not file_id
+                    and self._ruta_archivo_es_consolidado_filestore(ruta_str)
+                    and (ext.endswith(".csv") or ext.endswith(".xlsx"))
+                )
 
-                processed_df = pd.DataFrame(data)
+                if es_consolidado_fs:
+                    # CSV/XLSX ya normalizado por consolidar_desde_filestore (cabeceras Fecha, Monto, …)
+                    processed_df = sheet.copy()
+                    processed_df.columns = [str(c).strip() for c in processed_df.columns]
+                    logger.info("Ventas: lectura plana (consolidado FileStore): %s", ruta_archivo)
+                else:
+                    data = {col: [] for col in column_names}
+                    max_length = 0
+                    for col in column_names:
+                        try:
+                            cell_address = base_carga_df.loc[
+                                base_carga_df["CodigoNegocio"] == codigo_basecarga, col
+                            ].values[0]
+                            if pd.notna(cell_address):
+                                r_idx, c_idx = self._excel_cell_to_csv_indices(str(cell_address))
+                                col_vals = sheet.iloc[r_idx:, c_idx].tolist()
+                                data[col] = col_vals
+                                max_length = max(max_length, len(col_vals))
+                        except Exception:
+                            data[col] = []
 
-                # --- NORMALIZACIÓN CRÍTICA ANTES DE AGRUPAR ---
-                def force_numeric_safe(val):
-                    if pd.isna(val): return 0.0
-                    try:
-                        # 1. Limpiar símbolos y convertir comas a puntos
-                        clean_str = str(val).strip().replace('S/', '').replace(',', '.').replace(' ', '')
-                        # 2. Remover cualquier caracter que no sea número o punto
-                        clean_str = re.sub(r"[^0-9.]", "", clean_str)
-                        
-                        if not clean_str or clean_str == '.': return 0.0
-                        
-                        num_val = float(clean_str)
-                        
-                        # 3. FILTRO DE SENSATEZ: 
-                        # Si una sola línea de venta supera los 50,000, es altamente probable que sea un ID
-                        # o un error de coordenadas en el Excel. Lo seteamos a 0.
-                        if num_val > 50000: 
-                            logger.warning(f"⚠️ Monto detectado como irreal ({num_val}). Posible ID capturado como Monto. Seteando a 0.")
-                            return 0.0
-                            
-                        return round(num_val, 4)
-                    except:
-                        return 0.0
+                    for col in column_names:
+                        if len(data[col]) < max_length:
+                            data[col].extend([None] * (max_length - len(data[col])))
 
-                if 'Monto' in processed_df.columns:
-                    processed_df['Monto'] = processed_df['Monto'].apply(force_numeric_safe)
+                    processed_df = pd.DataFrame(data)
 
-                # --- APLICAR REGLA DE AGRUPACIÓN POR TRANSACCIÓN ---
-                # Ahora que Monto es numérico real y pequeño, la suma será correcta
-                processed_df = self._group_by_transaction(processed_df, codigo_negocio)
-
-
-                # 4. Limpieza y validación (Lógica Legacy)
-                processed_df = processed_df.loc[:, ~processed_df.columns.str.contains('^Unnamed')]
-                if processed_df.empty or pd.isna(processed_df['Fecha'].iloc[0]) or pd.isna(processed_df['Monto'].iloc[0]):
+                processed_df = self._normalizar_df_ventas_legacy(
+                    processed_df,
+                    codigo_negocio,
+                    codigo_ubicacion,
+                    estado_negocio,
+                    tipo_negocio,
+                    area,
+                    ruta_log=str(ruta_archivo),
+                )
+                if processed_df is None:
                     continue
-
-                # Antes de convertir Fecha, extraer hora de Fecha si no existe columna Hora o está vacía
-                # Lógica fiel a CargaVentas_csvOfi.py (líneas 857-873)
-                def get_h(val):
-                    s = str(val).split(' ')
-                    return s[1] if len(s) > 1 else None
-
-                def get_f(val):
-                    return str(val).split(' ')[0] if val else None
-
-                if "Hora" not in processed_df.columns or processed_df["Hora"].isna().all():
-                    processed_df["Hora"] = processed_df['Fecha'].apply(get_h)
-                    processed_df['Fecha'] = processed_df['Fecha'].apply(get_f)
-                else:
-                    # Si existe pero hay nulos parciales, intentar rescatar de Fecha
-                    mask_h_null = processed_df["Hora"].isna() | (processed_df["Hora"] == "")
-                    if mask_h_null.any():
-                        processed_df.loc[mask_h_null, "Hora"] = processed_df.loc[mask_h_null, 'Fecha'].apply(get_h)
-                        processed_df.loc[mask_h_null, 'Fecha'] = processed_df.loc[mask_h_null, 'Fecha'].apply(get_f)
-
-                # Formateo final de Hora
-                if "Hora" in processed_df.columns:
-                    processed_df['Hora'] = processed_df['Hora'].astype(str).str.strip().replace(['nan', 'None', 'NaT'], '06:00:00')
-                    processed_df['Hora'] = processed_df['Hora'].apply(lambda x: x if ':' in x else '06:00:00')
-
-                # Función de limpieza interna (Restaurada y Reforzada)
-                def clean_currency(value):
-                    if value is None or (isinstance(value, float) and np.isnan(value)): return 0.0
-                    if isinstance(value, (int, float)): return round(float(value), 4)
-                    clean_str = str(value).strip().replace('S/', '').replace(',', '.').replace(' ', '')
-                    try:
-                        # Limpiar caracteres no numéricos excepto el punto y el signo menos
-                        clean_str = re.sub(r"[^0-9.\-]", "", clean_str)
-                        if not clean_str or clean_str == '.': return 0.0
-                        num_val = float(clean_str)
-                        # FILTRO DE SENSATEZ: Si supera 50,000, probablemente es un ID capturado erróneamente
-                        if num_val > 50000: return 0.0
-                        return round(num_val, 4)
-                    except:
-                        return 0.0
-
-                processed_df['Monto'] = processed_df['Monto'].apply(clean_currency)
-                processed_df['Fecha'] = pd.to_datetime(processed_df['Fecha'], errors='coerce')
-                
-                # --- APLICAR REGLA DE AGRUPACIÓN POR TRANSACCIÓN ---
-                # Se realiza DESPUÉS de limpiar Monto para que la sumatoria sea correcta
-                processed_df = self._group_by_transaction(processed_df, codigo_negocio)
-                
-                # Filtrar nulos
-                processed_df = processed_df[(processed_df['Monto'] > 0) & (processed_df['Fecha'].notna())]
-                
-                if processed_df.empty:
-                    continue
-
-                # Columnas adicionales y completado de registros
-                processed_df['CodigoNegocio'] = codigo_negocio
-                processed_df['FechaCarga'] = datetime.now().strftime("%Y-%m-%d")
-                processed_df['Estado'] = 0.0
-                processed_df['CodigoUbicacion'] = codigo_ubicacion
-                processed_df['EstadoNegocio'] = estado_negocio
-                processed_df['TipoNegocio'] = tipo_negocio
-                processed_df['Area'] = area
-                
-                # Completar campos vacíos (Cantidad -> 1, CodigoTransaccion -> "-")
-                if 'Cantidad' in processed_df.columns:
-                    processed_df['Cantidad'] = pd.to_numeric(processed_df['Cantidad'], errors='coerce').fillna(1).astype(int)
-                else:
-                    processed_df['Cantidad'] = 1
-                
-                # Asegurar que se use el nombre exacto de columna solicitado
-                if 'Cantidad' in processed_df.columns:
-                    processed_df['Cantidad'] = processed_df['Cantidad'].replace(0, 1)
-
-                if 'CodigoTransaccion' in processed_df.columns:
-                    processed_df['CodigoTransaccion'] = processed_df['CodigoTransaccion'].fillna("-").replace('', '-')
-                else:
-                    processed_df['CodigoTransaccion'] = "-"
-
-                if 'Cliente' in processed_df.columns:
-                    processed_df['Cliente'] = processed_df['Cliente'].fillna("-").replace('', '-')
-                else:
-                    processed_df['Cliente'] = "-"
-
-                # Producto
-                if 'Producto' in processed_df.columns:
-                    processed_df['Producto'] = processed_df['Producto'].fillna("-").replace('', '-')
-                else:
-                    processed_df['Producto'] = "-"
 
                 processed_dataframes.append(processed_df)
 
-                # Mover a Procesados en Google Drive
+                # Archivo en Drive vs FileStore
                 try:
-                    # Crear subcarpeta YYYY-MM-DD_cloud en Drive bajo Procesados
-                    current_date_str = datetime.now().strftime("%Y-%m-%d")
-                    folder_name = f"{current_date_str}_cloud"
-                    procesados_folder_id = self.gdrive.get_or_create_folder(folder_name, self.drive_id_procesados)
-                    
-                    if procesados_folder_id:
-                        self.gdrive.move_file(file_id, self.drive_id_ventas, procesados_folder_id)
-                        
-                    # Limpiar el temporal local
-                    if os.path.exists(file_path): 
-                        os.remove(file_path)
+                    if file_id:
+                        current_date_str = datetime.now().strftime("%Y-%m-%d")
+                        folder_name = f"{current_date_str}_cloud"
+                        procesados_folder_id = self.gdrive.get_or_create_folder(folder_name, self.drive_id_procesados)
+                        if procesados_folder_id:
+                            self.gdrive.move_file(file_id, self.drive_id_ventas, procesados_folder_id)
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                    else:
+                        from app.services.file_store_service import (
+                            list_pendientes_locatario,
+                            move_to_procesados,
+                        )
+
+                        inferred = self._infer_loc_zona_from_filestore_path(file_path)
+                        if inferred:
+                            loc_mv, zona_mv = inferred
+                            move_to_procesados(loc_mv, [os.path.basename(file_path)], zona=zona_mv)
+                            if (
+                                archivar_pendientes_tras_consolidado
+                                and es_consolidado_fs
+                                and zona_mv == "consolidado"
+                            ):
+                                pend_names = list_pendientes_locatario(loc_mv)
+                                if pend_names:
+                                    extra = move_to_procesados(loc_mv, pend_names, zona="pendiente")
+                                    pendientes_extra_movidos.extend(extra)
+                                    logger.info(
+                                        "Ventas: archivados %s pendiente(s) tras consolidado (loc=%s)",
+                                        len(extra),
+                                        loc_mv,
+                                    )
+                        else:
+                            logger.warning(
+                                "No se pudo inferir locatario/zona para mover a procesados; el archivo no se elimina: %s",
+                                file_path,
+                            )
                 except Exception as ex:
-                    logger.error(f"Error moviendo archivo en Drive: {ex}")
+                    logger.error("Error archivando archivo procesado: %s", ex)
 
             # 5. Consolidar y Guardar (Append)
             if processed_dataframes:
                 final_df = pd.concat(processed_dataframes, ignore_index=True)
-                
+
                 # Actualizar hojas en Excel
                 self._update_excel_with_sales(final_df, config_activas_df, Realizadas_df)
                 self._upload_config()
-                
-                return {"success": True, "registros": len(final_df), "negocios": len(processed_dataframes)}
+
+                msg = f"Se escribieron {len(final_df)} filas en sales_df (Configuracion.xlsx)."
+                if pendientes_extra_movidos:
+                    msg += f" Archivados además {len(pendientes_extra_movidos)} archivo(s) pendiente(s) en FileStore."
+                out: Dict[str, Any] = {
+                    "success": True,
+                    "registros": int(len(final_df)),
+                    "negocios": len(processed_dataframes),
+                    "message": msg,
+                    "pendientes_archivados": len(pendientes_extra_movidos),
+                }
+                if pendientes_extra_movidos:
+                    out["pendientes_archivados_rutas"] = pendientes_extra_movidos
+                return out
             else:
-                return {"success": True, "registros": 0, "message": "No se procesaron nuevos datos"}
+                return {
+                    "success": True,
+                    "registros": 0,
+                    "negocios": 0,
+                    "pendientes_archivados": 0,
+                    "message": "No se procesaron filas: revise Activas (Cargar=1), rutas en FileStore y BaseCarga por locatario.",
+                }
 
         except Exception as e:
             logger.error(f"Error en cargar_ventas_legacy: {str(e)}")
@@ -661,14 +954,28 @@ class LegacyService:
 
             # 1. CARGAR DESDE EXCEL (Fuente de verdad según lógica original)
             df_sales_excel = pd.read_excel(self.config_path, sheet_name="sales_df")
-            
+            filas_excel = int(len(df_sales_excel))
+
             # 2. Preprocesar para evitar errores de tipos en BQ
             df_sales_clean = self._preprocess_bq_sales(df_sales_excel)
-            
-            if df_sales_clean.empty:
-                return {"success": True, "message": "La hoja sales_df está vacía, nada que cargar."}
+            filas_tras_preprocess = int(len(df_sales_clean))
+            if filas_tras_preprocess < filas_excel:
+                logger.warning(
+                    "BQ: sales_df %s filas en Excel → %s tras preprocess (descartadas por Monto/Fecha inválidos)",
+                    filas_excel,
+                    filas_tras_preprocess,
+                )
 
-            # 3. Filtrar columnas para stg_sales_raw
+            if df_sales_clean.empty:
+                return {
+                    "success": True,
+                    "message": "La hoja sales_df está vacía o todas las filas quedaron fuera por Monto/Fecha inválidos.",
+                    "filas_leidas_excel": filas_excel,
+                    "filas_tras_preprocess": 0,
+                    "filas_insertadas": 0,
+                }
+
+            # 3. Filtrar columnas para stg_silver_raw
             columnas_bq = [
                 "Fecha", "Hora", "FechaHora", "CodigoTransaccion", "Producto", "Cliente",
                 "CodigoNegocio", "FechaCarga", "Estado", "Monto", "Cantidad",
@@ -677,16 +984,48 @@ class LegacyService:
             cols_existentes = [c for c in columnas_bq if c in df_sales_clean.columns]
             df_final_bq = df_sales_clean[cols_existentes]
 
-            # 4. Carga vía JSON para máxima estabilidad con los datos del Excel
-            rows_to_insert = df_final_bq.to_dict(orient='records')
-            table_sales_id = f"{self.bq_project_id}.{self.bq_dataset}.stg_sales_raw"
-            
-            # Realizar inserción
+            # 4. Filas JSON sin NaN (BigQuery interpreta ausentes/null en JSON como NULL)
+            rows_to_insert = []
+            for _, r in df_final_bq.iterrows():
+                clean: Dict[str, Any] = {}
+                for c in cols_existentes:
+                    v = r[c]
+                    if pd.isna(v):
+                        if c in ('Monto', 'Cantidad'):
+                            clean[c] = 0.0
+                        elif c == 'Estado':
+                            clean[c] = 0
+                        else:
+                            clean[c] = ''
+                        continue
+                    if c in ('Monto', 'Cantidad'):
+                        clean[c] = float(pd.to_numeric(v, errors='coerce') or 0.0)
+                    elif c == 'Estado':
+                        clean[c] = int(float(pd.to_numeric(v, errors='coerce') or 0))
+                    elif isinstance(v, (pd.Timestamp, datetime)):
+                        ts = pd.Timestamp(v)
+                        if c == 'Fecha':
+                            clean[c] = ts.strftime('%Y-%m-%d')
+                        elif c == 'Hora':
+                            clean[c] = ts.strftime('%H:%M:%S')
+                        else:
+                            clean[c] = ts.isoformat(sep=' ', timespec='seconds')
+                    else:
+                        s = str(v).strip()
+                        if s.lower() in ('nan', 'nat', 'none', '<na>'):
+                            clean[c] = ''
+                        else:
+                            clean[c] = s
+                rows_to_insert.append(clean)
+
+            table_sales_id = f"{self.bq_project_id}.{self.bq_dataset}.stg_silver_raw"
+
             errors = client.insert_rows_json(table_sales_id, rows_to_insert)
 
-            
             if errors:
                 raise Exception(f"Errores al insertar en BigQuery: {errors}")
+
+            filas_bq = len(rows_to_insert)
 
             # 2. Update Negocios & Categorias (Truncate con validación de contenido)
             for sheet in ["Negocios", "Categorias"]:
@@ -716,9 +1055,11 @@ class LegacyService:
             # pred_result = await self._run_prediction_engine(client)
             
             return {
-                "success": True, 
-                "message": "Sincronización BigQuery completada",
-                # "predictor": pred_result
+                "success": True,
+                "message": f"Sincronización BigQuery: {filas_bq} fila(s) insertadas en stg_silver_raw (Excel: {filas_excel}, tras preprocess: {filas_tras_preprocess}).",
+                "filas_insertadas": filas_bq,
+                "filas_leidas_excel": filas_excel,
+                "filas_tras_preprocess": filas_tras_preprocess,
             }
         except Exception as e:
             logger.error(f"Error en cargar_bigquery_legacy: {str(e)}")
@@ -727,27 +1068,63 @@ class LegacyService:
     # ==========================================
     # VISTA PREVIA
     # ==========================================
-    async def get_sales_df_preview(self, limit: int = 100) -> Dict[str, Any]:
-        """Obtiene una vista previa de la hoja sales_df."""
+    async def get_sales_df_preview(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+        """
+        Vista previa de sales_df desde el final del Excel (offset=0 = bloque más reciente).
+        offset: filas a saltar hacia atrás desde el final para lazy load.
+        """
         try:
             self._download_config()
-            
+
+            limit = max(1, min(int(limit), 500))
+            offset = max(0, int(offset))
+
             df = pd.read_excel(self.config_path, sheet_name="sales_df")
-            # Tomar los últimos registros (suelen ser los más recientes)
-            preview_df = df.tail(limit).copy()
-            
-            # Convertir fechas a string para JSON de forma segura
+            n = len(df)
+            if n == 0:
+                return {
+                    "success": True,
+                    "data": [],
+                    "columns": df.columns.tolist(),
+                    "total_rows": 0,
+                    "offset": offset,
+                    "next_offset": 0,
+                    "has_more": False,
+                    "returned_count": 0,
+                }
+
+            end_idx = n - offset
+            if end_idx <= 0:
+                return {
+                    "success": True,
+                    "data": [],
+                    "columns": df.columns.tolist(),
+                    "total_rows": n,
+                    "offset": offset,
+                    "next_offset": offset,
+                    "has_more": False,
+                    "returned_count": 0,
+                }
+
+            start_idx = max(0, end_idx - limit)
+            preview_df = df.iloc[start_idx:end_idx].copy()
+            returned = len(preview_df)
+            next_offset = offset + returned
+            has_more = start_idx > 0
+
             import datetime as dt
             preview_df = preview_df.map(lambda x: x.isoformat() if isinstance(x, (dt.date, dt.datetime)) else x)
-            
-            # Reemplazar nulos para evitar errores JSON
             preview_df = preview_df.fillna("")
-            
+
             return {
-                "success": True, 
+                "success": True,
                 "data": preview_df.to_dict(orient="records"),
                 "columns": preview_df.columns.tolist(),
-                "total_rows": len(df)
+                "total_rows": n,
+                "offset": offset,
+                "next_offset": next_offset,
+                "has_more": has_more,
+                "returned_count": returned,
             }
         except Exception as e:
             logger.error(f"Error en preview: {e}")
@@ -780,28 +1157,61 @@ class LegacyService:
             return {"success": False, "error": str(e)}
 
     # ==========================================
-    # CONSOLIDACIÓN DESDE FILESTORE (semana actual Lima)
+    # CONSOLIDACIÓN DESDE FILESTORE (por locatario → _consolidados)
     # ==========================================
-    async def consolidar_desde_filestore(self) -> Dict[str, Any]:
+    async def consolidar_desde_filestore(
+        self,
+        modo_rango: str = "semana_actual",
+        fecha_inicio: str | None = None,
+        fecha_fin: str | None = None,
+    ) -> Dict[str, Any]:
         """
-        Lee archivos del FileStore de la semana actual (Lima), aplica BaseCarga por locatario,
-        une todos los datos y elimina duplicados (Fecha, CodigoNegocio, Monto, Producto).
+        Por cada locatario: lee todos los pendientes, aplica BaseCarga, concatena y
+        filtra filas por la columna Fecha del reporte dentro de [rango_inicio, rango_fin]
+        (semana actual, última semana o rango libre). Luego deduplica y guarda CSV en
+        cierre_caja/{loc}/_consolidados/{etiqueta}.csv.
         """
         try:
             from app.services.file_store_service import (
                 get_upload_base,
-                get_week_folder_name,
-                list_archivos,
+                list_cierre_caja_por_locatario,
+                rango_desde_modo,
+                filtrar_filas_por_rango_fecha,
+                _dir_locatario_consolidados,
             )
+            from app.core.constants import FILE_STORE_CIERRE_CAJA, get_locatario_code_from_full
+
             self._download_config()
             base_carga_df = pd.read_excel(self.config_path, sheet_name="BaseCarga")
             column_names = [c for c in base_carga_df.columns if c != "CodigoNegocio"]
 
+            start_d, end_d, etiqueta = rango_desde_modo(modo_rango, fecha_inicio, fecha_fin)
             base = get_upload_base()
-            semana = get_week_folder_name()
-            items = list_archivos(semana_folder=semana)
+            items = list_cierre_caja_por_locatario()
             if not items:
-                return {"success": True, "message": "Sin archivos en FileStore para esta semana", "registros": 0, "semana": semana}
+                return {
+                    "success": True,
+                    "message": "Sin archivos en cierre_caja",
+                    "registros": 0,
+                    "registros_total": 0,
+                    "etiqueta": etiqueta,
+                    "rango_inicio": start_d.isoformat(),
+                    "rango_fin": end_d.isoformat(),
+                    "locatarios": [],
+                }
+
+            def _fila_base_carga(df: pd.DataFrame, codigo_bc: str) -> pd.Series | None:
+                """Match insensible a mayúsculas / espacios (Excel vs carpetas FileStore)."""
+                if df is None or df.empty or "CodigoNegocio" not in df.columns:
+                    return None
+                target = str(codigo_bc or "").strip().upper()
+                codes = df["CodigoNegocio"].map(
+                    lambda x: str(x).strip().upper() if pd.notna(x) else ""
+                )
+                mask = codes == target
+                if not mask.any():
+                    return None
+                return df.loc[mask].iloc[0]
 
             def force_numeric_safe(val):
                 if pd.isna(val):
@@ -818,18 +1228,41 @@ class LegacyService:
                 except Exception:
                     return 0.0
 
-            processed_list = []
+            detalle_loc = []
+            total_reg = 0
+
             for item in items:
-                codigo_negocio = item["locatario"]
-                try:
-                    base_carga_df.loc[base_carga_df["CodigoNegocio"] == codigo_negocio, column_names[0]].values[0]
-                except Exception:
-                    logger.warning(f"BaseCarga sin fila para {codigo_negocio}, omitiendo.")
+                codigo_negocio = item["locatario"]          # nombre completo de carpeta, ej: "A03_BARRIO_MANCORA"
+                codigo_bc = get_locatario_code_from_full(codigo_negocio)  # código corto en BaseCarga, ej: "A03"
+                fila_bc = _fila_base_carga(base_carga_df, codigo_bc)
+                if fila_bc is None:
+                    logger.warning(
+                        "BaseCarga sin fila para codigo_bc=%s (carpeta=%s), omitiendo.",
+                        codigo_bc,
+                        codigo_negocio,
+                    )
+                    detalle_loc.append({
+                        "locatario": codigo_negocio,
+                        "codigo_bc": codigo_bc,
+                        "archivos": 0,
+                        "registros": 0,
+                        "skip": "sin_base_carga",
+                    })
                     continue
 
-                for filename in item["archivos"]:
+                pendientes_all = list(item.get("pendientes") or [])
+                # Criterio de período: columna Fecha de cada venta (misma lógica que rango_libre).
+                # Incluir todos los pendientes evita perder días cuando el sufijo _YYYYMMDD_ es fecha
+                # de carga/subida y no coincide con el día de venta en el archivo.
+                filenames = list(pendientes_all)
+                if not filenames:
+                    detalle_loc.append({"locatario": codigo_negocio, "archivos": 0, "registros": 0, "skip": "sin pendientes"})
+                    continue
+
+                processed_list = []
+                for filename in filenames:
                     try:
-                        file_path = base / semana / item["locatario"] / filename
+                        file_path = base / FILE_STORE_CIERRE_CAJA / codigo_negocio / filename
                         if not file_path.is_file():
                             continue
                         if str(filename).lower().endswith(".xlsx"):
@@ -844,9 +1277,7 @@ class LegacyService:
                         max_length = 0
                         for col in column_names:
                             try:
-                                cell_address = base_carga_df.loc[
-                                    base_carga_df["CodigoNegocio"] == codigo_negocio, col
-                                ].values[0]
+                                cell_address = fila_bc.get(col)
                                 if pd.notna(cell_address):
                                     r_idx, c_idx = self._excel_cell_to_csv_indices(str(cell_address))
                                     col_vals = sheet.iloc[r_idx:, c_idx].tolist()
@@ -863,40 +1294,62 @@ class LegacyService:
                             continue
                         if "Monto" in processed_df.columns:
                             processed_df["Monto"] = processed_df["Monto"].apply(force_numeric_safe)
-                        processed_df = self._group_by_transaction(processed_df, codigo_negocio)
+                        processed_df = self._group_by_transaction(processed_df, codigo_bc)
                         processed_df = processed_df[(processed_df["Monto"] > 0) & processed_df["Fecha"].notna()]
                         if processed_df.empty:
                             continue
-                        processed_df["CodigoNegocio"] = codigo_negocio
+                        processed_df["CodigoNegocio"] = codigo_bc
                         processed_list.append(processed_df)
                         logger.info(f"Consolidar: {codigo_negocio} / {filename} -> {len(processed_df)} filas")
                     except Exception as e:
-                        logger.warning(f"Error procesando {item['locatario']}/{filename}: {e}")
+                        logger.warning(f"Error procesando {codigo_negocio}/{filename}: {e}")
                         continue
 
-            if not processed_list:
-                return {"success": True, "message": "Ningún archivo pudo consolidarse", "registros": 0, "semana": semana}
+                if not processed_list:
+                    detalle_loc.append({"locatario": codigo_negocio, "archivos": len(filenames), "registros": 0, "skip": "sin filas válidas"})
+                    continue
 
-            final = pd.concat(processed_list, ignore_index=True)
-            before_dedup = len(final)
-            subset_cols = [c for c in ["Fecha", "CodigoNegocio", "Monto", "Producto"] if c in final.columns]
-            if subset_cols:
-                final = final.drop_duplicates(subset=subset_cols, keep="last")
-            duplicados_eliminados = before_dedup - len(final)
+                final = pd.concat(processed_list, ignore_index=True)
+                before_dedup = len(final)
+                if "Fecha" in final.columns:
+                    final = filtrar_filas_por_rango_fecha(final, start_d, end_d, col="Fecha")
+                if final.empty:
+                    detalle_loc.append({
+                        "locatario": codigo_negocio,
+                        "archivos": len(filenames),
+                        "registros": 0,
+                        "skip": "sin_registros_en_rango_fecha",
+                        "rango_inicio": start_d.isoformat(),
+                        "rango_fin": end_d.isoformat(),
+                    })
+                    continue
+                subset_cols = [c for c in ["Fecha", "CodigoNegocio", "Monto", "Producto"] if c in final.columns]
+                if subset_cols:
+                    final = final.drop_duplicates(subset=subset_cols, keep="last")
+                duplicados_eliminados = before_dedup - len(final)
 
-            consolidados_dir = base / "consolidados"
-            consolidados_dir.mkdir(parents=True, exist_ok=True)
-            out_path = consolidados_dir / f"{semana}.csv"
-            final.to_csv(out_path, index=False, sep=";")
-            logger.info(f"Consolidado guardado: {out_path} ({len(final)} registros)")
+                out_dir = _dir_locatario_consolidados(base, codigo_negocio)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                safe_tag = re.sub(r"[^\w\-]+", "_", etiqueta)
+                out_path = out_dir / f"{safe_tag}.csv"
+                final.to_csv(out_path, index=False, sep=";")
+                total_reg += len(final)
+                detalle_loc.append({
+                    "locatario": codigo_negocio,
+                    "archivos": len(filenames),
+                    "registros": len(final),
+                    "duplicados_eliminados": duplicados_eliminados,
+                    "archivo": str(out_path.relative_to(base)),
+                })
+                logger.info(f"Consolidado por locatario: {out_path} ({len(final)} registros)")
 
             return {
                 "success": True,
-                "semana": semana,
-                "registros": len(final),
-                "locatarios_procesados": len(processed_list),
-                "duplicados_eliminados": duplicados_eliminados,
-                "archivo": str(out_path),
+                "etiqueta": etiqueta,
+                "rango_inicio": start_d.isoformat(),
+                "rango_fin": end_d.isoformat(),
+                "registros_total": total_reg,
+                "locatarios": detalle_loc,
             }
         except Exception as e:
             logger.error(f"Error en consolidar_desde_filestore: {e}")
@@ -1118,7 +1571,7 @@ class LegacyService:
             # 3. Actualizar Realizadas (Mapeo de 10 Campos según lógica original)
             # Asegurar redondeo a 4 decimales en la sumatoria de Ventas Totales
             totales_por_negocio = new_sales.groupby('CodigoNegocio')['Monto'].sum().apply(lambda x: round(float(x), 4)).to_dict()
-            nuevas_realizadas = activas[activas['Cargar'] == 1].copy()
+            nuevas_realizadas = activas[activas['Cargar'].apply(_activar_cargar)].copy()
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # Construcción de campos para Realizadas
@@ -1194,6 +1647,17 @@ class LegacyService:
             for col in df_proc.select_dtypes(include=['datetime64']).columns:
                 df_proc[col] = df_proc[col].dt.strftime('%Y-%m-%d')
 
+            # 4b. Hora por defecto y FechaHora coherente tras pasar Fecha a texto
+            if 'Hora' in df_proc.columns:
+                hs = df_proc['Hora'].astype(str).str.strip()
+                hs = hs.replace({'nan': '', 'None': '', 'NaT': '', '<NA>': ''})
+                df_proc['Hora'] = hs.replace('', '06:00:00')
+            if 'Fecha' in df_proc.columns and 'Hora' in df_proc.columns:
+                f = df_proc['Fecha'].astype(str).str.strip()
+                f = f.replace({'nan': '', 'None': '', 'NaT': '', '<NA>': ''})
+                h = df_proc['Hora'].astype(str).str.strip()
+                df_proc['FechaHora'] = (f + ' ' + h).str.strip()
+
             # 5. Asegurar tipos finales (líneas 136-140 original)
             for col in df_proc.columns:
                 if df_proc[col].dtype == 'int64':
@@ -1205,6 +1669,10 @@ class LegacyService:
             # 6. Limpieza específica de campos (líneas 141-160 original)
             if 'Producto' in df_proc.columns:
                 df_proc['Producto'] = df_proc['Producto'].astype(str).str.strip().str.lower()
+
+            if 'FormaPago' in df_proc.columns:
+                fp = df_proc['FormaPago'].astype(str).str.strip()
+                df_proc['FormaPago'] = fp.replace({'nan': '', 'None': '', 'NaT': '', '<NA>': ''}).replace('', '-')
             
             if 'Estado' in df_proc.columns:
                 df_proc['Estado'] = df_proc['Estado'].astype(str)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, File, UploadFile
+from fastapi import APIRouter, HTTPException, File, UploadFile, Query
 import os
 import logging
 from dotenv import load_dotenv
@@ -62,20 +62,9 @@ async def check_drive_status():
 
 @router.post("/flujo-completo")
 async def ejecutar_flujo_completo():
-    """Importación dinámica: Solo carga servicios pesados al ejecutar."""
-    from app.services.conversion_service import ConversionService
-    from app.services.asociacion_service import AsociacionService
-    from app.services.locatarios_service import LocatariosService
-    from app.services.ventas_service import VentasService
-    from app.services.bigquery_service import BigQueryService
-
-    try:
-        conv = ConversionService(DRIVE_PATH)
-        res_conv = await conv.process_batch("CierreCaja")
-        return {"status": "success", "data": res_conv}
-    except Exception as e:
-        logger.error(f"Error en ejecución: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Flujo histórico: usar pasos legacy individuales (FileStore + Drive config)."""
+    service = get_legacy_service()
+    return await service.convertir_xlsx_to_csv()
 
 # ==========================================
 # RUTAS FLUJO LEGACY (Restauradas)
@@ -121,20 +110,45 @@ async def legacy_convertir():
     return await service.convertir_xlsx_to_csv()
 
 @router.post("/legacy/consolidar")
-async def legacy_consolidar():
-    """Consolida archivos del FileStore de la semana actual (Lima) usando BaseCarga y elimina duplicados."""
+async def legacy_consolidar(
+    modo_rango: str = "semana_actual",
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+):
+    """Consolida pendientes por locatario en cierre_caja/{loc}/_consolidados según rango."""
     service = get_legacy_service()
-    return await service.consolidar_desde_filestore()
+    return await service.consolidar_desde_filestore(
+        modo_rango=modo_rango,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
 
 @router.post("/legacy/asociar")
-async def legacy_asociar():
+async def legacy_asociar(
+    modo_rango: str = "ultima_semana",
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+):
     service = get_legacy_service()
-    return await service.asociar_negocios_automatico()
+    return await service.asociar_negocios_automatico(
+        modo_rango=modo_rango,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
 
 @router.post("/legacy/cargar-ventas")
-async def legacy_cargar_ventas(clear: bool = False):
+async def legacy_cargar_ventas(
+    clear: bool = Query(False, description="Vaciar sales_df y Realizadas antes de cargar"),
+    archivar_pendientes_tras_consolidado: bool = Query(
+        False,
+        description="Tras archivar un consolidado FileStore, mover también todos los pendientes del mismo locatario",
+    ),
+):
     service = get_legacy_service()
-    return await service.cargar_ventas_legacy(clear_data=clear)
+    return await service.cargar_ventas_legacy(
+        clear_data=clear,
+        archivar_pendientes_tras_consolidado=archivar_pendientes_tras_consolidado,
+    )
 
 @router.post("/legacy/cargar-bigquery")
 async def legacy_cargar_bigquery():
@@ -142,10 +156,13 @@ async def legacy_cargar_bigquery():
     return await service.cargar_bigquery_legacy()
 
 @router.post("/legacy/subir")
-async def legacy_subir_archivo(file: UploadFile = File(...)):
+async def legacy_subir_archivo(
+    file: UploadFile = File(...),
+    locatario_codigo: str | None = None,
+):
     service = get_legacy_service()
     content = await file.read()
-    return await service.save_upload_file(file.filename, content)
+    return await service.save_upload_file(file.filename, content, locatario_codigo=locatario_codigo)
 
 @router.post("/legacy/guardar-asociacion")
 async def legacy_guardar_asociacion(archivo: str, codigo: str, inicio: str, fin: str):
@@ -153,10 +170,10 @@ async def legacy_guardar_asociacion(archivo: str, codigo: str, inicio: str, fin:
     return await service.guardar_asociacion_manual(archivo, codigo, inicio, fin)
 
 @router.get("/legacy/preview-sales")
-async def legacy_preview_sales(limit: int = 100):
-    """Vista previa de sales_df."""
+async def legacy_preview_sales(limit: int = 100, offset: int = 0):
+    """Vista previa de sales_df (offset desde el final para cargar más filas)."""
     service = get_legacy_service()
-    return await service.get_sales_df_preview(limit)
+    return await service.get_sales_df_preview(limit=limit, offset=offset)
 
 @router.get("/legacy/preview-realizadas")
 async def legacy_preview_realizadas(limit: int = 100):

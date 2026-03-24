@@ -29,6 +29,11 @@ LOCATARIOS = [
 
 CODIGOS_LOCATARIOS_VALIDOS = {loc["codigo"] for loc in LOCATARIOS}
 
+# FileStore (sincronizar con documentación / frontend si aplica)
+FILE_STORE_CIERRE_CAJA = "cierre_caja"
+FILE_STORE_PROCESADOS = "procesados"
+FILE_STORE_SUB_CONSOLIDADOS = "_consolidados"
+
 MESES_ES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",

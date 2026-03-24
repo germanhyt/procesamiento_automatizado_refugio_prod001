@@ -19,6 +19,8 @@ SECRET_KEY = os.getenv("SECRET_KEY", "9a6c764e2079c53644f1c79e6587c4f4f3c5f4c5f4
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440)) # un dia
 
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 

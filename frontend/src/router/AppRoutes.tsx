@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import Login from '@/pages/Login';
 import Welcome from '@/pages/Welcome';
 import NotFound from '@/pages/NotFound';
-import LegacyFlow from '@/LegacyFlow';
+import LegacyFlow from '@/pages/flowprocess/LegacyFlow';
 import PowerBIDashboard from '@/pages/PowerBIDashboard';
 import UserManagement from '@/pages/UserManagement';
 import FuentesDatos from '@/pages/FuentesDatos';

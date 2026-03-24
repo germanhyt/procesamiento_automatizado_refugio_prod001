@@ -58,7 +58,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Pedidos RefuChasky',
+          title: 'RefuChasky Pedidos',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'list.bullet.rectangle', android: 'list', web: 'list' }}
