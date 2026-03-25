@@ -21,17 +21,17 @@ export default function SettingsScreen() {
       </View>
 
       {/* Sección apariencia */}
-      <Text style={[styles.sectionTitle, { color: p.muted, marginTop: 28 }]}>APARIENCIA</Text>
+      {/* <Text style={[styles.sectionTitle, { color: p.muted, marginTop: 28 }]}>APARIENCIA</Text>
       <View style={[styles.card, { backgroundColor: p.cardBg, borderColor: p.cardBorder }]}>
         <TouchableOpacity style={styles.row} onPress={toggleTheme}>
           <Text style={[styles.rowLabel, { color: p.text }]}>
             {theme === 'dark' ? '☀️  Cambiar a tema claro' : '🌙  Cambiar a tema oscuro'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </View> */}
 
       {/* Versión */}
-      <Text style={[styles.versionText, { color: p.muted }]}>RefuChasky v1.0.0</Text>
+      <Text style={[styles.versionText, { color: p.muted }]}>RefuChasky App</Text>
     </ScrollView>
   );
 }

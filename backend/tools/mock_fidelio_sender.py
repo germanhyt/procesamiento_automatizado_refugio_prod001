@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
 # python tools/mock_fidelio_sender.py \
 #   --restaurant-id A03_BARRIO_MANCORA \
-#   --plataforma RAPPI \
+#   --plataforma RAPPI 
 #   --codigo-pedido RAPPI-TEST-008 \
 #   --bolsas 2 \
 #   --api-key "mi-clave-secreta"
@@ -90,5 +90,36 @@ if __name__ == "__main__":
 #   --restaurant-id A03_BARRIO_MANCORA \
 #   --plataforma RAPPI \
 #   --codigo-pedido RAPPI-TEST-009 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido RAPPI-TEST-010 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma RAPPI \
+#   --codigo-pedido ZZZ-123 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma PEDIDOSYA \
+#   --codigo-pedido ZZZ-123 \
+#   --bolsas 2 \
+#   --api-key "mi-clave-secreta"
+
+
+# con datos de producción:
+# python tools/mock_fidelio_sender.py \
+#   --restaurant-id A03_BARRIO_MANCORA \
+#   --plataforma PEDIDOSYA \
+#   --codigo-pedido ZZZ-123 \
 #   --bolsas 2 \
 #   --api-key "mi-clave-secreta"

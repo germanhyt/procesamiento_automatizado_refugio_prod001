@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useRunnerTheme } from '@/context/ThemeContext';
 import { loginRunner } from '@refugio/delivery-api';
@@ -9,6 +10,7 @@ import { View, Text } from 'react-native';
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { login } = useAuth();
   const { palette: p } = useRunnerTheme();
@@ -64,15 +66,36 @@ export default function LoginScreen() {
         {/* Campo contraseña/PIN */}
         <View style={styles.field}>
           <Text style={[styles.label, { color: p.muted }]}>PIN / CONTRASEÑA</Text>
-          <TextInput
-            style={[styles.input, { color: p.inputText, backgroundColor: p.inputBg, borderColor: p.inputBorder }]}
-            placeholder="****"
-            placeholderTextColor={p.placeholder}
-            keyboardType="numeric"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+          <View style={styles.passwordWrap}>
+            <TextInput
+              style={[
+                styles.input,
+                styles.inputWithEye,
+                { color: p.inputText, backgroundColor: p.inputBg, borderColor: p.inputBorder },
+              ]}
+              placeholder="****"
+              placeholderTextColor={p.placeholder}
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="password"
+              secureTextEntry={!passwordVisible}
+              value={password}
+              onChangeText={setPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeHit}
+              onPress={() => setPasswordVisible((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={passwordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color={p.muted}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Botón */}
@@ -143,6 +166,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     marginBottom: 8,
   },
+  passwordWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
   input: {
     height: 56,
     borderRadius: 14,
@@ -151,6 +178,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     borderWidth: 1,
     letterSpacing: 0.5,
+  },
+  inputWithEye: {
+    paddingRight: 52,
+  },
+  eyeHit: {
+    position: 'absolute',
+    right: 14,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   button: {
     height: 60,

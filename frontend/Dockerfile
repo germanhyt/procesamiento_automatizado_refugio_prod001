@@ -16,6 +16,9 @@ RUN chmod +x node_modules/.bin/* || true
 
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+# Opcional: solo si WebSocket no va al mismo host que VITE_API_URL (sin path; el código añade /api/delivery/ws)
+ARG VITE_WS_URL
+ENV VITE_WS_URL=$VITE_WS_URL
 
 RUN yarn build
 

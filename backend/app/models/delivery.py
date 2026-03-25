@@ -6,7 +6,7 @@ from app.database import Base
 
 
 class Restaurant(Base):
-    __tablename__ = "restaurants"
+    __tablename__ = "delivery_restaurants"
 
     id = Column(Integer, primary_key=True, index=True)
     fidelio_id = Column(String(64), unique=True, index=True, nullable=False)
@@ -21,11 +21,11 @@ class Restaurant(Base):
 
 
 class Order(Base):
-    __tablename__ = "orders"
+    __tablename__ = "delivery_orders"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    restaurant_id = Column(Integer, ForeignKey("delivery_restaurants.id", ondelete="RESTRICT"), nullable=False, index=True)
     plataforma = Column(String(30), nullable=False, index=True)
     codigo_pedido = Column(String(80), nullable=False, index=True)
 
@@ -38,6 +38,13 @@ class Order(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     estado_changed_at = Column(DateTime(timezone=True), nullable=True)
 
+    listo_at = Column(DateTime(timezone=True), nullable=True)
+    match_at = Column(DateTime(timezone=True), nullable=True)
+    recogido_at = Column(DateTime(timezone=True), nullable=True)
+    entregado_at = Column(DateTime(timezone=True), nullable=True)
+    cancelado_at = Column(DateTime(timezone=True), nullable=True)
+    devolucion_at = Column(DateTime(timezone=True), nullable=True)
+
     restaurant = relationship("Restaurant", back_populates="orders")
     matched_driver_arrival = relationship("DriverArrival", back_populates="matched_order", uselist=False)
 
@@ -46,12 +53,12 @@ class Order(Base):
         return self.matched_driver_arrival.id if self.matched_driver_arrival else None
 
     __table_args__ = (
-        Index("ix_orders_plataforma_estado", "plataforma", "estado"),
+        Index("ix_delivery_orders_plataforma_estado", "plataforma", "estado"),
     )
 
 
 class DriverArrival(Base):
-    __tablename__ = "driver_arrivals"
+    __tablename__ = "delivery_driver_arrivals"
 
     id = Column(Integer, primary_key=True, index=True)
 
@@ -62,16 +69,18 @@ class DriverArrival(Base):
 
     estado = Column(String(40), nullable=False, index=True)  # ESPERANDO, EN_MATCH, ...
 
-    matched_order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, unique=True)
+    matched_order_id = Column(Integer, ForeignKey("delivery_orders.id", ondelete="SET NULL"), nullable=True, unique=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     estado_changed_at = Column(DateTime(timezone=True), nullable=True)
 
+    atendido_at = Column(DateTime(timezone=True), nullable=True)
+    despachado_at = Column(DateTime(timezone=True), nullable=True)
+
     matched_order = relationship("Order", back_populates="matched_driver_arrival")
 
     __table_args__ = (
-        Index("ix_driver_arrivals_plataforma_estado", "plataforma", "estado"),
-        UniqueConstraint("matched_order_id", name="uq_driver_arrivals_matched_order_id"),
+        Index("ix_delivery_driver_arrivals_plataforma_estado", "plataforma", "estado"),
+        UniqueConstraint("matched_order_id", name="uq_delivery_driver_arrivals_matched_order_id"),
     )
-

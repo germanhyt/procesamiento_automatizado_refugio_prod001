@@ -1,7 +1,22 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
+
+
+def order_orm_to_dict(order: Any) -> Dict[str, Any]:
+    """Order (SQLAlchemy) → dict válido para JSON + response_model=OrderOut (Pydantic v1 y v2)."""
+    if hasattr(OrderOut, "model_validate"):
+        m = OrderOut.model_validate(order, from_attributes=True)
+        return m.model_dump(mode="python")
+    return OrderOut.from_orm(order).dict()
+
+
+def driver_arrival_orm_to_dict(arrival: Any) -> Dict[str, Any]:
+    if hasattr(DriverArrivalOut, "model_validate"):
+        m = DriverArrivalOut.model_validate(arrival, from_attributes=True)
+        return m.model_dump(mode="python")
+    return DriverArrivalOut.from_orm(arrival).dict()
 
 
 class RestaurantBase(BaseModel):
@@ -17,6 +32,7 @@ class RestaurantOut(RestaurantBase):
     created_at: datetime
 
     class Config:
+        orm_mode = True
         from_attributes = True
 
 
@@ -26,17 +42,6 @@ class OrderBase(BaseModel):
     codigo_pedido: str
     estado: str
     numero_bolsas: Optional[int] = None
-
-
-class OrderOut(OrderBase):
-    id: int
-    locked_by_runner_id: Optional[int] = None
-    matched_driver_arrival_id: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class DriverArrivalBase(BaseModel):
@@ -52,8 +57,32 @@ class DriverArrivalOut(DriverArrivalBase):
     matched_order_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    estado_changed_at: Optional[datetime] = None
+    atendido_at: Optional[datetime] = None
+    despachado_at: Optional[datetime] = None
 
     class Config:
+        orm_mode = True
+        from_attributes = True
+
+
+class OrderOut(OrderBase):
+    id: int
+    locked_by_runner_id: Optional[int] = None
+    matched_driver_arrival_id: Optional[int] = None
+    matched_driver_arrival: Optional[DriverArrivalOut] = None
+    created_at: datetime
+    updated_at: datetime
+    estado_changed_at: Optional[datetime] = None
+    listo_at: Optional[datetime] = None
+    match_at: Optional[datetime] = None
+    recogido_at: Optional[datetime] = None
+    entregado_at: Optional[datetime] = None
+    cancelado_at: Optional[datetime] = None
+    devolucion_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
         from_attributes = True
 
 
@@ -71,10 +100,21 @@ class FidelioOrderReadyIn(BaseModel):
 
 
 class KioskArrivalIn(BaseModel):
+    """Registro kiosk: plataforma, código, placa y alias son obligatorios."""
+
     plataforma: str
     codigo_ingresado: str
-    placa: Optional[str] = None
-    alias_conductor: Optional[str] = None
+    placa: str
+    alias_conductor: str
+
+    @validator("plataforma", "codigo_ingresado", "placa", "alias_conductor", pre=True)
+    def _strip_required(cls, v):
+        if v is None:
+            raise ValueError("campo obligatorio")
+        s = str(v).strip()
+        if not s:
+            raise ValueError("no puede estar vacío")
+        return s
 
 
 class KioskArrivalResult(BaseModel):

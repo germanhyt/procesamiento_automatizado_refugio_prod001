@@ -47,10 +47,10 @@ def main() -> int:
             return 0
 
         # Usamos SQL directo para evitar requerir metadata completa de modelos (FK -> users, etc.)
-        # Orden: drivers -> orders -> restaurants
-        db.execute(text("DELETE FROM driver_arrivals WHERE codigo_ingresado LIKE :p"), {"p": like})
-        db.execute(text("DELETE FROM orders WHERE codigo_pedido LIKE :p"), {"p": like})
-        db.execute(text("DELETE FROM restaurants WHERE fidelio_id LIKE :p"), {"p": like})
+        # Orden: drivers -> orders -> restaurants (tablas delivery_*)
+        db.execute(text("DELETE FROM delivery_driver_arrivals WHERE codigo_ingresado LIKE :p"), {"p": like})
+        db.execute(text("DELETE FROM delivery_orders WHERE codigo_pedido LIKE :p"), {"p": like})
+        db.execute(text("DELETE FROM delivery_restaurants WHERE fidelio_id LIKE :p"), {"p": like})
         db.commit()
         print("deleted: OK")
         return 0

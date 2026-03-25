@@ -1,7 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import AppSelect from '@/components/ui/AppSelect';
+import DeliveryAdminTable from '@/pages/delivery/DeliveryAdminTable';
 import { useDeliveryWS } from '@/hooks/useDeliveryWS';
-import { useActiveOrders, useAdminActions, useAdminOrdersByStatus, useManualMatch, useRunnerActions, useWaitingDrivers } from '@/hooks/useDelivery';
+import {
+    useActiveOrders,
+    useAdminActions,
+    useAdminOrders,
+    ADMIN_ORDERS_FILTER_ALL,
+    useManualMatch,
+    useRunnerActions,
+    useWaitingDrivers,
+} from '@/hooks/useDelivery';
 import { useAuth } from '@/context/AuthContext';
 import Swal from 'sweetalert2';
 import {
@@ -41,8 +50,8 @@ const DeliveryPanel: React.FC = () => {
     const canAdmin = hasPermission(user, DELIVERY_PERMISSIONS.ADMIN);
 
     const [tab, setTab] = useState<'runner' | 'admin'>(() => (canAdmin && !canOperate ? 'admin' : 'runner'));
-    const [adminStatus, setAdminStatus] = useState<(typeof ORDER_STATUSES_ADMIN)[number]>(ORDER_STATUSES_ADMIN[0]);
-    const adminOrders = useAdminOrdersByStatus(adminStatus, polling);
+    const [adminStatus, setAdminStatus] = useState<string>(ADMIN_ORDERS_FILTER_ALL);
+    const adminOrders = useAdminOrders(adminStatus, polling);
 
     const [platform, setPlatform] = useState<string>('ALL');
     const [sortMode, setSortMode] = useState<'oldest' | 'newest'>('oldest');
@@ -184,7 +193,7 @@ const DeliveryPanel: React.FC = () => {
     );
 
     const adminStatusOptions = useMemo(
-        () => ORDER_STATUSES_ADMIN.map((s) => ({ value: s, label: s })),
+        () => [{ value: ADMIN_ORDERS_FILTER_ALL, label: 'Todos' }, ...ORDER_STATUSES_ADMIN.map((s) => ({ value: s, label: s }))],
         []
     );
 
@@ -260,7 +269,7 @@ const DeliveryPanel: React.FC = () => {
                                 className="min-w-[180px]"
                             />
                             <span className="text-[10px] font-mono text-app-muted">
-                                {isWsOpen ? 'WS on (sin polling)' : 'Polling 5s'}
+                                {/* {isWsOpen ? 'WS on (sin polling)' : 'Polling 5s'} */}
                             </span>
                         </div>
                     </div>
@@ -463,137 +472,18 @@ const DeliveryPanel: React.FC = () => {
             )}
 
             {tab === 'admin' && canAdmin && (
-                <div className="bg-app-card border border-app-border rounded-3xl p-5 space-y-4">
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                        <div>
-                            <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted">Admin</h2>
-                            <p className="text-[10px] font-mono text-app-muted">Acciones: devolución / cancelar / unlock</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-app-muted">Estado</label>
-                            <AppSelect
-                                options={adminStatusOptions}
-                                value={adminStatusOptions.find((o) => o.value === adminStatus) ?? adminStatusOptions[0]}
-                                onChange={(opt) => opt && setAdminStatus(opt.value)}
-                                size="sm"
-                                className="min-w-[140px]"
-                            />
-                        </div>
-                    </div>
-
-                    {adminOrders.isLoading ? (
-                        <p className="text-sm text-app-muted">Cargando…</p>
-                    ) : adminOrders.isError ? (
-                        <p className="text-sm text-red-400">Error cargando órdenes.</p>
-                    ) : (
-                        <div className="space-y-3">
-                            {(adminOrders.data ?? []).map((o) => (
-                                <div key={o.id} className="p-4 rounded-2xl bg-app-input border border-app-border">
-                                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-bold text-app-text truncate">{o.codigo_pedido}</p>
-                                            <p className="text-[10px] font-mono text-app-muted">
-                                                {o.plataforma} · {o.estado}
-                                                {o.locked_by_runner_id ? ` · locked_by: ${o.locked_by_runner_id}` : ''}
-                                            </p>
-                                            <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                                <span className={orderStatusBadgeClass(o.estado)}>{o.estado}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-2 shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    const ok = await confirm({
-                                                        title: 'Marcar devolución',
-                                                        text: `¿Confirmas marcar DEVOLUCIÓN para ${o.codigo_pedido}?`,
-                                                        confirmText: 'Marcar',
-                                                        confirmColor: '#f97316',
-                                                    });
-                                                    if (!ok) return;
-                                                    admin.markDevolucion.mutate(o.id, {
-                                                        onSuccess: () => void toast({ icon: 'success', title: 'Marcado como devolución' }),
-                                                        onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
-                                                    });
-                                                }}
-                                                disabled={admin.markDevolucion.isPending}
-                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                            >
-                                                Devolución
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    const reason = await promptText({
-                                                        title: 'Cancelar pedido',
-                                                        label: 'Motivo (reason)',
-                                                        placeholder: 'Ej: cliente se retiró / error de pedido / duplicado…',
-                                                        required: true,
-                                                    });
-                                                    if (!reason) return;
-                                                    const note = await promptText({
-                                                        title: 'Cancelar pedido',
-                                                        label: 'Nota (opcional)',
-                                                        placeholder: 'Detalle adicional para auditoría…',
-                                                        required: false,
-                                                    });
-                                                    const ok = await confirm({
-                                                        title: 'Confirmar cancelación',
-                                                        text: `¿Confirmas CANCELAR el pedido ${o.codigo_pedido}?`,
-                                                        confirmText: 'Cancelar',
-                                                        confirmColor: '#ef4444',
-                                                    });
-                                                    if (!ok) return;
-                                                    admin.cancel.mutate(
-                                                        { orderId: o.id, payload: { reason, note: note || undefined } },
-                                                        {
-                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido cancelado' }),
-                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo cancelar' }),
-                                                        }
-                                                    );
-                                                }}
-                                                disabled={admin.cancel.isPending}
-                                                className="px-3 py-2 rounded-xl bg-red-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                            >
-                                                Cancelar
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    const note = await promptText({
-                                                        title: 'Unlock pedido',
-                                                        label: 'Nota (opcional)',
-                                                        placeholder: 'Motivo del unlock…',
-                                                    });
-                                                    const ok = await confirm({
-                                                        title: 'Confirmar unlock',
-                                                        text: `¿Confirmas desbloquear el pedido ${o.codigo_pedido}?`,
-                                                        confirmText: 'Unlock',
-                                                    });
-                                                    if (!ok) return;
-                                                    admin.unlock.mutate(
-                                                        { orderId: o.id, payload: { note: note || undefined } },
-                                                        {
-                                                            onSuccess: () => void toast({ icon: 'success', title: 'Pedido desbloqueado' }),
-                                                            onError: () => void toast({ icon: 'error', title: 'No se pudo desbloquear' }),
-                                                        }
-                                                    );
-                                                }}
-                                                disabled={admin.unlock.isPending}
-                                                className="px-3 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                            >
-                                                Unlock
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                            {(adminOrders.data ?? []).length === 0 && (
-                                <p className="text-sm text-app-muted">Sin resultados para {adminStatus}.</p>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <DeliveryAdminTable
+                    orders={adminOrders.data ?? []}
+                    isLoading={adminOrders.isLoading}
+                    isError={adminOrders.isError}
+                    adminStatus={adminStatus}
+                    onAdminStatusChange={setAdminStatus}
+                    adminStatusOptions={adminStatusOptions}
+                    admin={admin}
+                    confirm={confirm}
+                    promptText={promptText}
+                    toast={toast}
+                />
             )}
 
             {tab === 'admin' && !canAdmin && (

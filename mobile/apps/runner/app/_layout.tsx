@@ -3,8 +3,10 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { Text, useWindowDimensions } from 'react-native';
 import 'react-native-reanimated';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ThemeProvider as AppThemeProvider, useRunnerTheme } from '@/context/ThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -37,21 +39,26 @@ export default function RootLayout() {
   if (!loaded) return null;
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppThemeProvider>
-        <AuthProvider>
-          <RootLayoutNav />
-        </AuthProvider>
-      </AppThemeProvider>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <AppThemeProvider>
+          <AuthProvider>
+            <RootLayoutNav />
+          </AuthProvider>
+        </AppThemeProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
   );
 }
 
 function RootLayoutNav() {
   const { theme, palette: p } = useRunnerTheme();
+  const { width } = useWindowDimensions();
   const { token, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const orderHeaderTitleSize = width < 340 ? 15 : width < 380 ? 16 : 18;
+  const orderHeaderTitleMaxW = Math.max(140, width - 130);
 
   useEffect(() => {
     if (isLoading) return;
@@ -79,7 +86,21 @@ function RootLayoutNav() {
             title: 'Detalle de Pedido',
             headerBackTitle: 'Atrás',
             headerStyle: { backgroundColor: p.topBarBg },
-            headerTitleStyle: { color: p.text, fontWeight: '900' },
+            headerTitle: () => (
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                style={{
+                  color: p.text,
+                  fontWeight: '900',
+                  fontSize: orderHeaderTitleSize,
+                  maxWidth: orderHeaderTitleMaxW,
+                }}
+              >
+                Detalle de Pedido
+              </Text>
+            ),
             headerTintColor: p.accent,
           }}
         />

@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",
+        "EXPO_PUBLIC_WS_URL": "wss://api.datarefugio.gcbprojects.site"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",
+        "EXPO_PUBLIC_WS_URL": "wss://api.datarefugio.gcbprojects.site"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

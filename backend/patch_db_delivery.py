@@ -6,16 +6,81 @@ from app.models.delivery import Restaurant
 from app.core.constants import LOCATARIOS, get_locatario_code_from_full, build_codigo_comunicacion
 
 
-def ensure_columns():
-    # Crear tablas si no existen aún (create_all no altera tablas existentes)
-    Base.metadata.create_all(bind=engine)
+def rename_legacy_delivery_tables(conn) -> None:
+    """
+    Renombra tablas legacy (sin prefijo) a delivery_* de forma idempotente.
+    Orden: restaurants -> orders -> driver_arrivals (respeta FKs).
+    """
     stmts = [
-        # Delivery columns (idempotent)
-        "ALTER TABLE IF EXISTS restaurants ADD COLUMN IF NOT EXISTS codigo_negocio VARCHAR(10);",
-        "ALTER TABLE IF EXISTS restaurants ADD COLUMN IF NOT EXISTS codigo_comunicacion VARCHAR(200);",
-        "ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS estado_changed_at TIMESTAMPTZ NULL;",
-        "ALTER TABLE IF EXISTS driver_arrivals ADD COLUMN IF NOT EXISTS estado_changed_at TIMESTAMPTZ NULL;",
-        "ALTER TABLE IF EXISTS driver_arrivals ADD COLUMN IF NOT EXISTS alias_conductor VARCHAR(120);",
+        """
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'restaurants'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'delivery_restaurants'
+          ) THEN
+            ALTER TABLE restaurants RENAME TO delivery_restaurants;
+          END IF;
+        END $$;
+        """,
+        """
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'orders'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'delivery_orders'
+          ) THEN
+            ALTER TABLE orders RENAME TO delivery_orders;
+          END IF;
+        END $$;
+        """,
+        """
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'driver_arrivals'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'delivery_driver_arrivals'
+          ) THEN
+            ALTER TABLE driver_arrivals RENAME TO delivery_driver_arrivals;
+          END IF;
+        END $$;
+        """,
+    ]
+    for s in stmts:
+        conn.execute(text(s))
+
+
+def ensure_columns():
+    # 1) Migrar nombres de tablas antes de create_all (evita tablas duplicadas vacías)
+    with engine.begin() as conn:
+        rename_legacy_delivery_tables(conn)
+
+    # 2) Crear tablas si no existen (create_all no altera tablas existentes)
+    Base.metadata.create_all(bind=engine)
+
+    stmts = [
+        # Delivery_restaurants
+        "ALTER TABLE IF EXISTS delivery_restaurants ADD COLUMN IF NOT EXISTS codigo_negocio VARCHAR(10);",
+        "ALTER TABLE IF EXISTS delivery_restaurants ADD COLUMN IF NOT EXISTS codigo_comunicacion VARCHAR(200);",
+        # Delivery_orders — columnas operativas previas + trazabilidad
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS estado_changed_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS listo_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS match_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS recogido_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS entregado_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS cancelado_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_orders ADD COLUMN IF NOT EXISTS devolucion_at TIMESTAMPTZ NULL;",
+        # Delivery_driver_arrivals
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS estado_changed_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS alias_conductor VARCHAR(120);",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS atendido_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS despachado_at TIMESTAMPTZ NULL;",
     ]
     with engine.begin() as conn:
         for s in stmts:
@@ -66,7 +131,7 @@ def ensure_permissions_and_roles():
 def seed_locatarios():
     """
     Fidelio option A:
-    - restaurants.fidelio_id = full code (e.g. A03_BARRIO_MANCORA)
+    - delivery_restaurants.fidelio_id = full code (e.g. A03_BARRIO_MANCORA)
     - codigo_negocio = prefix (A03)
     - codigo_comunicacion = "A03 - Barrio Mancora"
     """
@@ -102,7 +167,7 @@ def seed_locatarios():
 
 
 def main():
-    print(">>> Patching DB: delivery columns + permissions/roles")
+    print(">>> Patching DB: delivery_* tables + columns + permissions/roles")
     ensure_columns()
     ensure_permissions_and_roles()
     seed_locatarios()
@@ -111,4 +176,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

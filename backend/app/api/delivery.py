@@ -6,7 +6,8 @@ import re
 from typing import Optional, List, Set, Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.sql import func as sql_func
 
 from app.core.delivery_constants import (
     DEFAULT_QUERY_LIMIT,
@@ -44,6 +45,8 @@ from app.schemas.delivery import (
     AdminUnlockIn,
     OrderOut,
     DriverArrivalOut,
+    order_orm_to_dict,
+    driver_arrival_orm_to_dict,
 )
 
 from fuzzywuzzy import fuzz
@@ -90,6 +93,33 @@ async def _emit(event_type: str, payload: Dict[str, Any]) -> None:
             "payload": payload,
         }
     )
+
+
+async def _emit_nuevo_driver_esperando(driver_arrival_id: int, plataforma: str, codigo_ingresado: str) -> None:
+    await _emit(
+        EVENT_DRIVER_UPDATED,
+        {
+            "driver_arrival_id": driver_arrival_id,
+            "estado": DRIVER_STATUS_ESPERANDO,
+            "source": "kiosk_arrival",
+            "kind": "NUEVO_DRIVER_ESPERANDO",
+            "plataforma": plataforma,
+            "codigo_ingresado": codigo_ingresado,
+        },
+    )
+
+
+def _apply_order_driver_match(order: Order, arrival: DriverArrival, now: datetime) -> None:
+    """Enlaza pedido y driver; marca tiempos de match y atención al driver."""
+    arrival.matched_order_id = order.id
+    arrival.estado = DRIVER_STATUS_EN_MATCH
+    arrival.estado_changed_at = now
+    if arrival.atendido_at is None:
+        arrival.atendido_at = now
+    order.estado = ORDER_STATUS_LISTO_PARA_ENTREGAR
+    order.estado_changed_at = now
+    if order.match_at is None:
+        order.match_at = now
 
 
 # def _extract_locatario_codigo(value: str) -> str:
@@ -147,12 +177,7 @@ def _try_match_waiting_driver_for_order(db: Session, order: Order) -> Optional[D
         return None
 
     now = _utcnow()
-    best.matched_order_id = order.id
-    best.estado = DRIVER_STATUS_EN_MATCH
-    best.estado_changed_at = now
-
-    order.estado = ORDER_STATUS_LISTO_PARA_ENTREGAR
-    order.estado_changed_at = now
+    _apply_order_driver_match(order, best, now)
 
     db.commit()
     db.refresh(best)
@@ -204,6 +229,7 @@ def apply_timeouts(db: Session) -> dict:
         if ts and ts.timestamp() <= order_cutoff:
             o.estado = ORDER_STATUS_DEVOLUCION
             o.estado_changed_at = now
+            o.devolucion_at = now
             expired_orders += 1
 
     drivers = db.query(DriverArrival).filter(DriverArrival.estado == DRIVER_STATUS_ESPERANDO).all()
@@ -274,6 +300,21 @@ async def delivery_ws(websocket: WebSocket):
         db.close()
 
 
+def _load_order_dict(db: Session, order_id: int) -> Dict[str, Any]:
+    """Re-carga Order con driver matcheado para serializar sin lazy-load."""
+    o = (
+        db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
+        .filter(Order.id == order_id)
+        .one()
+    )
+    return order_orm_to_dict(o)
+
+
+def _orders_to_dicts(orders: List[Order]) -> List[Dict[str, Any]]:
+    return [order_orm_to_dict(o) for o in orders]
+
+
 @router.post("/webhooks/fidelio/order-ready", response_model=OrderOut)
 async def fidelio_order_ready(
     payload: FidelioOrderReadyIn,
@@ -317,6 +358,7 @@ async def fidelio_order_ready(
     )
 
     if not order:
+        t0 = _utcnow()
         order = Order(
             restaurant_id=rest.id,
             plataforma=plataforma,
@@ -324,7 +366,8 @@ async def fidelio_order_ready(
             estado=ORDER_STATUS_LISTO,
             numero_bolsas=payload.numero_bolsas,
         )
-        order.estado_changed_at = _utcnow()
+        order.estado_changed_at = t0
+        order.listo_at = t0
         db.add(order)
         db.commit()
         db.refresh(order)
@@ -348,11 +391,13 @@ async def fidelio_order_ready(
             )
             await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "early_bird"})
             await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"})
-        return order
+        return _load_order_dict(db, order.id)
 
     # Actualizar estado a LISTO si aún no se había marcado
+    t1 = _utcnow()
     order.estado = ORDER_STATUS_LISTO
-    order.estado_changed_at = _utcnow()
+    order.estado_changed_at = t1
+    order.listo_at = t1
     if payload.numero_bolsas is not None:
         order.numero_bolsas = payload.numero_bolsas
     db.commit()
@@ -376,7 +421,7 @@ async def fidelio_order_ready(
         )
         await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "early_bird"})
         await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"})
-    return order
+    return _load_order_dict(db, order.id)
 
 
 @router.post("/kiosk/arrivals", response_model=KioskArrivalResult)
@@ -395,7 +440,7 @@ async def kiosk_arrival(
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
     plataforma = payload.plataforma.strip().upper()
-    codigo_ingresado = payload.codigo_ingresado.strip()
+    codigo_ingresado = payload.codigo_ingresado.strip().upper()
     codigo_norm = _normalize_code(codigo_ingresado)
 
     # Colisión: si existe otro arrival activo con mismo código/plataforma, lo marcamos ABANDONO
@@ -416,8 +461,8 @@ async def kiosk_arrival(
 
     arrival = DriverArrival(
         plataforma=plataforma,
-        placa=(payload.placa.strip().upper() if payload.placa else None),
-        alias_conductor=(payload.alias_conductor.strip() if payload.alias_conductor else None),
+        placa=payload.placa.strip().upper(),
+        alias_conductor=payload.alias_conductor.strip(),
         codigo_ingresado=codigo_ingresado,
         estado=DRIVER_STATUS_ESPERANDO,
     )
@@ -459,30 +504,22 @@ async def kiosk_arrival(
             matched_order = best_order
             match_score = int(best_score)
         else:
-            return KioskArrivalResult(
-                driver_arrival=DriverArrivalOut.model_validate(arrival),
-                matched=False,
-                matched_order=None,
-            )
+            await _emit_nuevo_driver_esperando(arrival.id, plataforma, codigo_ingresado)
+            return {
+                "driver_arrival": driver_arrival_orm_to_dict(arrival),
+                "matched": False,
+                "matched_order": None,
+            }
 
-    if not matched_order:
-        return KioskArrivalResult(
-            driver_arrival=DriverArrivalOut.model_validate(arrival),
-            matched=False,
-            matched_order=None,
-        )
+    # Sin match: el bloque anterior ya emitió y retornó. Con match: matched_order viene de exacto o fuzzy.
 
     # Enlazar (si el pedido ya estaba enlazado a otro driver, liberamos)
     if matched_order.matched_driver_arrival and matched_order.matched_driver_arrival.id != arrival.id:
         matched_order.matched_driver_arrival.estado = DRIVER_STATUS_ABANDONO
         matched_order.matched_driver_arrival.estado_changed_at = _utcnow()
 
-    arrival.matched_order_id = matched_order.id
-    arrival.estado = DRIVER_STATUS_EN_MATCH
-    matched_order.estado = ORDER_STATUS_LISTO_PARA_ENTREGAR
     now = _utcnow()
-    arrival.estado_changed_at = now
-    matched_order.estado_changed_at = now
+    _apply_order_driver_match(matched_order, arrival, now)
 
     db.commit()
     db.refresh(arrival)
@@ -507,11 +544,11 @@ async def kiosk_arrival(
         {"driver_arrival_id": arrival.id, "estado": arrival.estado, "source": "kiosk_match"},
     )
 
-    return KioskArrivalResult(
-        driver_arrival=DriverArrivalOut.model_validate(arrival),
-        matched=True,
-        matched_order=OrderOut.model_validate(matched_order),
-    )
+    return {
+        "driver_arrival": driver_arrival_orm_to_dict(arrival),
+        "matched": True,
+        "matched_order": _load_order_dict(db, matched_order.id),
+    }
 
 
 @router.get("/orders/active", response_model=List[OrderOut])
@@ -529,12 +566,14 @@ async def list_active_orders(
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
     orders = (
         db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
         .filter(Order.estado.notin_([ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO]))
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
     )
-    return orders
+    return _orders_to_dicts(orders)
+
 
 @router.get("/orders/{order_id}", response_model=OrderOut)
 async def get_order_by_id(
@@ -546,10 +585,15 @@ async def get_order_by_id(
     Obtener detalles de un pedido específico.
     """
     _require_permission(current_user, "delivery:view")
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = (
+        db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
+        .filter(Order.id == order_id)
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
-    return order
+    return order_orm_to_dict(order)
 
 
 @router.get("/drivers/waiting", response_model=List[DriverArrivalOut])
@@ -605,19 +649,21 @@ async def kiosk_list_delivered_orders_today(
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
 
     start_utc, end_utc = _lima_today_range_utc()
+    delivered_ts = sql_func.coalesce(Order.entregado_at, Order.estado_changed_at)
     orders = (
         db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
         .filter(
             Order.estado == ORDER_STATUS_ENTREGADO,
-            Order.estado_changed_at.isnot(None),
-            Order.estado_changed_at >= start_utc,
-            Order.estado_changed_at < end_utc,
+            delivered_ts.isnot(None),
+            delivered_ts >= start_utc,
+            delivered_ts < end_utc,
         )
-        .order_by(Order.estado_changed_at.desc(), Order.id.desc())
+        .order_by(delivered_ts.desc(), Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
     )
-    return orders
+    return _orders_to_dicts(orders)
 
 
 @router.post("/orders/{order_id}/manual-match", response_model=KioskArrivalResult)
@@ -657,12 +703,8 @@ async def manual_match_order(
         arrival.matched_order.estado = ORDER_STATUS_LISTO
         arrival.matched_order.estado_changed_at = _utcnow()
 
-    arrival.matched_order_id = order.id
-    arrival.estado = DRIVER_STATUS_EN_MATCH
-    order.estado = ORDER_STATUS_LISTO_PARA_ENTREGAR
     now = _utcnow()
-    arrival.estado_changed_at = now
-    order.estado_changed_at = now
+    _apply_order_driver_match(order, arrival, now)
 
     db.commit()
     db.refresh(arrival)
@@ -682,11 +724,11 @@ async def manual_match_order(
     await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "manual_match"})
     await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": arrival.id, "estado": arrival.estado, "source": "manual_match"})
 
-    return KioskArrivalResult(
-        driver_arrival=DriverArrivalOut.model_validate(arrival),
-        matched=True,
-        matched_order=OrderOut.model_validate(order),
-    )
+    return {
+        "driver_arrival": driver_arrival_orm_to_dict(arrival),
+        "matched": True,
+        "matched_order": _load_order_dict(db, order.id),
+    }
 
 
 @router.post("/maintenance/apply-timeouts")
@@ -734,7 +776,7 @@ async def runner_accept_order(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "locked_by_runner_id": order.locked_by_runner_id, "source": "runner_accept"},
     )
-    return order
+    return _load_order_dict(db, order.id)
 
 
 @router.post("/orders/{order_id}/shelf", response_model=OrderOut)
@@ -760,15 +802,17 @@ async def runner_shelf_order(
     if order.estado in [ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO, ORDER_STATUS_DEVOLUCION]:
         raise HTTPException(status_code=400, detail="Pedido no es shelfable por estado")
 
+    t_shelf = _utcnow()
     order.estado = ORDER_STATUS_PROCESO_ENTREGA
-    order.estado_changed_at = _utcnow()
+    order.estado_changed_at = t_shelf
+    order.recogido_at = t_shelf
     db.commit()
     db.refresh(order)
     await _emit(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "source": "runner_shelf"},
     )
-    return order
+    return _load_order_dict(db, order.id)
 
 
 @router.post("/orders/{order_id}/deliver", response_model=OrderOut)
@@ -804,10 +848,12 @@ async def runner_deliver_order(
     now = _utcnow()
     order.estado = ORDER_STATUS_ENTREGADO
     order.estado_changed_at = now
+    order.entregado_at = now
 
     if order.matched_driver_arrival:
         order.matched_driver_arrival.estado = DRIVER_STATUS_DESPACHADO
         order.matched_driver_arrival.estado_changed_at = now
+        order.matched_driver_arrival.despachado_at = now
 
     db.commit()
     db.refresh(order)
@@ -820,7 +866,7 @@ async def runner_deliver_order(
             EVENT_DRIVER_UPDATED,
             {"driver_arrival_id": order.matched_driver_arrival.id, "estado": order.matched_driver_arrival.estado, "source": "runner_deliver"},
         )
-    return order
+    return _load_order_dict(db, order.id)
 
 
 def _require_admin(current_user: User) -> None:
@@ -846,6 +892,26 @@ def _require_permission(current_user: User, codename: str) -> None:
         raise HTTPException(status_code=403, detail="No tiene permisos")
 
 
+@router.get("/admin/orders", response_model=List[OrderOut])
+async def admin_list_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Listado completo de pedidos (hasta DEFAULT_QUERY_LIMIT), más recientes primero.
+    """
+    _require_permission(current_user, "delivery:admin")
+    apply_timeouts(db)
+    orders = (
+        db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
+        .order_by(Order.id.desc())
+        .limit(DEFAULT_QUERY_LIMIT)
+        .all()
+    )
+    return _orders_to_dicts(orders)
+
+
 @router.get("/admin/orders/by-status/{status}", response_model=List[OrderOut])
 async def admin_list_orders_by_status(
     status: str,
@@ -856,12 +922,13 @@ async def admin_list_orders_by_status(
     apply_timeouts(db)
     orders = (
         db.query(Order)
+        .options(joinedload(Order.matched_driver_arrival))
         .filter(Order.estado == status.strip().upper())
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
     )
-    return orders
+    return _orders_to_dicts(orders)
 
 
 @router.post("/admin/orders/{order_id}/mark-devolucion", response_model=OrderOut)
@@ -883,12 +950,14 @@ async def admin_mark_devolucion(
     if order.estado in [ORDER_STATUS_CANCELADO, ORDER_STATUS_ENTREGADO]:
         raise HTTPException(status_code=400, detail="Pedido no puede pasar a devolución por estado")
 
+    t_dev = _utcnow()
     order.estado = ORDER_STATUS_DEVOLUCION
-    order.estado_changed_at = _utcnow()
+    order.estado_changed_at = t_dev
+    order.devolucion_at = t_dev
     db.commit()
     db.refresh(order)
     await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "admin_mark_devolucion"})
-    return order
+    return _load_order_dict(db, order.id)
 
 
 @router.post("/admin/orders/{order_id}/cancel", response_model=OrderOut)
@@ -911,8 +980,10 @@ async def admin_cancel_order(
     if order.estado == ORDER_STATUS_ENTREGADO:
         raise HTTPException(status_code=400, detail="No se puede cancelar un pedido entregado")
 
+    t_can = _utcnow()
     order.estado = ORDER_STATUS_CANCELADO
-    order.estado_changed_at = _utcnow()
+    order.estado_changed_at = t_can
+    order.cancelado_at = t_can
     # liberamos lock si existía
     order.locked_by_runner_id = None
     db.commit()
@@ -927,7 +998,7 @@ async def admin_cancel_order(
             "source": "admin_cancel",
         },
     )
-    return order
+    return _load_order_dict(db, order.id)
 
 
 @router.post("/admin/orders/{order_id}/unlock", response_model=OrderOut)
@@ -955,5 +1026,5 @@ async def admin_unlock_order(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "locked_by_runner_id": None, "note": payload.note, "source": "admin_unlock"},
     )
-    return order
+    return _load_order_dict(db, order.id)
 

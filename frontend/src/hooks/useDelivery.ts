@@ -65,11 +65,18 @@ export function useManualMatch() {
     });
 }
 
-export function useAdminOrdersByStatus(status: string, refetchIntervalMs: number | false = 5000) {
+/** Valor del filtro admin: todos los pedidos (sin filtrar por estado en API). */
+export const ADMIN_ORDERS_FILTER_ALL = 'ALL';
+
+export function useAdminOrders(status: string, refetchIntervalMs: number | false = 5000) {
     const { token } = useAuth();
+    const isAll = status === ADMIN_ORDERS_FILTER_ALL;
     return useQuery({
-        queryKey: ['delivery', 'admin', 'orders', 'by-status', status],
-        queryFn: async () => deliveryService.adminListOrdersByStatus(token as string, status),
+        queryKey: ['delivery', 'admin', 'orders', isAll ? 'all' : 'by-status', isAll ? 'all' : status],
+        queryFn: async () =>
+            isAll
+                ? deliveryService.adminListAllOrders(token as string)
+                : deliveryService.adminListOrdersByStatus(token as string, status),
         enabled: !!token && !!status,
         refetchInterval: refetchIntervalMs,
     });

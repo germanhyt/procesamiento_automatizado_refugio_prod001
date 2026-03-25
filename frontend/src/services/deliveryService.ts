@@ -2,6 +2,22 @@ import axios from 'axios';
 import type { DriverStatus, OrderStatus } from '@/constants/delivery';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080`;
+
+export interface DriverArrival {
+    id: number;
+    plataforma: string;
+    codigo_ingresado: string;
+    placa?: string | null;
+    alias_conductor?: string | null;
+    estado: DriverStatus;
+    matched_order_id?: number | null;
+    created_at: string;
+    updated_at: string;
+    estado_changed_at?: string | null;
+    atendido_at?: string | null;
+    despachado_at?: string | null;
+}
 
 export interface Order {
     id: number;
@@ -12,20 +28,16 @@ export interface Order {
     numero_bolsas?: number | null;
     locked_by_runner_id?: number | null;
     matched_driver_arrival_id?: number | null;
+    matched_driver_arrival?: DriverArrival | null;
     created_at: string;
     updated_at: string;
-}
-
-export interface DriverArrival {
-    id: number;
-    plataforma: string;
-    codigo_ingresado: string;
-    placa?: string | null;
-   alias_conductor?: string | null;
-    estado: DriverStatus;
-    matched_order_id?: number | null;
-    created_at: string;
-    updated_at: string;
+    estado_changed_at?: string | null;
+    listo_at?: string | null;
+    match_at?: string | null;
+    recogido_at?: string | null;
+    entregado_at?: string | null;
+    cancelado_at?: string | null;
+    devolucion_at?: string | null;
 }
 
 export interface ManualMatchIn {
@@ -47,7 +59,7 @@ function authHeaders(token: string | null) {
 
 export const deliveryService = {
     wsUrl(token: string) {
-        const base = (import.meta.env.VITE_WS_URL as string | undefined) || `ws://${window.location.hostname}:8080`;
+        const base = WS_URL;
         const url = base.replace(/\/$/, '') + `/api/delivery/ws?token=${encodeURIComponent(token)}`;
         return url;
     },
@@ -79,6 +91,11 @@ export const deliveryService = {
 
     async manualMatch(token: string, orderId: number, payload: ManualMatchIn) {
         const res = await axios.post(`${API_URL}/delivery/orders/${orderId}/manual-match`, payload, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async adminListAllOrders(token: string) {
+        const res = await axios.get<Order[]>(`${API_URL}/delivery/admin/orders`, { headers: authHeaders(token) });
         return res.data;
     },
 

@@ -16,7 +16,12 @@ export async function kioskListDeliveredOrdersToday() {
   return res.data;
 }
 
-export async function kioskArrival(payload: { plataforma: string; codigo_ingresado: string; placa?: string | null }) {
+export async function kioskArrival(payload: {
+  plataforma: string;
+  codigo_ingresado: string;
+  placa: string;
+  alias_conductor: string;
+}) {
   const res = await http.post<{ driver_arrival: DriverArrival; matched: boolean; matched_order?: Order | null }>(
     '/delivery/kiosk/arrivals',
     payload

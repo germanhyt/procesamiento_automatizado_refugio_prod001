@@ -1,69 +1,50 @@
-import { Ionicons } from '@expo/vector-icons';
 import { SymbolView } from 'expo-symbols';
 import { Tabs } from 'expo-router';
-import { TouchableOpacity } from 'react-native';
+import { StyleSheet, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RunnerTabHeader } from '@/components/RunnerTabHeader';
+import { space } from '@/constants/runnerLayout';
 import { useRunnerTheme } from '@/context/ThemeContext';
 
 export default function TabLayout() {
-  const { theme, palette: p, toggleTheme } = useRunnerTheme();
+  const { palette: p } = useRunnerTheme();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const tabBarBottomPad = Math.max(insets.bottom, space.sm + 2);
+  const tabBarTopPad = space.sm;
+  /** Altura del área de iconos + padding superior + safe area inferior (evita solaparse con gestos/home) */
+  const tabBarHeight = 48 + tabBarTopPad + tabBarBottomPad;
+
+  const tabBarStyleBase = {
+    backgroundColor: p.bg,
+    borderTopColor: p.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: tabBarTopPad,
+    // paddingBottom: tabBarBottomPad,
+    height: tabBarHeight,
+    marginBottom: insets.bottom > 0 ? space.md : space.xxl,
+  };
 
   return (
     <Tabs
       screenOptions={{
+        headerShown: true,
         tabBarActiveTintColor: p.accent,
         tabBarInactiveTintColor: p.muted,
-        tabBarStyle: {
-          backgroundColor: p.bg,
-          borderTopColor: p.border,
-          borderTopWidth: 1,
-          height: 62,
-          paddingBottom: 10,
-          paddingTop: 6,
-        },
-        headerShown: true,
-        headerStyle: { backgroundColor: p.topBarBg },
-        headerShadowVisible: false,
-        headerTitleStyle: {
-          color: p.text,
-          fontWeight: '900',
-          fontSize: 20,
-          letterSpacing: 0.5,
-        },
-        headerRight: () => (
-          <TouchableOpacity
-            onPress={toggleTheme}
-            accessibilityLabel={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
-            style={{
-              marginRight: 20,
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              backgroundColor: p.themeToggleBg,
-              borderWidth: 1,
-              borderColor: p.themeToggleBorder,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Ionicons
-              name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'}
-              size={20}
-              color={p.text}
-            />
-          </TouchableOpacity>
-        ),
+        tabBarStyle: tabBarStyleBase,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'RefuChasky Pedidos',
+          title: 'RefuChasky RUNNER',
+          header: () => <RunnerTabHeader mode="dashboard" />,
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'list.bullet.rectangle', android: 'list', web: 'list' }}
               tintColor={color}
-              size={24}
+              size={width < 380 ? 22 : 24}
             />
           ),
         }}
@@ -72,11 +53,17 @@ export default function TabLayout() {
         name="two"
         options={{
           title: 'Ajustes',
+          header: () => <RunnerTabHeader mode="settings" />,
+          /** Aire extra entre la barra de pestañas y el borde físico (gestos / botones del sistema). */
+          tabBarStyle: {
+            ...tabBarStyleBase,
+            marginBottom: insets.bottom > 0 ? space.md : space.xxl,
+          },
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'gearshape.fill', android: 'settings', web: 'settings' }}
               tintColor={color}
-              size={24}
+              size={width < 380 ? 22 : 24}
             />
           ),
         }}
