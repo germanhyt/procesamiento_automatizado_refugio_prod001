@@ -84,3 +84,19 @@ class DriverArrival(Base):
         Index("ix_delivery_driver_arrivals_plataforma_estado", "plataforma", "estado"),
         UniqueConstraint("matched_order_id", name="uq_delivery_driver_arrivals_matched_order_id"),
     )
+
+
+class DeliveryRunnerPushToken(Base):
+    """
+    Tokens Expo Push del app Runner (un registro por dispositivo; expo_push_token es único).
+    """
+
+    __tablename__ = "delivery_runner_push_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    expo_push_token = Column(String(512), unique=True, nullable=False, index=True)
+    platform = Column(String(16), nullable=False, default="unknown")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

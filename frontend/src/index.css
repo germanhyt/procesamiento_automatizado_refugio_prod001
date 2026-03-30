@@ -97,3 +97,8 @@ body {
 .hover\:bg-app-surface:hover { background-color: var(--app-surface); }
 .hover\:bg-app-card-hover:hover { background-color: var(--app-card-hover); }
 .focus\:border-app-accent:focus { border-color: var(--app-accent); }
+
+/* SweetAlert2: por encima de modales full-screen (p. ej. LegacyFlow z-[10050]) y portales de react-select */
+.swal2-container {
+  z-index: 200000 !important;
+}

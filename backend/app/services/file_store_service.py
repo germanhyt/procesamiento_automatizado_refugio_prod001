@@ -27,6 +27,9 @@ from app.core.constants import (
 
 logger = logging.getLogger(__name__)
 
+# Extensiones permitidas en cierre_caja (pendientes): CSV, Excel moderno y Excel 97-2003 (.xls).
+FILESTORE_UPLOAD_EXTENSIONS = frozenset({".csv", ".xlsx", ".xls"})
+
 ZONA_LIMA = ZoneInfo("America/Lima")
 DEFAULT_UPLOAD_BASE = os.getenv("UPLOAD_BASE_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads"))
 
@@ -115,8 +118,10 @@ def save_file(
     dir_loc.mkdir(parents=True, exist_ok=True)
 
     stem, ext = _stem_ext(filename)
-    if ext not in (".xlsx", ".csv"):
-        ext = ".csv" if not ext else ext
+    if ext not in FILESTORE_UPLOAD_EXTENSIONS:
+        raise ValueError(
+            f"Solo se permiten archivos {', '.join(sorted(FILESTORE_UPLOAD_EXTENSIONS))}. Recibido: {ext or 'sin extensión'}"
+        )
 
     if replace:
         safe_name = stem + ext
@@ -394,7 +399,7 @@ def archivo_en_rango_consolidacion(
 
 def list_pendientes_locatario(locatario_codigo: str) -> list[str]:
     """
-    Nombres de archivos .csv/.xlsx en la raíz de cierre_caja/{locatario}/ (no _consolidados).
+    Nombres de archivos .csv / .xlsx / .xls en la raíz de cierre_caja/{locatario}/ (no _consolidados).
     """
     base = get_upload_base()
     d = _dir_locatario_pendientes(base, locatario_codigo)
@@ -404,7 +409,7 @@ def list_pendientes_locatario(locatario_codigo: str) -> list[str]:
     for f in sorted(d.iterdir()):
         if f.is_file():
             low = f.name.lower()
-            if low.endswith(".csv") or low.endswith(".xlsx"):
+            if low.endswith(".csv") or low.endswith(".xlsx") or low.endswith(".xls"):
                 out.append(f.name)
     return out
 
@@ -443,14 +448,14 @@ def _preview_cap_rows(max_rows: int) -> int:
 
 def preview_tabular_file(path: Path, *, max_rows: int = 50) -> dict:
     """
-    Lee las primeras filas de un CSV o XLSX para vista previa en UI.
+    Lee las primeras filas de un CSV, XLSX o XLS (Excel 97-2003) para vista previa en UI.
     """
     cap = _preview_cap_rows(max_rows)
     want = cap + 1
     if not path.is_file():
         return {"ok": False, "error": "no_existe"}
     ext = path.suffix.lower()
-    if ext not in (".csv", ".xlsx"):
+    if ext not in (".csv", ".xlsx", ".xls"):
         return {"ok": False, "error": "extension_no_soportada"}
     try:
         size = path.stat().st_size
@@ -470,8 +475,10 @@ def preview_tabular_file(path: Path, *, max_rows: int = 50) -> dict:
                 sep=None,
                 engine="python",
             )
-        else:
+        elif ext == ".xlsx":
             df = pd.read_excel(path, nrows=want, dtype=str, engine="openpyxl")
+        else:
+            df = pd.read_excel(path, nrows=want, dtype=str, engine="xlrd")
     except Exception as e:
         logger.warning("preview_tabular_file fallo: %s", path, exc_info=True)
         return {"ok": False, "error": "lectura_fallo", "detail": str(e)[:500]}

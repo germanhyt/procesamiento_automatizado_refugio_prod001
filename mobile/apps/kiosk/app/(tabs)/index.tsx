@@ -681,14 +681,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: space.sm + 2,
 
-    paddingTop: 24,
+    paddingTop: 32,
     paddingBottom: 10,
   },
   topBarCompact: {
     flexDirection: 'column',
     alignItems: 'stretch',
 
-    paddingTop: 24,
+    paddingTop: 32,
     paddingBottom: 10,
   },
   topBarWideRow: {
@@ -697,7 +697,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: space.md,
 
-    paddingTop: 24,
+    paddingTop: 32,
     paddingBottom: 10,
   },
   topBarUpperRowCompact: {
@@ -706,7 +706,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: space.sm + 2,
 
-    paddingTop: 24,
+    paddingTop: 32,
     paddingBottom: 10,
   },
   topBarBrand: {

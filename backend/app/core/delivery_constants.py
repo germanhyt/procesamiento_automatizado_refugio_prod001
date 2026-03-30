@@ -38,3 +38,10 @@ FUZZY_MATCH_THRESHOLD = 85
 # Según tu ajuste: ambos (pedido y driver) usan 30 min.
 ORDER_TIMEOUT_MINUTES = 30
 DRIVER_TIMEOUT_MINUTES = 30
+
+# Push (Expo) — app móvil Runner
+RUNNER_PUSH_APP_SLUG = "runner"
+# URL pública fija del Push API v2 de Expo (no sale del .env). Documentación:
+# https://docs.expo.dev/push-notifications/sending-notifications/
+EXPO_PUSH_SEND_URL = "https://exp.host/--/api/v2/push/send"
+RUNNER_PUSH_ANDROID_CHANNEL_ID = "delivery-runner"

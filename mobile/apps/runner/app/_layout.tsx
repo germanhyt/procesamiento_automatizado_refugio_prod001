@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ThemeProvider as AppThemeProvider, useRunnerTheme } from '@/context/ThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { useRunnerPushRegistration } from '@/hooks/useRunnerPushRegistration';
 
 export {
   ErrorBoundary,
@@ -51,6 +52,11 @@ export default function RootLayout() {
   );
 }
 
+function RunnerPushBridge() {
+  useRunnerPushRegistration();
+  return null;
+}
+
 function RootLayoutNav() {
   const { theme, palette: p } = useRunnerTheme();
   const { width } = useWindowDimensions();
@@ -77,6 +83,7 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={navTheme}>
+      <RunnerPushBridge />
       <Stack>
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

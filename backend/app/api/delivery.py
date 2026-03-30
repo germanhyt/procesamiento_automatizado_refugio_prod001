@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import logging
 import os
 import re
 from typing import Optional, List, Set, Any, Dict
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import func as sql_func
 
@@ -23,6 +24,7 @@ from app.core.delivery_constants import (
     ORDER_STATUS_ENTREGADO,
     ORDER_STATUS_DEVOLUCION,
     ORDER_STATUS_CANCELADO,
+    RUNNER_PUSH_APP_SLUG,
     DRIVER_STATUS_ESPERANDO,
     DRIVER_STATUS_EN_MATCH,
     DRIVER_STATUS_ABANDONO,
@@ -31,7 +33,7 @@ from app.core.delivery_constants import (
 from app.database import get_db, SessionLocal
 from app.api.auth import get_current_user
 from app.models.auth import User
-from app.models.delivery import Restaurant, Order, DriverArrival
+from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryRunnerPushToken
 # from app.core.constants import LOCATARIO_CODES, build_codigo_comunicacion
 from app.core import security
 from jose import jwt, JWTError
@@ -47,10 +49,17 @@ from app.schemas.delivery import (
     DriverArrivalOut,
     order_orm_to_dict,
     driver_arrival_orm_to_dict,
+    RunnerPushRegisterIn,
+    RunnerPushUnregisterIn,
+    RunnerPushRegisterOut,
 )
+
+from app.services.delivery_push import notify_runners_new_driver_waiting_sync
 
 from fuzzywuzzy import fuzz
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/delivery", tags=["Delivery"])
 
@@ -427,6 +436,7 @@ async def fidelio_order_ready(
 @router.post("/kiosk/arrivals", response_model=KioskArrivalResult)
 async def kiosk_arrival(
     payload: KioskArrivalIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """
@@ -505,6 +515,12 @@ async def kiosk_arrival(
             match_score = int(best_score)
         else:
             await _emit_nuevo_driver_esperando(arrival.id, plataforma, codigo_ingresado)
+            background_tasks.add_task(
+                notify_runners_new_driver_waiting_sync,
+                arrival.id,
+                plataforma,
+                codigo_ingresado,
+            )
             return {
                 "driver_arrival": driver_arrival_orm_to_dict(arrival),
                 "matched": False,
@@ -549,6 +565,68 @@ async def kiosk_arrival(
         "matched": True,
         "matched_order": _load_order_dict(db, matched_order.id),
     }
+
+
+@router.post("/push/register", response_model=RunnerPushRegisterOut)
+def register_runner_push_token(
+    body: RunnerPushRegisterIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Asocia un token Expo Push al usuario autenticado (app Runner)."""
+    _require_permission(current_user, "delivery:view")
+    if body.app_slug != RUNNER_PUSH_APP_SLUG:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="app_slug no soportado")
+    tok = body.expo_push_token
+    if not tok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token vacío")
+    plat = (body.platform or "unknown").lower()
+    if plat not in ("android", "ios", "web", "unknown"):
+        plat = "unknown"
+    row = db.query(DeliveryRunnerPushToken).filter(DeliveryRunnerPushToken.expo_push_token == tok).first()
+    if row:
+        row.user_id = current_user.id
+        row.platform = plat
+        row.is_active = True
+    else:
+        db.add(
+            DeliveryRunnerPushToken(
+                user_id=current_user.id,
+                expo_push_token=tok,
+                platform=plat,
+                is_active=True,
+            )
+        )
+    db.commit()
+    logger.info("Runner push token registrado (user_id=%s, platform=%s)", current_user.id, plat)
+    return RunnerPushRegisterOut()
+
+
+@router.post("/push/unregister", response_model=RunnerPushRegisterOut)
+def unregister_runner_push_token(
+    body: RunnerPushUnregisterIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:view")
+    if body.expo_push_token:
+        row = (
+            db.query(DeliveryRunnerPushToken)
+            .filter(
+                DeliveryRunnerPushToken.user_id == current_user.id,
+                DeliveryRunnerPushToken.expo_push_token == body.expo_push_token,
+            )
+            .first()
+        )
+        if row:
+            row.is_active = False
+    else:
+        db.query(DeliveryRunnerPushToken).filter(DeliveryRunnerPushToken.user_id == current_user.id).update(
+            {"is_active": False},
+            synchronize_session=False,
+        )
+    db.commit()
+    return RunnerPushRegisterOut()
 
 
 @router.get("/orders/active", response_model=List[OrderOut])

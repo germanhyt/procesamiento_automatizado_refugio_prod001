@@ -8,8 +8,10 @@
   ],
   "scripts": {
     "kiosk": "yarn workspace kiosk start",
+    "kiosk:clear": "yarn workspace kiosk start -- -c",
     "kiosk:web": "yarn workspace kiosk web",
     "runner": "yarn workspace runner start",
+    "runner:clear": "yarn workspace runner start -- -c",
     "runner:web": "yarn workspace runner web"
   },
   "dependencies": {

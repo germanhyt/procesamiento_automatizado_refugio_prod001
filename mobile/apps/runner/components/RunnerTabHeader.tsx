@@ -40,7 +40,7 @@ export function RunnerTabHeader({ mode }: Props) {
         styles.shell,
         {
           // paddingTop: Math.max(insets.top, space.sm + 2),
-          paddingTop: 32,
+          paddingTop: 42,
           paddingBottom: 20,
           paddingHorizontal: padH,
           backgroundColor: p.topBarBg,

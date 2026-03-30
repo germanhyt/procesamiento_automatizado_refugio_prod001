@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, type FileRejection } from 'react-dropzone';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Upload, FileSpreadsheet, FileText, Calendar, Loader2, CheckCircle, FolderArchive } from 'lucide-react';
@@ -12,11 +12,18 @@ import AppSelect from '@/components/ui/AppSelect';
 import { LOCATARIOS, type Locatario } from '@/constants/locatarios';
 import { fetchSemanaActual, fetchArchivosCierreCaja, uploadFuentesFile, type LocatarioArchivos } from '@/services/fuentesService';
 
+/** CSV, Excel 2007+ (.xlsx) y Excel 97-2003 (.xls). Nombres tipo `ventas_12345.xls` están permitidos. */
 const ACCEPT = {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    'application/vnd.ms-excel': ['.xls'],
     'text/csv': ['.csv'],
     'application/csv': ['.csv'],
 } as const;
+
+function isFuentesAllowedFileName(name: string): boolean {
+    const n = name.toLowerCase();
+    return n.endsWith('.csv') || n.endsWith('.xlsx') || n.endsWith('.xls');
+}
 
 const FuentesDatos: React.FC = () => {
     const queryClient = useQueryClient();
@@ -48,16 +55,12 @@ const FuentesDatos: React.FC = () => {
                 });
                 return;
             }
-            const lower = (n: string) => n.toLowerCase();
-            const valid = files.filter((f) => {
-                const n = lower(f.name);
-                return n.endsWith('.xlsx') || n.endsWith('.csv');
-            });
+            const valid = files.filter((f) => isFuentesAllowedFileName(f.name));
             if (!valid.length) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Formato no válido',
-                    text: 'Solo se permiten archivos .xlsx o .csv',
+                    text: 'Solo se permiten archivos .xlsx, .xls (Excel 97-2003) o .csv',
                     background: '#0a0a0a',
                     color: '#fff',
                     confirmButtonColor: '#14b8a6',
@@ -107,8 +110,12 @@ const FuentesDatos: React.FC = () => {
     );
 
     const onDrop = useCallback(
-        (acceptedFiles: File[]) => {
-            if (acceptedFiles.length) void uploadManyFiles(acceptedFiles);
+        (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+            const rescued = fileRejections
+                .map((r) => r.file)
+                .filter((f) => isFuentesAllowedFileName(f.name));
+            const merged = [...acceptedFiles, ...rescued].filter((f) => isFuentesAllowedFileName(f.name));
+            if (merged.length) void uploadManyFiles(merged);
         },
         [uploadManyFiles]
     );
@@ -185,7 +192,7 @@ const FuentesDatos: React.FC = () => {
                             } ${uploading ? 'opacity-60 pointer-events-none' : ''} ${!locatario && !uploading ? 'opacity-80' : ''}`,
                         })}
                     >
-                        <input {...getInputProps()} />
+                        <input {...getInputProps({ accept: '.xlsx,.xls,.csv' })} />
                         {uploading ? (
                             <Loader2 size={40} className="text-teal-500 animate-spin" />
                         ) : (
@@ -196,7 +203,7 @@ const FuentesDatos: React.FC = () => {
                                 ? 'Subiendo archivos...'
                                 : isDragActive
                                   ? 'Suelta los archivos aquí'
-                                  : 'Arrastra uno o varios .xlsx / .csv'}
+                                  : 'Arrastra uno o varios .xlsx, .xls o .csv'}
                         </span>
                         {!locatario && (
                             <span className="text-[9px] text-amber-500/90 font-mono uppercase tracking-wide">
@@ -205,7 +212,7 @@ const FuentesDatos: React.FC = () => {
                         )}
                         {fileRejections.length > 0 && (
                             <span className="text-[9px] text-rose-400 text-center max-w-md">
-                                Algunos archivos no son válidos (solo .xlsx y .csv).
+                                Algunos archivos no son válidos (.xlsx, .xls o .csv).
                             </span>
                         )}
                         <button
@@ -243,7 +250,8 @@ const FuentesDatos: React.FC = () => {
                                                             key={`p-${nombre}`}
                                                             className="flex items-center gap-2 text-sm text-app-text"
                                                         >
-                                                            {nombre.toLowerCase().endsWith('.xlsx') ? (
+                                                            {nombre.toLowerCase().endsWith('.xlsx') ||
+                                                            nombre.toLowerCase().endsWith('.xls') ? (
                                                                 <FileSpreadsheet size={14} className="text-emerald-500 shrink-0" />
                                                             ) : (
                                                                 <FileText size={14} className="text-teal-500 shrink-0" />

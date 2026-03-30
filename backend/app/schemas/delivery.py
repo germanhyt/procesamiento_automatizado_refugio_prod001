@@ -138,3 +138,33 @@ class AdminCancelIn(AdminNoteIn):
 class AdminUnlockIn(AdminNoteIn):
     pass
 
+
+class RunnerPushRegisterIn(BaseModel):
+    """Registro de token Expo Push para la app Runner (interna)."""
+
+    expo_push_token: str
+    platform: str = "unknown"
+    app_slug: str = "runner"
+
+    @validator("expo_push_token", "platform", "app_slug", pre=True)
+    def _strip_str(cls, v):
+        if v is None:
+            return v
+        s = str(v).strip()
+        return s
+
+
+class RunnerPushUnregisterIn(BaseModel):
+    expo_push_token: Optional[str] = None
+
+    @validator("expo_push_token", pre=True)
+    def _strip_optional(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+
+class RunnerPushRegisterOut(BaseModel):
+    ok: bool = True
+

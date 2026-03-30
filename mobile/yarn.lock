@@ -2085,6 +2085,11 @@ babel-preset-jest@^29.6.3:
     babel-plugin-jest-hoist "^29.6.3"
     babel-preset-current-node-syntax "^1.0.0"
 
+badgin@^1.1.5:
+  version "1.2.3"
+  resolved "https://registry.yarnpkg.com/badgin/-/badgin-1.2.3.tgz#994b5f519827d7d5422224825b2c8faea2bc43ad"
+  integrity sha512-NQGA7LcfCpSzIbGRbkgjgdWkjy7HI+Th5VLxTJfW5EeaAf3fnS+xWQaQOCYiny+q6QSvxqoSO04vCx+4u++EJw==
+
 balanced-match@^1.0.0:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.2.tgz#e83e3a7e3f300b34cb9d87f615fa0cbf357690ee"
@@ -2609,6 +2614,11 @@ event-target-shim@^5.0.0:
   resolved "https://registry.yarnpkg.com/event-target-shim/-/event-target-shim-5.0.1.tgz#5d4d3ebdf9583d63a5333ce2deb7480ab2b05789"
   integrity sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==
 
+expo-application@~55.0.10:
+  version "55.0.10"
+  resolved "https://registry.yarnpkg.com/expo-application/-/expo-application-55.0.10.tgz#52aa4525a269928603371d433a8844a75b3049f8"
+  integrity sha512-5ccf+S6hsQz+doi907TOJxKzV5AKgAgw004z4FoDWSoGhfab0LUPg6uyvOspuU4cbNvqw8EAy08hZbVO8nKc9Q==
+
 expo-asset@~55.0.9:
   version "55.0.9"
   resolved "https://registry.yarnpkg.com/expo-asset/-/expo-asset-55.0.9.tgz#f3a2de7532af4803f3073c0e3bf145e91f09da35"
@@ -2629,6 +2639,13 @@ expo-constants@~55.0.7, expo-constants@~55.0.8:
   dependencies:
     "@expo/config" "~55.0.9"
     "@expo/env" "~2.1.1"
+
+expo-device@^55.0.10:
+  version "55.0.10"
+  resolved "https://registry.yarnpkg.com/expo-device/-/expo-device-55.0.10.tgz#ec69dc9c5cc96e089251ce16ac63644ce389278c"
+  integrity sha512-jvPImQg5LN7LNL57sGY6WaJxrWrPKXueUiDctZ7brLyiZfioS6wUieLwOTTkHUdtSSBtHkTvUg675w0sOzwlTg==
+  dependencies:
+    ua-parser-js "^0.7.33"
 
 expo-file-system@~55.0.11:
   version "55.0.11"
@@ -2683,6 +2700,17 @@ expo-modules-core@55.0.16:
   integrity sha512-VeZxwnyHM4Kf52FqonPwlkYdF6YQnZAIXWT3RpEv2Ng/mwheZ2PZGc3rxaHAo0FoeSXM9i0g3HCJjOJUkZwV3A==
   dependencies:
     invariant "^2.2.4"
+
+expo-notifications@^55.0.13:
+  version "55.0.13"
+  resolved "https://registry.yarnpkg.com/expo-notifications/-/expo-notifications-55.0.13.tgz#b4dde5f294e22c25176435cea25fdfd0932bf62e"
+  integrity sha512-vbtSBcMkYtNTO+6WKdeOzysOqvtmiq/sQrUKJpYcB75m9hBFcAfI2klpXdUiGg5kMr/ygBmFENSolQt1B9QY8A==
+  dependencies:
+    "@expo/image-utils" "^0.8.12"
+    abort-controller "^3.0.0"
+    badgin "^1.1.5"
+    expo-application "~55.0.10"
+    expo-constants "~55.0.8"
 
 expo-router@~55.0.6:
   version "55.0.6"
@@ -4915,6 +4943,11 @@ typescript@~5.9.2:
   version "5.9.3"
   resolved "https://registry.yarnpkg.com/typescript/-/typescript-5.9.3.tgz#5b4f59e15310ab17a216f5d6cf53ee476ede670f"
   integrity sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==
+
+ua-parser-js@^0.7.33:
+  version "0.7.41"
+  resolved "https://registry.yarnpkg.com/ua-parser-js/-/ua-parser-js-0.7.41.tgz#9f6dee58c389e8afababa62a4a2dc22edb69a452"
+  integrity sha512-O3oYyCMPYgNNHuO7Jjk3uacJWZF8loBgwrfd/5LE/HyZ3lUIOdniQ7DNXJcIgZbwioZxk0fLfI4EVnetdiX5jg==
 
 ua-parser-js@^1.0.35:
   version "1.0.41"

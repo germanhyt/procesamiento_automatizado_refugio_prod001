@@ -30,7 +30,7 @@ from app.models.auth import User
 
 router = APIRouter(prefix="/fuentes", tags=["Fuentes de datos"])
 
-ALLOWED_EXTENSIONS = {".xlsx", ".csv"}
+ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
 
 def _zip_cierre_caja_tree(base: Path, zf: zipfile.ZipFile, locatario: str | None) -> None:
@@ -161,7 +161,7 @@ async def fuentes_preview_tabular(
             mb = out.get("max_mb", 25)
             raise HTTPException(status_code=413, detail=f"Archivo demasiado grande para previsualizar (máx. {mb} MB)")
         if err == "extension_no_soportada":
-            raise HTTPException(status_code=400, detail="Solo se previsualizan .csv y .xlsx")
+            raise HTTPException(status_code=400, detail="Solo se previsualizan .csv, .xlsx y .xls")
         raise HTTPException(status_code=422, detail=out.get("detail") or err)
     return out
 
