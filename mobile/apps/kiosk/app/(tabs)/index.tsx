@@ -25,10 +25,18 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { kioskArrival, kioskListDeliveredOrdersToday, kioskListWaitingDrivers } from '@refugio/delivery-api';
+import { Dropdown } from 'react-native-element-dropdown';
+import {
+  kioskArrival,
+  kioskListDeliveredOrdersToday,
+  kioskListRestaurants,
+  kioskListWaitingDrivers,
+} from '@refugio/delivery-api';
 import { DRIVER_STATUS } from '@refugio/constants';
 import {
   KIOSK_CODE_MAX_LEN,
+  KIOSK_DNI_MAX_LEN,
+  KIOSK_DNI_MIN_LEN,
   KIOSK_DRIVER_POLLING_MS,
   KIOSK_PLATFORM_OPTIONS,
   KIOSK_PLACA_MAX_LEN,
@@ -87,6 +95,8 @@ function DriverQueueGrid({
     codigo_ingresado: string;
     placa?: string | null;
     alias_conductor?: string | null;
+    conductor_dni?: string | null;
+    restaurant_nombre?: string | null;
   }>;
   variant: 'esperando' | 'en_match';
   layoutWidth: number;
@@ -132,10 +142,12 @@ function DriverQueueGrid({
                 <Text style={[styles.driverCode, { color: palette.text }]} numberOfLines={1}>
                   {d.codigo_ingresado}
                 </Text>
-                <Text style={[styles.driverMeta, { color: palette.muted }]} numberOfLines={3}>
+                <Text style={[styles.driverMeta, { color: palette.muted }]} numberOfLines={4}>
                   {d.plataforma} · {d.estado}
                   {d.placa ? ` · ${d.placa}` : ''}
                   {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
+                  {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
+                  {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
                 </Text>
               </View>
             </Animated.View>
@@ -165,6 +177,8 @@ export default function KioskScreen() {
   const [codigo, setCodigo] = useState('');
   const [placa, setPlaca] = useState('');
   const [alias, setAlias] = useState('');
+  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [dni, setDni] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err' | 'info'; msg: string } | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -179,15 +193,31 @@ export default function KioskScreen() {
     chevronRotation.value = withTiming(deliveredExpanded ? 180 : 0, { duration: motion.fast });
   }, [deliveredExpanded, chevronRotation]);
 
+  const dniDigits = useMemo(() => dni.replace(/[\s-]/g, ''), [dni]);
   const canSubmit = useMemo(
     () =>
+      restaurantId != null &&
       codigo.trim().length > 0 &&
       placa.trim().length > 0 &&
       alias.trim().length > 0 &&
+      dniDigits.length >= KIOSK_DNI_MIN_LEN &&
+      dniDigits.length <= KIOSK_DNI_MAX_LEN &&
+      /^\d+$/.test(dniDigits) &&
       !isSubmitting,
-    [codigo, placa, alias, isSubmitting],
+    [restaurantId, codigo, placa, alias, dniDigits, isSubmitting],
   );
   const qc = useQueryClient();
+
+  const restaurantsQuery = useQuery({
+    queryKey: ['delivery', 'kiosk', 'restaurants'],
+    queryFn: kioskListRestaurants,
+    staleTime: 60_000,
+  });
+
+  const restaurantOptions = useMemo(
+    () => (restaurantsQuery.data ?? []).map((r) => ({ label: r.nombre, value: r.id })),
+    [restaurantsQuery.data],
+  );
 
   const driversQuery = useQuery({
     queryKey: ['delivery', 'drivers', 'waiting'],
@@ -203,10 +233,12 @@ export default function KioskScreen() {
 
   const arrivalMutation = useMutation({
     mutationFn: async (payload: {
+      restaurant_id: number;
       plataforma: string;
       codigo_ingresado: string;
       placa: string;
       alias_conductor: string;
+      conductor_dni: string;
     }) => kioskArrival(payload),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['delivery', 'drivers', 'waiting'] });
@@ -225,6 +257,8 @@ export default function KioskScreen() {
     setCodigo('');
     setPlaca('');
     setAlias('');
+    setRestaurantId(null);
+    setDni('');
     setFeedback(null);
     setFieldError(null);
   }, []);
@@ -253,15 +287,26 @@ export default function KioskScreen() {
       setFieldError('Ingresa el nombre o alias del conductor.');
       return;
     }
+    if (restaurantId == null) {
+      setFieldError('Selecciona el restaurante.');
+      return;
+    }
+    const dniNorm = dni.replace(/[\s-]/g, '');
+    if (!/^\d+$/.test(dniNorm) || dniNorm.length < KIOSK_DNI_MIN_LEN || dniNorm.length > KIOSK_DNI_MAX_LEN) {
+      setFieldError(`DNI: ${KIOSK_DNI_MIN_LEN} a ${KIOSK_DNI_MAX_LEN} dígitos.`);
+      return;
+    }
     if (!canSubmit) return;
     setIsSubmitting(true);
     setFeedback(null);
     try {
       const data = await arrivalMutation.mutateAsync({
+        restaurant_id: restaurantId!,
         plataforma,
         codigo_ingresado: codigo.trim(),
         placa: placa.trim().toUpperCase(),
         alias_conductor: alias.trim(),
+        conductor_dni: dniNorm,
       });
       const successMsg = data?.matched
         ? `Registrado y matcheado: ${data?.matched_order?.codigo_pedido ?? ''}`.trim()
@@ -273,6 +318,7 @@ export default function KioskScreen() {
       setCodigo('');
       setPlaca('');
       setAlias('');
+      setDni('');
       setFieldError(null);
       clearSuccessTimer();
       successCloseTimer.current = setTimeout(() => {
@@ -587,6 +633,84 @@ export default function KioskScreen() {
                 ))}
               </View>
 
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Restaurante *</Text>
+              {restaurantsQuery.isError ? (
+                <Text style={[styles.fieldError, { color: palette.error, marginBottom: space.sm }]}>
+                  No se pudieron cargar restaurantes. Revise la API.
+                </Text>
+              ) : null}
+              <Dropdown
+                style={[
+                  styles.dropdown,
+                  {
+                    borderColor:
+                      fieldError && restaurantId == null ? palette.error : palette.inputBorder,
+                    backgroundColor: palette.inputBg,
+                  },
+                ]}
+                containerStyle={[
+                  styles.dropdownListContainer,
+                  { backgroundColor: palette.modalBg, borderColor: palette.border },
+                ]}
+                placeholderStyle={[styles.dropdownPlaceholder, { color: palette.placeholder }]}
+                selectedTextStyle={[styles.dropdownSelected, { color: palette.inputText }]}
+                itemTextStyle={{ color: palette.inputText }}
+                activeColor={isDark ? 'rgba(45,212,191,0.15)' : 'rgba(13,148,136,0.12)'}
+                data={restaurantOptions}
+                maxHeight={280}
+                labelField="label"
+                valueField="value"
+                placeholder={restaurantsQuery.isLoading ? 'Cargando locales…' : 'Elegir restaurante…'}
+                value={restaurantId}
+                onChange={(item) => {
+                  setRestaurantId(item.value as number);
+                  setFieldError(null);
+                }}
+                disable={restaurantsQuery.isLoading || restaurantOptions.length === 0}
+                search
+                searchPlaceholder="Buscar restaurante…"
+                renderInputSearch={(onSearch) => (
+                  <View
+                    style={[
+                      styles.dropdownSearchOuter,
+                      {
+                        borderColor: palette.border,
+                        backgroundColor: palette.inputBg,
+                      },
+                    ]}
+                  >
+                    <TextInput
+                      style={[styles.dropdownSearchInput, { color: palette.inputText }]}
+                      placeholder="Buscar restaurante…"
+                      placeholderTextColor={palette.placeholder}
+                      onChangeText={onSearch}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
+                )}
+              />
+
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>DNI conductor *</Text>
+              <TextInput
+                value={dni}
+                onChangeText={(t) => setDni(t.replace(/[^\d\s-]/g, ''))}
+                // placeholder="8 a 12 dígitos"
+                placeholder="DNI…"
+                placeholderTextColor={palette.placeholder}
+                style={[
+                  styles.input,
+                  {
+                    color: palette.inputText,
+                    backgroundColor: palette.inputBg,
+                    borderColor: palette.inputBorder,
+                  },
+                ]}
+                keyboardType="number-pad"
+                maxLength={KIOSK_DNI_MAX_LEN + 2}
+              />
+
               <Text style={[styles.fieldLabel, { color: palette.muted }]}>Código de pedido *</Text>
               <TextInput
                 value={codigo}
@@ -876,6 +1000,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
   },
   platformText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  dropdown: {
+    height: 52,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 2,
+  },
+  dropdownPlaceholder: { fontSize: 15, fontWeight: '600' },
+  dropdownSelected: { fontSize: 16, fontWeight: '700' },
+  /** Un solo borde: la librería aplica inputSearchStyle al View y al TextInput → doble marco si usamos inputSearchStyle con border. */
+  dropdownSearchOuter: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    marginHorizontal: 6,
+    marginTop: 6,
+    marginBottom: 8,
+    minHeight: 45,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  dropdownSearchInput: {
+    flex: 1,
+    minHeight: 44,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    paddingHorizontal: 0,
+    borderWidth: 0,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dropdownListContainer: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   input: {
     height: 52,
     borderRadius: radius.lg,
