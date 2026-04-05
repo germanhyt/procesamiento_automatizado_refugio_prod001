@@ -398,12 +398,16 @@ Bloque `env` en cada perfil puede fijar `EXPO_PUBLIC_API_URL` y `EXPO_PUBLIC_WS_
 cd mobile/apps/runner
 
 eas build --platform android --profile preview
+
+eas build --platform andriod --profile production
 ```
 
 - **CI / máquina sin navegador:** exportad `**EXPO_TOKEN`** (token de acceso personal creado en expo.dev). **No** lo subáis a git ni lo peguéis en documentación.
 - Al terminar, EAS muestra enlace para descargar el artefacto.
 
 export EXPO_TOKEN="DguGyFCCHecATBC9YzT0wl-CqSZEvWZ-eo65VETV"
+export EXPO_TOKEN="ZcRiS422IUEuLvVhVycPYpgYyEqWIrnV-b8F8VZ-"
+
 
 ### 11.5 Tras el build
 

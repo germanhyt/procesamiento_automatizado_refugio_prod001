@@ -66,6 +66,8 @@ class DriverArrival(Base):
     placa = Column(String(20), nullable=True)
     alias_conductor = Column(String(120), nullable=True)
     codigo_ingresado = Column(String(80), nullable=False, index=True)
+    restaurant_id = Column(Integer, ForeignKey("delivery_restaurants.id", ondelete="SET NULL"), nullable=True, index=True)
+    conductor_dni = Column(String(20), nullable=True)
 
     estado = Column(String(40), nullable=False, index=True)  # ESPERANDO, EN_MATCH, ...
 
@@ -79,6 +81,7 @@ class DriverArrival(Base):
     despachado_at = Column(DateTime(timezone=True), nullable=True)
 
     matched_order = relationship("Order", back_populates="matched_driver_arrival")
+    restaurant = relationship("Restaurant", foreign_keys=[restaurant_id])
 
     __table_args__ = (
         Index("ix_delivery_driver_arrivals_plataforma_estado", "plataforma", "estado"),

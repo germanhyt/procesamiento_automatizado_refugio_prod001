@@ -83,10 +83,29 @@ def ensure_columns():
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS alias_conductor VARCHAR(120);",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS atendido_at TIMESTAMPTZ NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS despachado_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS restaurant_id INTEGER NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_dni VARCHAR(20) NULL;",
     ]
     with engine.begin() as conn:
         for s in stmts:
             conn.execute(text(s))
+
+    fk_restaurant = """
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_delivery_driver_arrivals_restaurant_id'
+      ) THEN
+        ALTER TABLE delivery_driver_arrivals
+          ADD CONSTRAINT fk_delivery_driver_arrivals_restaurant_id
+          FOREIGN KEY (restaurant_id) REFERENCES delivery_restaurants(id) ON DELETE SET NULL;
+      END IF;
+    END $$;
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(fk_restaurant))
+    except Exception as e:
+        print(">>> (aviso) FK restaurant_id en delivery_driver_arrivals:", e)
 
 
 def ensure_permissions_and_roles():

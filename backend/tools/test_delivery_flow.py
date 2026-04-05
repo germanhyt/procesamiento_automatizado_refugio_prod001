@@ -57,12 +57,34 @@ def fidelio_order_ready(cfg: Cfg, codigo_pedido: str, numero_bolsas: Optional[in
     return r.json()
 
 
-def kiosk_arrival(cfg: Cfg, codigo: str, placa: Optional[str] = None) -> Dict[str, Any]:
+def fetch_kiosk_restaurant_id(base_url: str) -> int:
+    url = _url(base_url, "/api/delivery/kiosk/restaurants")
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    rows = r.json()
+    if not rows:
+        raise RuntimeError("No hay restaurantes; ejecute: python patch_db_delivery.py")
+    return int(rows[0]["id"])
+
+
+def kiosk_arrival(
+    cfg: Cfg,
+    codigo: str,
+    *,
+    placa: Optional[str] = None,
+    restaurant_id: Optional[int] = None,
+    alias_conductor: str = "Test Driver",
+    conductor_dni: str = "12345678",
+) -> Dict[str, Any]:
+    rid = restaurant_id if restaurant_id is not None else fetch_kiosk_restaurant_id(cfg.base_url)
     url = _url(cfg.base_url, "/api/delivery/kiosk/arrivals")
     payload: Dict[str, Any] = {
+        "restaurant_id": rid,
         "plataforma": cfg.plataforma,
         "codigo_ingresado": codigo,
-        "placa": placa,
+        "placa": placa or "TST-000",
+        "alias_conductor": alias_conductor,
+        "conductor_dni": conductor_dni,
     }
     r = requests.post(url, headers={"Content-Type": "application/json"}, data=json.dumps(payload), timeout=30)
     if r.status_code >= 400:

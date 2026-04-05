@@ -1,174 +1,237 @@
-# Refugio Data – Procesamiento y carga a Big Query
+# Refugio Data — Procesamiento y carga a BigQuery
 
-Sistema web para procesamiento de ventas, carga a Big Query, visualización en Power BI y gestión de usuarios. Combina un flujo **legacy** (Google Drive y hojas de configuración) y un flujo **Fuentes de datos** (subida por semana y locatario vía `uploads/`).
+Plataforma corporativa para **procesamiento de ventas**, **gobernanza de datos** (usuarios y permisos), **integración analítica** (BigQuery, Power BI) y **operación de reparto** (apps móviles Delivery). Combina un flujo **legacy** (archivos y automatizaciones históricas) y un flujo **Fuentes de datos** (subida estructurada por periodo y locatario).
 
----
-
-## Contenido
-
-1. [Estructura del repositorio](#estructura-del-repositorio)
-2. [Arquitectura](#arquitectura)
-3. [Módulos y funcionalidad](#módulos-y-funcionalidad)
-4. [Variables de entorno](#variables-de-entorno)
-5. [Despliegue en VPS (Docker)](#despliegue-en-vps-docker)
-6. [Comandos útiles](#comandos-útiles)
-7. [Aplicación móvil](#aplicación-móvil)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Google BigQuery](https://img.shields.io/badge/BigQuery-669DF6?style=flat&logo=googlebigquery&logoColor=white)](https://cloud.google.com/bigquery)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Expo](https://img.shields.io/badge/Expo-000020?style=flat&logo=expo&logoColor=white)](https://expo.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-06B6D4?style=flat&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 
 ---
 
-## Estructura del repositorio
+## Objetivo
 
-| Directorio | Rol |
-|------------|-----|
-| `backend/` | API FastAPI (`/api/*`), servicios de archivo, legacy, Big Query, Power BI, auth. |
-| `frontend/` | SPA React + Vite + TypeScript; build estático servido por Nginx en contenedor. |
-| `config/` | Credenciales GCP y configuración sensible (no versionar secretos). |
-| `uploads/` | Archivos subidos desde **Fuentes de datos** (organizados por semana/locatario). |
-| `mobile/` | Monorepo Expo (Delivery: kiosk + runner); ver [mobile/README.md](mobile/README.md). |
-| `docker-compose.yml` | Orquestación backend + frontend en red externa compartida con proxy. |
+- **Unificar** la ingesta y el procesamiento de información de ventas hacia un **almacén analítico** (BigQuery), manteniendo trazabilidad y control de acceso.
+- **Exponer** una aplicación web segura (autenticación, roles) para operar cargas, revisar fuentes y consumir **informes embebidos** (Power BI).
+- **Extender** la operación de campo con **apps móviles** (kiosk y runner) conectadas a la misma API, sin acoplar el flujo web de datos al ciclo móvil.
+
+La documentación de este archivo describe el **repositorio y su arquitectura**. La configuración local y los secretos se gestionan **fuera del control de versiones**; consulta los `README` de `backend/`, `frontend/` y `mobile/` para el detalle operativo.
+
+---
+
+## Stack tecnológico
+
+| Capa | Tecnologías |
+|------|-------------|
+| **API** | Python, FastAPI, Uvicorn, SQLAlchemy, Pydantic |
+| **Web** | React 19, Vite 7, TypeScript, TanStack Query, Tailwind CSS |
+| **Datos** | PostgreSQL, Google BigQuery, pandas / hojas de cálculo |
+| **Integraciones** | Google APIs (p. ej. Drive), Microsoft Identity / Power BI (embed) |
+| **Contenedores** | Docker, Docker Compose, Nginx (frontend estático en imagen) |
+| **Móvil** | Expo, React Native, Yarn workspaces (monorepo) |
 
 ---
 
 ## Arquitectura
 
+Vista lógica: cliente, proxy, aplicación y servicios externos.
+
 ```mermaid
 flowchart TB
-    subgraph Client["Cliente"]
-        Browser["Navegador"]
+    subgraph Cliente["Cliente"]
+        Browser["Navegador web"]
+        Mobile["Apps móviles<br/>Expo (Delivery)"]
     end
 
-    subgraph Proxy["Proxy inverso"]
-        Nginx["Nginx HTTPS"]
+    subgraph Borde["Borde / despliegue"]
+        Proxy["Proxy inverso TLS<br/>(p. ej. Nginx en host)"]
     end
 
-    subgraph App["Aplicación Refugio"]
-        Frontend["Frontend React + Vite"]
-        Backend["Backend FastAPI"]
+    subgraph App["Aplicación Refugio Data"]
+        FE["Frontend SPA<br/>React + Vite"]
+        BE["Backend API<br/>FastAPI /api"]
     end
 
-    subgraph BackendServices["Servicios backend"]
+    subgraph Modulos["Capacidades del backend"]
         Auth["Auth JWT"]
-        Procesamiento["Procesamiento legacy"]
-        Fuentes["Fuentes de datos FileStore"]
-        UsersRoles["Usuarios y roles"]
-        PowerBI["Power BI embed"]
+        Legacy["Procesamiento legacy"]
+        Fuentes["Fuentes de datos<br/>(FileStore)"]
+        RBAC["Usuarios y roles"]
+        PBI["Power BI embed"]
+        Del["Delivery API"]
     end
 
-    subgraph Data["Datos y externos"]
-        Postgres["PostgreSQL"]
-        BQ["Big Query"]
+    subgraph Externos["Datos y servicios externos"]
+        PG[("PostgreSQL")]
+        BQ["BigQuery"]
         GDrive["Google Drive"]
-        PBI["Power BI Service"]
+        PBISvc["Power BI Service"]
+        FS["Volúmenes<br/>config + uploads"]
     end
 
-    Browser --> Nginx
-    Nginx --> Frontend
-    Nginx --> Backend
-    Backend --> Auth
-    Backend --> Procesamiento
-    Backend --> Fuentes
-    Backend --> UsersRoles
-    Backend --> PowerBI
-    Auth --> Postgres
-    UsersRoles --> Postgres
-    Procesamiento --> Postgres
-    Procesamiento --> BQ
-    Procesamiento --> GDrive
-    Fuentes --> FileSystem["Sistema de archivos uploads"]
-    PowerBI --> PBI
+    Browser --> Proxy
+    Proxy --> FE
+    Proxy --> BE
+    Mobile --> BE
+    BE --> Modulos
+    Auth --> PG
+    RBAC --> PG
+    Legacy --> PG
+    Legacy --> BQ
+    Legacy --> GDrive
+    Fuentes --> FS
+    PBI --> PBISvc
+    Del --> PG
 ```
 
-### Flujo de datos resumido
+### Flujo de datos (resumen)
 
-| Origen | Destino | Uso |
+| Origen | Destino | Rol |
 |--------|---------|-----|
-| Usuario | Nginx | HTTPS: frontend estático + API |
-| Frontend | Backend `/api/*` | Auth, fuentes, procesamiento, usuarios, Power BI |
-| Backend | PostgreSQL | Usuarios, roles, permisos, estado de procesamiento |
-| Backend | Big Query | Carga de ventas (p. ej. `stg_silver_raw`) |
-| Backend | Google Drive | Configuración y archivos (legacy) |
-| Backend | Power BI Service | Token embed (App Owns Data) |
-| Fuentes de datos | `uploads/` | `.xlsx` / `.csv` por semana y locatario |
+| Usuario web | Proxy + SPA + API | Operación y administración |
+| Usuario móvil | API `/api/delivery` | Kiosk y runners |
+| API | PostgreSQL | Identidad, permisos, estado operativo |
+| API | BigQuery | Carga y preparación analítica de ventas |
+| API | Sistema de archivos | Fuentes subidas y artefactos locales |
+| API | Servicios en la nube | Drive, Power BI (según módulos habilitados) |
 
 ---
 
-## Módulos y funcionalidad
+## Resultados
 
-### Frontend (React + Vite + TypeScript)
-
-| Ruta | Descripción |
-|------|-------------|
-| `/login` | Autenticación; contraseña con opción mostrar/ocultar. |
-| `/bienvenida` | Dashboard inicial y acceso al menú. |
-| `/fuentes` | Selector semana/locatario, carga de archivos (`.xlsx`/`.csv`) y listado. |
-| `/legacy` | Cierre de caja, configuración Drive, carga a Big Query. |
-| `/powerbi` | Informe incrustado con token del backend. |
-| `/users` | CRUD usuarios, roles y permisos (RBAC). |
-
-Layout: `MainLayout` (sidebar + header); rutas privadas con `PrivateRoute` y `AuthContext`.
-
-**Estilos:** clase `text-refugio-muted` y variable `--color-refugio-muted` en `index.css` para labels y texto de apoyo.
-
-### Backend (FastAPI)
-
-| Prefijo `/api` | Descripción |
-|----------------|-------------|
-| `/auth` | Login JWT, registro; `get_current_user` en rutas protegidas. |
-| `/fuentes` | FileStore: semana actual, listado, upload por locatario, delete (protegido). |
-| `/procesamiento` | Legacy: cierre de caja, configuración, carga de ventas a Big Query. |
-| `/users` | Usuarios, roles, permisos. |
-| `/powerbi` | Token de embed Power BI. |
-| `/delivery` | API del módulo Delivery (apps en `mobile/`). |
-
-Servicios destacados: `file_store_service`, `legacy_service`, `ventas_service`, `bigquery_service`, `gdrive_service`, `powerbi`, `security`.
-
-### Infraestructura Docker
-
-- **Contenedores:** `datarefugio_backend`, `datarefugio_frontend` (Nginx sirve el build).
-- **Red:** `app_shared_network` (externa) para el proxy inverso del VPS.
-- **Volúmenes:** `./config`, `./uploads`.
+- **Pipeline de datos**: carga gobernada hacia BigQuery con apoyo en procesamiento en backend y validaciones de negocio.
+- **Productividad operativa**: interfaz unificada para fuentes de datos, legado y paneles embebidos.
+- **Seguridad y escalabilidad**: modelo RBAC sobre API REST; despliegue reproducible con contenedores.
+- **Ecosistema ampliado**: módulo Delivery con apps dedicadas sin sobrecargar el flujo principal de analítica.
 
 ---
 
-## Variables de entorno
+## Estructura del repositorio
 
-- **Raíz del proyecto:** archivo `.env` usado por `docker-compose` para el backend (p. ej. `DATABASE_URL` vía `POSTGRES_*`, secretos JWT, Power BI, etc.). Mantener fuera del control de versiones.
-- **Frontend en build Docker:** `VITE_API_URL` se pasa como `build arg` en `docker-compose.yml` (debe apuntar a la URL pública de la API, p. ej. `https://tu-dominio/api`).
-- **Desarrollo local frontend:** variables `VITE_*` según `.env` del frontend.
-
----
-
-## Despliegue en VPS (Docker)
-
-1. Crear en el host la red Docker externa (una sola vez):  
-   `docker network create app_shared_network`
-2. Colocar credenciales en `./config` y completar `.env` en la raíz del proyecto.
-3. Configurar Nginx (u otro proxy) con TLS hacia los contenedores en `app_shared_network`.
-4. Ajustar en `docker-compose.yml` el argumento `VITE_API_URL` del servicio frontend para que coincida con la URL real de la API.
-5. Desde la raíz del repo:  
-   `docker compose build --no-cache && docker compose up -d`
-
-**SSL:** los certificados del proxy deben cubrir los dominios del frontend y de la API (o un certificado wildcard acorde).
+| Directorio | Descripción |
+|------------|-------------|
+| `backend/` | API FastAPI: autenticación, fuentes, procesamiento, usuarios, Power BI, Delivery |
+| `frontend/` | SPA React + Vite + TypeScript |
+| `config/` | Material de configuración del despliegue (no versionar secretos) |
+| `uploads/` | Archivos de **Fuentes de datos** (organización por periodo / locatario) |
+| `mobile/` | Monorepo Expo: kiosk, runner y paquetes compartidos — [mobile/README.md](mobile/README.md) |
+| `docker-compose.yml` | Orquestación backend + frontend (red externa típica en VPS) |
 
 ---
 
-## Comandos útiles
+## Módulos y rutas web (referencia)
 
-| Acción | Comando (desde raíz del repo) |
-|--------|-------------------------------|
-| Levantar stack | `docker compose up -d` |
-| Ver logs backend | `docker compose logs -f datarefugio_backend` |
-| Ver logs frontend | `docker compose logs -f datarefugio_frontend` |
-| Reconstruir tras cambios | `docker compose build && docker compose up -d` |
+### Frontend
 
-Desarrollo sin Docker: seguir README de `backend/` y `frontend/` (servidor API + `yarn dev` en frontend).
+Rutas representativas: inicio de sesión, bienvenida, fuentes de datos, legado (cierre / configuración / BigQuery), Power BI, administración de usuarios. Navegación en layout principal con rutas privadas.
 
----
+### Backend (`/api`)
 
-## Aplicación móvil
-
-El directorio `mobile/` contiene apps Expo (Delivery: kiosk SUNMI y runner). No forma parte del flujo web de Big Query descrito arriba; comparte solo el repositorio. Detalle en [mobile/README.md](mobile/README.md).
+Routers principales: autenticación, fuentes (FileStore), procesamiento legacy, usuarios y roles, Power BI, Delivery (consumo móvil).
 
 ---
 
-*Documentación alineada con la arquitectura actual del sistema web Refugio Data.*
+## Comandos clave por módulo
+
+Ejecuta los comandos desde la **raíz del repositorio** salvo que se indique otra carpeta.
+
+### Infraestructura Docker (todo el stack web)
+
+Red externa (una vez en el host, si aplica tu `docker-compose`):
+
+```bash
+docker network create app_shared_network
+```
+
+Construir y levantar servicios definidos en `docker-compose.yml`:
+
+```bash
+docker compose build --no-cache && docker compose up -d
+```
+
+Operación habitual:
+
+```bash
+docker compose up -d
+docker compose logs -f datarefugio_backend
+docker compose logs -f datarefugio_frontend
+```
+
+Tras cambios en código incluidos en la imagen:
+
+```bash
+docker compose build && docker compose up -d
+```
+
+El proxy TLS, nombres de host y enrutado hacia la red Docker se configuran en el **servidor**, no en este archivo.
+
+---
+
+### Backend (`backend/`)
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux / macOS: source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+La API expone estado en la raíz y la lógica de negocio bajo el prefijo `/api`. Puerto según tu entorno local (ver [backend/README.md](backend/README.md)).
+
+---
+
+### Frontend (`frontend/`)
+
+```bash
+cd frontend
+yarn install
+yarn dev
+```
+
+Build de producción:
+
+```bash
+yarn build
+```
+
+Para desarrollo, alinea la URL base de la API con tu instancia local según [frontend/README.md](frontend/README.md).
+
+---
+
+### Móvil (`mobile/`)
+
+```bash
+cd mobile
+yarn install
+yarn kiosk
+# o
+yarn runner
+```
+
+Iteración en navegador:
+
+```bash
+yarn kiosk:web
+yarn runner:web
+```
+
+Detalle de apps y prerequisitos: [mobile/README.md](mobile/README.md).
+
+---
+
+## Documentación relacionada
+
+- [backend/README.md](backend/README.md) — API y desarrollo local  
+- [frontend/README.md](frontend/README.md) — SPA y build  
+- [mobile/README.md](mobile/README.md) — Expo, workspaces y ejecución  
+
+---
+
+*README alineado con la arquitectura del sistema Refugio Data. Mantén credenciales y claves fuera del repositorio.*

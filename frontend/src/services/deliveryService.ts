@@ -10,6 +10,9 @@ export interface DriverArrival {
     codigo_ingresado: string;
     placa?: string | null;
     alias_conductor?: string | null;
+    restaurant_id?: number | null;
+    conductor_dni?: string | null;
+    restaurant_nombre?: string | null;
     estado: DriverStatus;
     matched_order_id?: number | null;
     created_at: string;

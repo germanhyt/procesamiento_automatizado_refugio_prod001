@@ -1,11 +1,24 @@
 import type { DriverStatus, OrderStatus } from '@refugio/constants';
 
+export interface Restaurant {
+  id: number;
+  fidelio_id: string;
+  nombre: string;
+  is_active: boolean;
+  codigo_negocio?: string | null;
+  codigo_comunicacion?: string | null;
+  created_at: string;
+}
+
 export interface DriverArrival {
   id: number;
   plataforma: string;
   codigo_ingresado: string;
   placa?: string | null;
   alias_conductor?: string | null;
+  restaurant_id?: number | null;
+  conductor_dni?: string | null;
+  restaurant_nombre?: string | null;
   estado: DriverStatus;
   matched_order_id?: number | null;
   created_at: string;

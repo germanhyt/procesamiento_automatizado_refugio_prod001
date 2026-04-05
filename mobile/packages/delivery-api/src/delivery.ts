@@ -1,5 +1,5 @@
 import { http } from './client';
-import type { DriverArrival, Order } from './types';
+  import type { DriverArrival, Order, Restaurant } from './types';
 
 export async function listWaitingDrivers() {
   const res = await http.get<DriverArrival[]>('/delivery/drivers/waiting');
@@ -16,11 +16,18 @@ export async function kioskListDeliveredOrdersToday() {
   return res.data;
 }
 
+export async function kioskListRestaurants() {
+  const res = await http.get<Restaurant[]>('/delivery/kiosk/restaurants');
+  return res.data;
+}
+
 export async function kioskArrival(payload: {
+  restaurant_id: number;
   plataforma: string;
   codigo_ingresado: string;
   placa: string;
   alias_conductor: string;
+  conductor_dni: string;
 }) {
   const res = await http.post<{ driver_arrival: DriverArrival; matched: boolean; matched_order?: Order | null }>(
     '/delivery/kiosk/arrivals',

@@ -47,6 +47,7 @@ from app.schemas.delivery import (
     AdminUnlockIn,
     OrderOut,
     DriverArrivalOut,
+    RestaurantOut,
     order_orm_to_dict,
     driver_arrival_orm_to_dict,
     RunnerPushRegisterIn,
@@ -398,9 +399,13 @@ async def fidelio_order_ready(
                     "source": "early_bird",
                 },
             )
+            
             await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "early_bird"})
+            
             await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"})
+        
         return _load_order_dict(db, order.id)
+
 
     # Actualizar estado a LISTO si aún no se había marcado
     t1 = _utcnow()
@@ -411,6 +416,7 @@ async def fidelio_order_ready(
         order.numero_bolsas = payload.numero_bolsas
     db.commit()
     db.refresh(order)
+    
     await _emit(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "source": "fidelio_webhook"},
@@ -433,6 +439,18 @@ async def fidelio_order_ready(
     return _load_order_dict(db, order.id)
 
 
+@router.get("/kiosk/restaurants", response_model=List[RestaurantOut])
+async def kiosk_list_restaurants(db: Session = Depends(get_db)):
+    """Listado público de restaurantes activos para selector en Kiosk."""
+    rows = (
+        db.query(Restaurant)
+        .filter(Restaurant.is_active.is_(True))
+        .order_by(Restaurant.nombre.asc())
+        .all()
+    )
+    return rows
+
+
 @router.post("/kiosk/arrivals", response_model=KioskArrivalResult)
 async def kiosk_arrival(
     payload: KioskArrivalIn,
@@ -449,6 +467,13 @@ async def kiosk_arrival(
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+    rest = (
+        db.query(Restaurant)
+        .filter(Restaurant.id == payload.restaurant_id, Restaurant.is_active.is_(True))
+        .first()
+    )
+    if not rest:
+        raise HTTPException(status_code=400, detail="Restaurante no válido o inactivo")
     plataforma = payload.plataforma.strip().upper()
     codigo_ingresado = payload.codigo_ingresado.strip().upper()
     codigo_norm = _normalize_code(codigo_ingresado)
@@ -474,6 +499,8 @@ async def kiosk_arrival(
         placa=payload.placa.strip().upper(),
         alias_conductor=payload.alias_conductor.strip(),
         codigo_ingresado=codigo_ingresado,
+        restaurant_id=rest.id,
+        conductor_dni=payload.conductor_dni,
         estado=DRIVER_STATUS_ESPERANDO,
     )
     arrival.estado_changed_at = _utcnow()
@@ -521,6 +548,7 @@ async def kiosk_arrival(
                 plataforma,
                 codigo_ingresado,
             )
+            arrival.restaurant = rest
             return {
                 "driver_arrival": driver_arrival_orm_to_dict(arrival),
                 "matched": False,
@@ -560,6 +588,7 @@ async def kiosk_arrival(
         {"driver_arrival_id": arrival.id, "estado": arrival.estado, "source": "kiosk_match"},
     )
 
+    arrival.restaurant = rest
     return {
         "driver_arrival": driver_arrival_orm_to_dict(arrival),
         "matched": True,
@@ -685,12 +714,13 @@ async def list_waiting_drivers(
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
     drivers = (
         db.query(DriverArrival)
+        .options(joinedload(DriverArrival.restaurant))
         .filter(DriverArrival.estado.in_([DRIVER_STATUS_ESPERANDO, DRIVER_STATUS_EN_MATCH]))
         .order_by(DriverArrival.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
     )
-    return drivers
+    return [driver_arrival_orm_to_dict(d) for d in drivers]
 
 
 @router.get("/kiosk/drivers/waiting", response_model=List[DriverArrivalOut])
@@ -706,12 +736,13 @@ async def kiosk_list_waiting_drivers(
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
     drivers = (
         db.query(DriverArrival)
+        .options(joinedload(DriverArrival.restaurant))
         .filter(DriverArrival.estado.in_([DRIVER_STATUS_ESPERANDO, DRIVER_STATUS_EN_MATCH]))
         .order_by(DriverArrival.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
     )
-    return drivers
+    return [driver_arrival_orm_to_dict(d) for d in drivers]
 
 
 @router.get("/kiosk/orders/delivered/today", response_model=List[OrderOut])

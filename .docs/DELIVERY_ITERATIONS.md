@@ -238,3 +238,23 @@ Ahora estoy teniendo un problema particular con la app del kiosk
 - Publicación de las apk's en al plataforma de expo
 
 
+----
+
+21) 
+- Verificar la lógica para el match de pedido por código y restaurante (driver y  envúio de fidelio)
+
+22)
+- Verificamos la lógica de tiempos entre cada estado, además en tiempo total desde la recepción de pedido hasta la entraga (por parte del pedido) o despacho (por paarte del driver), trackeamos los tiempos
+
+- No consideramos los últims cambios realizados, dejamos tal cuál el commit anterior que estaba
+
+
+- me refiero al cambio de "Planificamos y aplicammos paso a paso,
+usa los skills,
+para la monorepo del driver  agregamos los datos del resturante (menu de opciones con react-select  o librería parecida), y campo input de dni" verificamos si se ha perdido los cambios
+
+
+23) 
+Probamoss el push notification en su hora correspondiente realizamos el building correspondientE
+
+

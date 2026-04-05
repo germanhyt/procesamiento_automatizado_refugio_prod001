@@ -180,7 +180,8 @@ const DeliveryPanel: React.FC = () => {
         const list = (drivers.data ?? []).filter((d) => d.estado === 'ESPERANDO' || d.estado === 'EN_MATCH');
         return list.map((d) => ({
             value: d.id,
-            label: `${d.codigo_ingresado} · ${d.plataforma} · ${d.estado}${d.placa ? ` · ${d.placa}` : ''}`,
+            label: `${d.codigo_ingresado} · ${d.plataforma} · ${d.estado}${d.placa ? ` · ${d.placa}` : ''}${d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''
+                }${d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}`,
         }));
     }, [drivers.data]);
 
@@ -304,6 +305,9 @@ const DeliveryPanel: React.FC = () => {
                                             <p className="text-[10px] font-mono text-app-muted">
                                                 {d.plataforma} · {d.estado}
                                                 {d.placa ? ` · ${d.placa}` : ''}
+                                                {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
+                                                {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
+                                                {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
                                             </p>
                                         </div>
                                     ))}
@@ -322,6 +326,9 @@ const DeliveryPanel: React.FC = () => {
                                             <p className="text-[10px] font-mono text-app-muted">
                                                 {d.plataforma} · {d.estado}
                                                 {d.placa ? ` · ${d.placa}` : ''}
+                                                {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
+                                                {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
+                                                {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
                                             </p>
                                         </div>
                                     ))}
