@@ -1,0 +1,58 @@
+# --- Credenciales y datos locales (no versionar) ---
+config/
+
+# Cargas y archivos subidos por usuarios (Big Query / fuentes / cierre de caja)
+backend/uploads/
+uploads/
+
+# --- Variables de entorno ---
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+
+# Cuentas de servicio tipo Firebase Admin (nombres habituales)
+**/firebase-adminsdk*.json
+**/*-adminsdk-*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+**/venv/
+**/.venv/
+ENV/
+
+# --- Node / frontend & mobile ---
+**/node_modules/
+**/dist/
+**/build/
+.turbo
+*.tsbuildinfo
+
+# --- Expo / React Native ---
+.expo/
+**/.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# --- SO e IDE ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Otros ---
+*.zip
+*.bat
