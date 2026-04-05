@@ -1,8 +1,8 @@
-.docs
-.cursor
+# --- Documentación interna y reglas Cursor (solo local) ---
+.docs/
+.cursor/
 
-# --- Credenciales y datos locales (no versionar) ---
-config/
+# --- Credenciales y datos locales (no versionar) ---config/
 
 # Cargas y archivos subidos por usuarios (Big Query / fuentes / cierre de caja)
 backend/uploads/
