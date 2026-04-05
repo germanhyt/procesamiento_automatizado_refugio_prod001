@@ -1,3 +1,6 @@
+.docs
+.cursor
+
 # --- Credenciales y datos locales (no versionar) ---
 config/
 
