@@ -16,6 +16,8 @@
       "supportsTablet": true
     },
     "android": {
+      "usesCleartextTraffic": true,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/logo-refugio.png",

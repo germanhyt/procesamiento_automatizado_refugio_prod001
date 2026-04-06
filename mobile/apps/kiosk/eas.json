@@ -3,6 +3,26 @@
     "version": ">= 16.0.0"
   },
   "build": {
+    "development-emulator": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:8080",
+        "EXPO_PUBLIC_WS_URL": "ws://10.0.2.2:8080"
+      }
+    },
+    "development-device": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.50:8080",
+        "EXPO_PUBLIC_WS_URL": "ws://192.168.1.50:8080"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "android": {
@@ -16,6 +36,16 @@
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",
+        "EXPO_PUBLIC_WS_URL": "wss://api.datarefugio.gcbprojects.site"
+      }
+    },
+    "production-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",

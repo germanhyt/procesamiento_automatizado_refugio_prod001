@@ -12,12 +12,27 @@
     "kiosk:web": "yarn workspace kiosk web",
     "runner": "yarn workspace runner start",
     "runner:clear": "yarn workspace runner start -- -c",
-    "runner:web": "yarn workspace runner web"
+    "runner:web": "yarn workspace runner web",
+
+    
+    "eas:kiosk:development-emulator": "cd apps/kiosk && eas build --platform android --profile development-emulator",
+    "eas:kiosk:development-device": "cd apps/kiosk && eas build --platform android --profile development-device",
+    "eas:kiosk:preview": "cd apps/kiosk && eas build --platform android --profile preview",
+    "eas:kiosk:production": "cd apps/kiosk && eas build --platform android --profile production",
+    "eas:kiosk:production-apk": "cd apps/kiosk && eas build --platform android --profile production-apk",
+    "eas:runner:development-emulator": "cd apps/runner && eas build --platform android --profile development-emulator",
+    "eas:runner:development-device": "cd apps/runner && eas build --platform android --profile development-device",
+    "eas:runner:preview": "cd apps/runner && eas build --platform android --profile preview",
+    "eas:runner:production": "cd apps/runner && eas build --platform android --profile production",
+    "eas:runner:production-apk": "cd apps/runner && eas build --platform android --profile production-apk"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.91.0",
     "axios": "^1.13.6",
     "expo-secure-store": "^55.0.9",
     "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "eas-cli": "^16.0.0"
   }
 }
