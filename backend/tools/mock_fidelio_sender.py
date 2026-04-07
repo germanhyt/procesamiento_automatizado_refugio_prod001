@@ -120,6 +120,6 @@ if __name__ == "__main__":
 # python tools/mock_fidelio_sender.py \
 #   --restaurant-id A03_BARRIO_MANCORA \
 #   --plataforma PEDIDOSYA \
-#   --codigo-pedido ZZZ-123 \
+#   --codigo-pedido PPP555 \
 #   --bolsas 2 \
 #   --api-key "mi-clave-secreta"

@@ -55,7 +55,10 @@ from app.schemas.delivery import (
     RunnerPushRegisterOut,
 )
 
-from app.services.delivery_push import notify_runners_new_driver_waiting_sync
+from app.services.delivery_push import (
+    notify_runners_new_driver_waiting_sync,
+    notify_runners_order_listo_sync,
+)
 
 from fuzzywuzzy import fuzz
 
@@ -328,6 +331,7 @@ def _orders_to_dicts(orders: List[Order]) -> List[Dict[str, Any]]:
 @router.post("/webhooks/fidelio/order-ready", response_model=OrderOut)
 async def fidelio_order_ready(
     payload: FidelioOrderReadyIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
@@ -385,6 +389,7 @@ async def fidelio_order_ready(
             EVENT_ORDER_UPDATED,
             {"order_id": order.id, "estado": order.estado, "source": "fidelio_webhook"},
         )
+        background_tasks.add_task(notify_runners_order_listo_sync, order.id, plataforma, codigo)
         # Early Bird: si hay driver esperando, matchear al toque
         matched_driver = _try_match_waiting_driver_for_order(db, order)
         if matched_driver:
@@ -408,6 +413,7 @@ async def fidelio_order_ready(
 
 
     # Actualizar estado a LISTO si aún no se había marcado
+    prev_estado = order.estado
     t1 = _utcnow()
     order.estado = ORDER_STATUS_LISTO
     order.estado_changed_at = t1
@@ -421,6 +427,8 @@ async def fidelio_order_ready(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "source": "fidelio_webhook"},
     )
+    if prev_estado != ORDER_STATUS_LISTO:
+        background_tasks.add_task(notify_runners_order_listo_sync, order.id, plataforma, codigo)
     matched_driver = _try_match_waiting_driver_for_order(db, order)
     if matched_driver:
         await _emit(

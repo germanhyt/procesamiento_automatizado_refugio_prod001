@@ -2,6 +2,12 @@ import React from 'react';
 import { ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, View, Text } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useOrder, useRunnerActions } from '@refugio/hooks';
+import {
+  ORDER_STATUS_PENDIENTE_RECOJO,
+  ORDER_STATUSES_RUNNER_ACCEPT,
+  ORDER_STATUSES_RUNNER_CAN_DELIVER,
+  orderStatusIn,
+} from '@/constants/runnerOrderStatus';
 import { useRunnerTheme } from '@/context/ThemeContext';
 
 export default function OrderDetailScreen() {
@@ -48,7 +54,7 @@ export default function OrderDetailScreen() {
   };
 
   const hasMatch = !!o.matched_driver_arrival_id;
-  const canDeliver = hasMatch && ['PROCESO_ENTREGA', 'PENDIENTE_RECOJO', 'LISTO_PARA_ENTREGAR'].includes(o.estado);
+  const canDeliver = hasMatch && orderStatusIn(o.estado, ORDER_STATUSES_RUNNER_CAN_DELIVER);
 
   return (
     <ScrollView
@@ -97,7 +103,7 @@ export default function OrderDetailScreen() {
 
       {/* Acciones */}
       <View style={styles.actions}>
-        {['LISTO', 'LISTO_PARA_ENTREGAR'].includes(o.estado) && (
+        {orderStatusIn(o.estado, ORDER_STATUSES_RUNNER_ACCEPT) && (
           <TouchableOpacity
             style={[styles.btnSecondary, { borderColor: p.border, backgroundColor: p.cardBg }]}
             onPress={() => handleAction('accept')}
@@ -109,7 +115,7 @@ export default function OrderDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {o.estado === 'PENDIENTE_RECOJO' && (
+        {o.estado === ORDER_STATUS_PENDIENTE_RECOJO && (
           <TouchableOpacity
             style={[styles.btnSecondary, { borderColor: p.border, backgroundColor: p.cardBg }]}
             onPress={() => handleAction('shelf')}
@@ -121,7 +127,7 @@ export default function OrderDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {['PROCESO_ENTREGA', 'PENDIENTE_RECOJO', 'LISTO_PARA_ENTREGAR'].includes(o.estado) && (
+        {orderStatusIn(o.estado, ORDER_STATUSES_RUNNER_CAN_DELIVER) && (
           <TouchableOpacity
             style={[styles.btnDeliver, { backgroundColor: p.accent }, !canDeliver && styles.btnDisabled]}
             onPress={() => handleAction('deliver')}

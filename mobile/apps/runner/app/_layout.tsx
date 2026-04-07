@@ -10,7 +10,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ThemeProvider as AppThemeProvider, useRunnerTheme } from '@/context/ThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { RunnerNotificationInboxProvider } from '@/context/RunnerNotificationInboxContext';
 import { useRunnerPushRegistration } from '@/hooks/useRunnerPushRegistration';
+import { useRunnerPushInboxCapture } from '@/hooks/useRunnerPushInboxCapture';
 
 export {
   ErrorBoundary,
@@ -44,7 +46,9 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AppThemeProvider>
           <AuthProvider>
-            <RootLayoutNav />
+            <RunnerNotificationInboxProvider>
+              <RootLayoutNav />
+            </RunnerNotificationInboxProvider>
           </AuthProvider>
         </AppThemeProvider>
       </QueryClientProvider>
@@ -54,6 +58,7 @@ export default function RootLayout() {
 
 function RunnerPushBridge() {
   useRunnerPushRegistration();
+  useRunnerPushInboxCapture();
   return null;
 }
 

@@ -34,6 +34,22 @@ function driverLabel(o: Order): string {
     return parts.length ? parts.join(' · ') : '—';
 }
 
+/** Hasta entrega desde el instante más temprano entre alta del pedido y llegada al kiosk; incluye espera del driver antes del LISTO (early bird). Sin driver matcheado equivale a crea→entrega. */
+function totalE2EIncludingKioskStart(o: Order): string {
+    if (!o.entregado_at) return '—';
+    const end = Date.parse(o.entregado_at);
+    if (Number.isNaN(end)) return '—';
+    const crea = Date.parse(o.created_at);
+    if (Number.isNaN(crea)) return '—';
+    let start = crea;
+    const da = o.matched_driver_arrival;
+    if (da?.created_at) {
+        const kiosk = Date.parse(da.created_at);
+        if (!Number.isNaN(kiosk)) start = Math.min(start, kiosk);
+    }
+    return String(Math.max(0, Math.floor((end - start) / 60000)));
+}
+
 const columnHelper = createColumnHelper<Order>();
 
 export type DeliveryAdminTableProps = {
@@ -137,7 +153,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
             }),
             columnHelper.display({
                 id: 'sla_kiosk',
-                header: 'Kiosk espera (min)',
+                header: 'Driver espera (min)',
                 cell: ({ row }) => kioskWaitMinutes(row.original),
             }),
             columnHelper.display({
@@ -155,10 +171,15 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 header: 'Listo→entrega (min)',
                 cell: ({ row }) => diffMinutes(row.original.listo_at, row.original.entregado_at),
             }),
+            // columnHelper.display({
+            //     id: 'sla_total',
+            //     header: 'Total crea→entrega (min)',
+            //     cell: ({ row }) => diffMinutes(row.original.created_at, row.original.entregado_at),
+            // }),
             columnHelper.display({
-                id: 'sla_total',
-                header: 'Total crea→entrega (min)',
-                cell: ({ row }) => diffMinutes(row.original.created_at, row.original.entregado_at),
+                id: 'sla_total_incl_kiosk',
+                header: 'Total mín(crea,driver-espera)→entrega (min)',
+                cell: ({ row }) => totalE2EIncludingKioskStart(row.original),
             }),
             columnHelper.display({
                 id: 'acciones',

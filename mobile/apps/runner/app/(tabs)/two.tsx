@@ -12,8 +12,8 @@ export default function SettingsScreen() {
       style={[styles.container, { backgroundColor: p.bg }]}
       contentContainerStyle={styles.content}
     >
-      {/* Sección cuenta */}
-      <Text style={[styles.sectionTitle, { color: p.muted }]}>CUENTA</Text>
+      {/* Cuenta: el nombre del runner va en el header del tab (debajo de "Cuenta"). */}
+      {/* <Text style={[styles.sectionTitle, { color: p.muted }]}>CUENTA</Text> */}
       <View style={[styles.card, { backgroundColor: p.cardBg, borderColor: p.cardBorder }]}>
         <TouchableOpacity style={[styles.row, { borderBottomColor: p.border }]} onPress={logout}>
           <Text style={[styles.rowLabel, { color: p.error }]}>Cerrar Sesión</Text>

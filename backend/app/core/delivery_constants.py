@@ -45,3 +45,6 @@ RUNNER_PUSH_APP_SLUG = "runner"
 # https://docs.expo.dev/push-notifications/sending-notifications/
 EXPO_PUSH_SEND_URL = "https://exp.host/--/api/v2/push/send"
 RUNNER_PUSH_ANDROID_CHANNEL_ID = "delivery-runner"
+# `data.type` en el payload Expo (el Runner puede filtrar por esto además de `order_id`).
+RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO = "PEDIDO_LISTO"
+RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO = "NUEVO_DRIVER_ESPERANDO"

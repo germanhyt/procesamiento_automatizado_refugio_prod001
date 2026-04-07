@@ -50,7 +50,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="two" // Ajustes
         options={{
           title: 'Ajustes',
           header: () => <RunnerTabHeader mode="settings" />,

@@ -1,9 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { RunnerNotificationBell } from '@/components/notifications/RunnerNotificationBell';
 import { radius, space, topBarShadow } from '@/constants/runnerLayout';
+import { useAuth } from '@/context/AuthContext';
 import { useRunnerTheme } from '@/context/ThemeContext';
+import { getAccessTokenSubject } from '@/lib/authJwt';
 
 export type RunnerTabHeaderMode = 'dashboard' | 'settings';
 
@@ -12,18 +15,17 @@ type Props = {
 };
 
 /**
- * Header de tabs alineado al Kiosk: safe area arriba, padding vertical generoso,
- * marca + toggle en una sola fila (sin headerRight de React Navigation).
+ * Header de tabs: marca + campana de notificaciones (dashboard) + toggle de tema.
  */
 export function RunnerTabHeader({ mode }: Props) {
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { token } = useAuth();
   const { theme, palette: p, toggleTheme } = useRunnerTheme();
   const isDark = theme === 'dark';
+  const runnerDisplayName = mode === 'settings' ? getAccessTokenSubject(token) : null;
 
   const compact = width < 380;
   const padH = width < 360 ? space.lg : space.xl;
-  /** Tamaños de tipografía cercanos al Kiosk, ligeramente mayores para legibilidad */
   const logoSize = compact ? 40 : 50;
   const titleSize = compact ? 16 : 20;
   const subtitleSize = compact ? 12 : 14;
@@ -39,14 +41,11 @@ export function RunnerTabHeader({ mode }: Props) {
       style={[
         styles.shell,
         {
-          // paddingTop: Math.max(insets.top, space.sm + 2),
           paddingTop: 42,
           paddingBottom: 20,
           paddingHorizontal: padH,
           backgroundColor: p.topBarBg,
           borderBottomColor: p.topBarBorder,
-          // marginTop: 20,
-          // marginBottom: 10,
           ...topBarShadow(isDark ? 'dark' : 'light'),
         },
       ]}
@@ -81,14 +80,32 @@ export function RunnerTabHeader({ mode }: Props) {
               >
                 Ajustes
               </Text>
-              <Text style={[styles.subtitle, { color: p.muted, fontSize: subtitleSize }]}>
-                Cuenta
-              </Text>
+              {/* Subtítulo fijo de sección; el nombre se toma del JWT (`sub` = username en login). */}
+              <View
+                style={{ marginTop: 12 }}
+              >
+                <Text style={[styles.subtitle, { color: p.muted, fontSize: subtitleSize }]}>
+                  Cuenta
+                </Text>
+                {runnerDisplayName ? (
+                  <Text
+                    style={[styles.runnerName, { color: p.text }]}
+                    numberOfLines={1}
+                    accessibilityLabel={`Usuario: ${runnerDisplayName}`}
+                  >
+                    Usuario: {runnerDisplayName}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           )}
         </View>
 
         <View style={styles.spacerBetween} />
+
+        {mode === 'dashboard' ? (
+          <RunnerNotificationBell iconSize={iconSize} toggleSize={toggleSize} />
+        ) : null}
 
         <Pressable
           onPress={toggleTheme}
@@ -142,7 +159,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  /** Espacio explícito entre bloque de títulos y el toggle (no usar headerRight) */
   spacerBetween: {
     width: space.md + 4,
     flexShrink: 0,
@@ -154,6 +170,12 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: space.xs + 1,
     fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  runnerName: {
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: '800',
     letterSpacing: 0.2,
   },
   themeToggle: {

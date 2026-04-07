@@ -7,7 +7,11 @@ from typing import Any, Dict, List
 
 from sqlalchemy.exc import ProgrammingError
 
-from app.core.delivery_constants import RUNNER_PUSH_ANDROID_CHANNEL_ID
+from app.core.delivery_constants import (
+    RUNNER_PUSH_ANDROID_CHANNEL_ID,
+    RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
+    RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
+)
 from app.database import SessionLocal
 from app.models.delivery import DeliveryRunnerPushToken
 from app.services.expo_push import send_expo_push_messages
@@ -56,7 +60,7 @@ def notify_runners_new_driver_waiting_sync(
     body = f"{plataforma} · {codigo_ingresado}"
     # FCM exige valores string en data
     data: Dict[str, str] = {
-        "type": "NUEVO_DRIVER_ESPERANDO",
+        "type": RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
         "driver_arrival_id": str(driver_arrival_id),
         "plataforma": str(plataforma),
         "codigo_ingresado": str(codigo_ingresado),
@@ -78,4 +82,51 @@ def notify_runners_new_driver_waiting_sync(
             "channelId": RUNNER_PUSH_ANDROID_CHANNEL_ID,
         }
         messages.append(msg)
+    send_expo_push_messages(messages)
+
+
+def notify_runners_order_listo_sync(
+    order_id: int,
+    plataforma: str,
+    codigo_pedido: str,
+) -> None:
+    """
+    Tarea en background: Fidelio acaba de marcar el pedido como LISTO.
+    Incluye order_id en data para que el Runner abra /order/[id] al tocar la notificación.
+    """
+    tokens = _active_runner_expo_tokens()
+    if not tokens:
+        logger.info(
+            "delivery_push: sin tokens Runner activos; omito push PEDIDO_LISTO (order_id=%s)",
+            order_id,
+        )
+        return
+    plat = str(plataforma).strip().upper()
+    code = str(codigo_pedido).strip()
+    title = "Pedido listo"
+    body = f"{plat} · {code}"
+    data: Dict[str, str] = {
+        "type": RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
+        "order_id": str(order_id),
+        "plataforma": plat,
+        "codigo_pedido": code,
+    }
+    logger.info(
+        "delivery_push: enviando %s notificación(es) Expo PEDIDO_LISTO (order_id=%s)",
+        len(tokens),
+        order_id,
+    )
+    messages: List[Dict[str, Any]] = []
+    for t in tokens:
+        messages.append(
+            {
+                "to": t,
+                "title": title,
+                "body": body,
+                "data": data,
+                "sound": "default",
+                "priority": "high",
+                "channelId": RUNNER_PUSH_ANDROID_CHANNEL_ID,
+            }
+        )
     send_expo_push_messages(messages)

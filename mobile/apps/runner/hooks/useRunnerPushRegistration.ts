@@ -4,9 +4,8 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { useRouter } from 'expo-router';
 import { registerRunnerPushToken, unregisterRunnerPushToken } from '@refugio/delivery-api';
+import { RUNNER_ANDROID_NOTIFICATION_CHANNEL_ID } from '@/constants/runnerPush';
 import { useAuth } from '@/context/AuthContext';
-
-const ANDROID_CHANNEL_ID = 'delivery-runner';
 /** Clave arbitraria en SecureStore para recordar el último Expo token y poder hacer unregister al logout. No la “generas” en ningún servicio. */
 const STORED_EXPO_TOKEN_KEY = 'runner_expo_push_token_last';
 
@@ -128,7 +127,7 @@ export function useRunnerPushRegistration() {
         if (cancelled) return;
 
         if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+          await Notifications.setNotificationChannelAsync(RUNNER_ANDROID_NOTIFICATION_CHANNEL_ID, {
             name: 'Delivery Runner',
             importance: Notifications.AndroidImportance.HIGH,
             vibrationPattern: [0, 250, 250, 250],
