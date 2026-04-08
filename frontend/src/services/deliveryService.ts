@@ -4,6 +4,40 @@ import type { DriverStatus, OrderStatus } from '@/constants/delivery';
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080`;
 
+export interface RestaurantNotificationEmail {
+    id: number;
+    restaurant_id: number;
+    email: string;
+    created_at: string;
+}
+
+export interface RestaurantAdmin {
+    id: number;
+    fidelio_id: string;
+    nombre: string;
+    is_active: boolean;
+    codigo_negocio?: string | null;
+    codigo_comunicacion?: string | null;
+    created_at: string;
+    notification_emails: RestaurantNotificationEmail[];
+}
+
+export interface RestaurantCreateIn {
+    fidelio_id: string;
+    nombre: string;
+    is_active?: boolean;
+    codigo_negocio?: string | null;
+    codigo_comunicacion?: string | null;
+}
+
+export interface RestaurantUpdateIn {
+    fidelio_id?: string | null;
+    nombre?: string | null;
+    is_active?: boolean | null;
+    codigo_negocio?: string | null;
+    codigo_comunicacion?: string | null;
+}
+
 export interface DriverArrival {
     id: number;
     plataforma: string;
@@ -122,6 +156,41 @@ export const deliveryService = {
     async adminUnlockOrder(token: string, orderId: number, payload: AdminUnlockIn) {
         const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/unlock`, payload, { headers: authHeaders(token) });
         return res.data;
+    },
+
+    async adminListRestaurants(token: string) {
+        const res = await axios.get<RestaurantAdmin[]>(`${API_URL}/delivery/admin/restaurants`, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async adminCreateRestaurant(token: string, payload: RestaurantCreateIn) {
+        const res = await axios.post<RestaurantAdmin>(`${API_URL}/delivery/admin/restaurants`, payload, {
+            headers: authHeaders(token),
+        });
+        return res.data;
+    },
+
+    async adminUpdateRestaurant(token: string, restaurantId: number, payload: RestaurantUpdateIn) {
+        const res = await axios.patch<RestaurantAdmin>(`${API_URL}/delivery/admin/restaurants/${restaurantId}`, payload, {
+            headers: authHeaders(token),
+        });
+        return res.data;
+    },
+
+    async adminAddRestaurantNotificationEmail(token: string, restaurantId: number, email: string) {
+        const res = await axios.post<RestaurantNotificationEmail>(
+            `${API_URL}/delivery/admin/restaurants/${restaurantId}/notification-emails`,
+            { email },
+            { headers: authHeaders(token) }
+        );
+        return res.data;
+    },
+
+    async adminDeleteRestaurantNotificationEmail(token: string, restaurantId: number, emailRowId: number) {
+        await axios.delete(
+            `${API_URL}/delivery/admin/restaurants/${restaurantId}/notification-emails/${emailRowId}`,
+            { headers: authHeaders(token) }
+        );
     },
 };
 

@@ -1,6 +1,7 @@
 /**
  * Lista de locatarios para Fuentes de datos (upload).
- * Sincronizada con backend app/core/constants.py. Migrable a tabla BD después.
+ * Sincronizada con backend app/core/constants.py (misma data que delivery_restaurants).
+ * Migrable a tabla BD después.
  */
 export interface Locatario {
     name: string;

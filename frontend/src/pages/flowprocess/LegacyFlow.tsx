@@ -22,6 +22,8 @@ import {
     FileArchive,
     CalendarRange,
     Eye,
+    BellRing,
+    Webhook,
 } from 'lucide-react';
 
 import { LOCATARIOS } from '@/constants/locatarios';
@@ -50,6 +52,16 @@ import {
     getPreviewSales,
     getPreviewRealizadas,
 } from '@/services/legacyService';
+import {
+    dispararNotificacionesN8n,
+    fetchNotificacionesEnvioConfig,
+    fetchPendientesSemana,
+    patchNotificacionesEnvioConfig,
+    type ModoPendientesNotificaciones,
+    type NotificacionesEnvioConfigPatch,
+    type PendientesSemanaResponse,
+} from '@/services/notificacionesService';
+import { useAuth } from '@/context/AuthContext';
 
 interface CierreCajaFile {
     name: string;
@@ -63,7 +75,29 @@ interface NegocioOption {
     label: string;
 }
 
+function PendientesDayChips({ period, registrados }: { period: string[]; registrados: string[] }) {
+    return (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+            {period.map((iso) => {
+                const ok = registrados.includes(iso);
+                const parts = iso.split('-');
+                const label = parts.length === 3 ? `${parts[2]}/${parts[1]}` : iso;
+                return (
+                    <span
+                        key={iso}
+                        title={iso}
+                        className={`pendiente-dia-chip ${ok ? 'pendiente-dia-chip--ok' : 'pendiente-dia-chip--falta'}`}
+                    >
+                        {label}
+                    </span>
+                );
+            })}
+        </div>
+    );
+}
+
 const LegacyFlow: React.FC = () => {
+    const { token, user } = useAuth();
     const [logs, setLogs] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState<string | null>(null);
     const [files, setFiles] = useState<CierreCajaFile[]>([]);
@@ -101,6 +135,25 @@ const LegacyFlow: React.FC = () => {
     const [filesModalLoading, setFilesModalLoading] = useState(false);
     const [bulkLocatario, setBulkLocatario] = useState('');
 
+    const [pendientesLoading, setPendientesLoading] = useState(false);
+    const [notifModo, setNotifModo] = useState<ModoPendientesNotificaciones>('ultima_semana');
+    const [notifDias, setNotifDias] = useState(7);
+    const [notifFechaIni, setNotifFechaIni] = useState('');
+    const [notifFechaFin, setNotifFechaFin] = useState('');
+
+    const [isPendientesModalOpen, setIsPendientesModalOpen] = useState(false);
+    const [pendientesResult, setPendientesResult] = useState<PendientesSemanaResponse | null>(null);
+    const [pendientesErr, setPendientesErr] = useState<string | null>(null);
+    const [scheduleEnabled, setScheduleEnabled] = useState(false);
+    const [scheduleHHMM, setScheduleHHMM] = useState('09:00');
+    const [n8nWebhookUrl, setN8nWebhookUrl] = useState('');
+    const [n8nWebhookSecret, setN8nWebhookSecret] = useState('');
+    const [n8nSecretTouched, setN8nSecretTouched] = useState(false);
+    const [n8nSecretConfigured, setN8nSecretConfigured] = useState(false);
+    const [envioSaveBusy, setEnvioSaveBusy] = useState(false);
+    const [disparoBusy, setDisparoBusy] = useState(false);
+    const [isEnvioN8nModalOpen, setIsEnvioN8nModalOpen] = useState(false);
+
     const [fsPreviewOpen, setFsPreviewOpen] = useState(false);
     const [fsPreviewTitle, setFsPreviewTitle] = useState('');
     const [fsPreviewLoading, setFsPreviewLoading] = useState(false);
@@ -119,6 +172,30 @@ const LegacyFlow: React.FC = () => {
         };
         loadInitialData();
     }, []);
+
+    useEffect(() => {
+        if (!isEnvioN8nModalOpen || !token || !user?.is_superuser) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const cfg = await fetchNotificacionesEnvioConfig(token);
+                if (cancelled) return;
+                setScheduleEnabled(cfg.schedule_enabled);
+                setScheduleHHMM(
+                    `${String(cfg.schedule_hour).padStart(2, '0')}:${String(cfg.schedule_minute).padStart(2, '0')}`,
+                );
+                setN8nWebhookUrl(cfg.n8n_webhook_url ?? '');
+                setN8nSecretConfigured(cfg.n8n_webhook_secret_configured);
+                setN8nWebhookSecret('');
+                setN8nSecretTouched(false);
+            } catch {
+                /* defaults */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isEnvioN8nModalOpen, token, user?.is_superuser]);
 
     const fetchFiles = async () => {
         try {
@@ -616,14 +693,181 @@ const LegacyFlow: React.FC = () => {
         setFsPreviewTable(null);
     };
 
+    const openPendientesModal = () => {
+        if (!token) {
+            Swal.fire({
+                title: 'Sesión requerida',
+                text: 'Inicia sesión para consultar pendientes de carga en FileStore.',
+                icon: 'warning',
+                background: '#111',
+                color: '#fff',
+            });
+            return;
+        }
+        setPendientesResult(null);
+        setPendientesErr(null);
+        setIsPendientesModalOpen(true);
+    };
+
+    const closePendientesModal = () => {
+        setIsPendientesModalOpen(false);
+        setPendientesErr(null);
+    };
+
+    const ejecutarPendientesConsulta = async () => {
+        if (!token) return;
+        if (notifModo === 'rango_libre' && (!notifFechaIni.trim() || !notifFechaFin.trim())) {
+            setPendientesErr('Indica fecha inicio y fin para el rango libre.');
+            return;
+        }
+        setPendientesLoading(true);
+        setPendientesErr(null);
+        try {
+            const data = await fetchPendientesSemana(token, {
+                modo: notifModo,
+                dias: notifModo === 'ultimos_dias' ? notifDias : undefined,
+                fecha_inicio: notifModo === 'rango_libre' ? notifFechaIni : undefined,
+                fecha_fin: notifModo === 'rango_libre' ? notifFechaFin : undefined,
+            });
+            setPendientesResult(data);
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { detail?: unknown } }; message?: string };
+            const detail = e.response?.data?.detail;
+            const msg =
+                typeof detail === 'string'
+                    ? detail
+                    : Array.isArray(detail)
+                      ? detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join('; ')
+                      : e.message ?? 'No se pudo consultar el API';
+            setPendientesErr(msg);
+        } finally {
+            setPendientesLoading(false);
+        }
+    };
+
+    const guardarEnvioConfig = async () => {
+        if (!token || !user?.is_superuser) return;
+        const [hs, ms] = scheduleHHMM.split(':');
+        const schedule_hour = Number(hs);
+        const schedule_minute = Number(ms);
+        if (
+            !Number.isFinite(schedule_hour) ||
+            !Number.isFinite(schedule_minute) ||
+            schedule_hour < 0 ||
+            schedule_hour > 23 ||
+            schedule_minute < 0 ||
+            schedule_minute > 59
+        ) {
+            await Swal.fire({
+                title: 'Hora inválida',
+                text: 'Use formato HH:MM (24h).',
+                icon: 'warning',
+                background: '#111',
+                color: '#fff',
+            });
+            return;
+        }
+        setEnvioSaveBusy(true);
+        try {
+            const body: NotificacionesEnvioConfigPatch = {
+                schedule_enabled: scheduleEnabled,
+                schedule_hour,
+                schedule_minute,
+                n8n_webhook_url: n8nWebhookUrl.trim(),
+            };
+            if (n8nSecretTouched) {
+                body.n8n_webhook_secret = n8nWebhookSecret.trim();
+            }
+            const saved = await patchNotificacionesEnvioConfig(token, body);
+            setN8nWebhookUrl(saved.n8n_webhook_url ?? '');
+            setN8nSecretConfigured(saved.n8n_webhook_secret_configured);
+            setN8nWebhookSecret('');
+            setN8nSecretTouched(false);
+            await Swal.fire({
+                icon: 'success',
+                title: 'Configuración guardada',
+                timer: 1500,
+                showConfirmButton: false,
+                background: '#111',
+                color: '#fff',
+            });
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { detail?: unknown } }; message?: string };
+            const detail = e.response?.data?.detail;
+            const msg = typeof detail === 'string' ? detail : e.message ?? 'Error al guardar';
+            await Swal.fire({ title: 'Error', text: msg, icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setEnvioSaveBusy(false);
+        }
+    };
+
+    const dispararEnvioN8n = async () => {
+        if (!token || !user?.is_superuser) return;
+        if (notifModo === 'rango_libre' && (!notifFechaIni.trim() || !notifFechaFin.trim())) {
+            await Swal.fire({
+                title: 'Rango incompleto',
+                text: 'Indica fechas del rango (o vuelve a consultar con otro modo).',
+                icon: 'warning',
+                background: '#111',
+                color: '#fff',
+            });
+            return;
+        }
+        const ok = await Swal.fire({
+            title: 'Enviar a n8n',
+            text: 'Se enviará el payload con los locatarios en alerta para el mismo periodo que elegiste al consultar.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Enviar',
+            cancelButtonText: 'Cancelar',
+            background: '#111',
+            color: '#fff',
+        });
+        if (!ok.isConfirmed) return;
+        setDisparoBusy(true);
+        try {
+            const r = await dispararNotificacionesN8n(token, {
+                modo: notifModo,
+                dias: notifModo === 'ultimos_dias' ? notifDias : undefined,
+                fecha_inicio: notifModo === 'rango_libre' ? notifFechaIni : undefined,
+                fecha_fin: notifModo === 'rango_libre' ? notifFechaFin : undefined,
+            });
+            await Swal.fire({
+                title: r.enviado ? 'Proceso enviado' : 'Sin envío o incompleto',
+                html: `<p class="text-sm">Ítems con alerta: <strong>${r.items}</strong></p>${r.error ? `<p class="text-xs text-amber-300">${r.error}</p>` : ''}${r.razon ? `<p class="text-xs">${r.razon}</p>` : ''}`,
+                icon: r.ok ? 'success' : 'info',
+                background: '#111',
+                color: '#fff',
+            });
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { detail?: unknown } }; message?: string };
+            const detail = e.response?.data?.detail;
+            const msg = typeof detail === 'string' ? detail : e.message ?? 'Error al disparar';
+            await Swal.fire({ title: 'Error', text: msg, icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setDisparoBusy(false);
+        }
+    };
+
     return (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 h-full">
             <div className="xl:col-span-8 space-y-8">
                 {/* Rango para consolidar / asociar */}
                 <div className="bg-app-card border border-app-border rounded-[28px] p-6 space-y-4">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
-                        <CalendarRange size={14} /> Rango de proceso (Consolidar / Asociar)
-                    </h3>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
+                            <CalendarRange size={14} /> Rango de proceso (Consolidar / Asociar)
+                        </h3>
+                        <button
+                            type="button"
+                            onClick={openPendientesModal}
+                            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl border border-app-accent-muted bg-app-accent-muted-bg px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent-muted-bg-hover"
+                            title="Revisar pendientes por día (modal)"
+                        >
+                            <BellRing size={14} />
+                            Pendientes por día
+                        </button>
+                    </div>
                     <div className="flex flex-wrap gap-4 items-center">
                         {(['semana_actual', 'ultima_semana', 'rango_libre'] as ModoRango[]).map((m) => (
                             <label key={m} className="flex items-center gap-2 text-[10px] text-app-muted cursor-pointer">
@@ -1139,6 +1383,388 @@ const LegacyFlow: React.FC = () => {
                         </motion.div>
                     </motion.div>
                 )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isPendientesModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[10058] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+                        onClick={closePendientesModal}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.96, y: 8 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.96, y: 8 }}
+                            className="bg-app-panel border border-app-border w-full max-w-3xl max-h-[92vh] rounded-[28px] flex flex-col overflow-hidden shadow-xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-4 sm:p-5 border-b border-app-border flex items-center justify-between gap-2">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-teal-400 flex items-center gap-2">
+                                    <BellRing size={18} /> Pendientes por día (FileStore)
+                                </h3>
+                                <div className="flex items-center gap-1 shrink-0">
+                                    {user?.is_superuser ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsEnvioN8nModalOpen(true)}
+                                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide border border-app-accent-muted text-app-accent hover:bg-app-accent-muted-bg"
+                                        >
+                                            <Webhook size={16} aria-hidden /> Envío de notificaciones (n8n)
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={closePendientesModal}
+                                        className="p-2 hover:bg-app-card-hover rounded-xl text-app-muted hover:text-app-accent"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 min-h-0">
+                                {!pendientesResult ? (
+                                    <>
+                                        <p className="text-[10px] text-app-muted leading-relaxed">
+                                            Elija el <strong className="text-app-text">periodo</strong> y pulse <strong className="text-app-text">Consultar</strong>.
+                                            Se exige que <strong className="text-app-text">cada día calendario</strong> del rango aparezca como fecha de operación en los
+                                            pendientes (columna <strong className="text-app-text">Fecha</strong>; si no hay columna, una fecha por archivo). Solo si están
+                                            todos los días se considera <strong className="text-app-text">al día</strong>.
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                                            {(
+                                                [
+                                                    ['ultima_semana', 'Última semana completa (recomendado)'],
+                                                    ['semana_actual', 'Semana en curso (lun–dom)'],
+                                                    ['ultimos_dias', 'Últimos N días naturales'],
+                                                    ['rango_libre', 'Rango libre (desde / hasta)'],
+                                                ] as const
+                                            ).map(([value, label]) => (
+                                                <label key={value} className="flex items-start gap-2 text-[10px] text-app-muted cursor-pointer">
+                                                    <input
+                                                        type="radio"
+                                                        name="notifModoModal"
+                                                        checked={notifModo === value}
+                                                        onChange={() => setNotifModo(value)}
+                                                        className="accent-teal-500 mt-0.5"
+                                                    />
+                                                    <span>{label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        {notifModo === 'ultimos_dias' && (
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 max-w-sm">
+                                                <label className="text-[9px] font-black text-app-muted uppercase whitespace-nowrap">Cantidad de días</label>
+                                                <input
+                                                    type="number"
+                                                    min={1}
+                                                    max={366}
+                                                    value={notifDias}
+                                                    onChange={(e) =>
+                                                        setNotifDias(Math.max(1, Math.min(366, Number(e.target.value) || 7)))
+                                                    }
+                                                    className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                                />
+                                            </div>
+                                        )}
+                                        {notifModo === 'rango_libre' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-app-muted uppercase">Desde</label>
+                                                    <input
+                                                        type="date"
+                                                        value={notifFechaIni}
+                                                        onChange={(e) => setNotifFechaIni(e.target.value)}
+                                                        className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-app-muted uppercase">Hasta</label>
+                                                    <input
+                                                        type="date"
+                                                        value={notifFechaFin}
+                                                        onChange={(e) => setNotifFechaFin(e.target.value)}
+                                                        className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                        {pendientesErr ? <p className="text-sm text-rose-400">{pendientesErr}</p> : null}
+                                        <div className="flex flex-wrap gap-2 pt-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => void ejecutarPendientesConsulta()}
+                                                disabled={pendientesLoading}
+                                                className="px-5 py-2.5 bg-teal-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+                                            >
+                                                {pendientesLoading ? 'Consultando…' : 'Consultar'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={closePendientesModal}
+                                                className="px-5 py-2.5 border border-app-border rounded-xl text-[10px] font-black uppercase text-app-muted hover:bg-app-input"
+                                            >
+                                                Cerrar
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="space-y-1 text-[10px] text-app-muted">
+                                            <p>
+                                                <strong className="text-app-text">Evaluación:</strong> {pendientesResult.fecha_evaluacion} ·{' '}
+                                                <strong className="text-app-text">{pendientesResult.semana}</strong>
+                                            </p>
+                                            <p>
+                                                {pendientesResult.ventana_rodante ? (
+                                                    <>
+                                                        <strong className="text-app-text">Ventana rodante:</strong> últimos{' '}
+                                                        {pendientesResult.umbral_dias ?? notifDias} días ({pendientesResult.periodo_inicio} →{' '}
+                                                        {pendientesResult.periodo_fin})
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <strong className="text-app-text">Periodo cerrado:</strong> {pendientesResult.periodo_inicio} →{' '}
+                                                        {pendientesResult.periodo_fin} · {pendientesResult.dias_periodo?.length ?? 0} día(s)
+                                                    </>
+                                                )}
+                                            </p>
+                                            <p>
+                                                Total {pendientesResult.resumen.total} ·{' '}
+                                                <span className="text-amber-600">con alerta {pendientesResult.resumen.con_alerta}</span> ·{' '}
+                                                <span className="text-emerald-600">al día {pendientesResult.resumen.al_dia}</span>
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-[10px] font-black uppercase text-amber-400 mb-2">
+                                                Con alerta ({pendientesResult.locatarios_con_alerta.length}) — verde = con registro, rojo = falta
+                                            </h4>
+                                            <div className="space-y-4 max-h-[42vh] overflow-y-auto pr-1">
+                                                {pendientesResult.locatarios_con_alerta.length === 0 ? (
+                                                    <p className="text-[10px] text-app-muted">Ninguno.</p>
+                                                ) : (
+                                                    pendientesResult.locatarios_con_alerta.map((a) => (
+                                                        <div
+                                                            key={a.codigo}
+                                                            className="pb-4 border-b border-app-border/60 last:border-0 last:pb-0"
+                                                        >
+                                                            <div className="text-[11px] font-bold text-app-text">
+                                                                {a.nombre}{' '}
+                                                                <span className="text-app-muted font-medium text-[10px]">{a.codigo}</span>
+                                                            </div>
+                                                            {(pendientesResult.dias_periodo?.length ?? 0) > 0 ? (
+                                                                <PendientesDayChips
+                                                                    period={pendientesResult.dias_periodo}
+                                                                    registrados={a.dias_con_registro ?? []}
+                                                                />
+                                                            ) : (
+                                                                <p className="text-[10px] text-app-muted mt-1">Sin lista de días en respuesta.</p>
+                                                            )}
+                                                            {a.sugerencia_notificacion ? (
+                                                                <p className="text-[10px] text-app-muted mt-2 pl-2 border-l-2 border-teal-500/50 leading-relaxed">
+                                                                    {a.sugerencia_notificacion}
+                                                                </p>
+                                                            ) : null}
+                                                            {(a.emails_notificacion?.length ?? 0) > 0 ? (
+                                                                <p className="text-[10px] text-app-muted mt-1">
+                                                                    Correos en BD: {a.emails_notificacion!.length}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-[10px] font-black uppercase text-emerald-400 mb-2">
+                                                Al día ({pendientesResult.locatarios_al_dia.length}) — todos los días del periodo tienen registro
+                                            </h4>
+                                            <div className="space-y-4 max-h-[36vh] overflow-y-auto pr-1">
+                                                {pendientesResult.locatarios_al_dia.length === 0 ? (
+                                                    <p className="text-[10px] text-app-muted">Ninguno.</p>
+                                                ) : (
+                                                    pendientesResult.locatarios_al_dia.map((a) => {
+                                                        const diasP = pendientesResult.dias_periodo ?? [];
+                                                        const reg = a.dias_con_registro ?? [];
+                                                        const incompleto =
+                                                            diasP.length > 0 && diasP.some((d) => !reg.includes(d));
+                                                        return (
+                                                            <div
+                                                                key={a.codigo}
+                                                                className="pb-4 border-b border-app-border/60 last:border-0 last:pb-0"
+                                                            >
+                                                                <div className="text-[11px] font-bold text-app-text">
+                                                                    {a.nombre}{' '}
+                                                                    <span className="text-app-muted font-medium text-[10px]">{a.codigo}</span>
+                                                                </div>
+                                                                {diasP.length > 0 ? (
+                                                                    <PendientesDayChips period={diasP} registrados={reg} />
+                                                                ) : null}
+                                                                <p className="text-[10px] text-app-muted mt-1">
+                                                                    Último en periodo: {a.ultimo_upload ?? '—'} · hace {a.dias_sin_subir ?? '—'} día(s){' '}
+                                                                    desde última fecha en archivos
+                                                                </p>
+                                                                {incompleto ? (
+                                                                    <p className="text-[10px] text-amber-400 mt-1">
+                                                                        Aviso: hay días del periodo sin marcar en datos; no debería listarse como al día —
+                                                                        revise API o archivos.
+                                                                    </p>
+                                                                ) : null}
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-app-border">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPendientesResult(null)}
+                                                className="px-5 py-2.5 bg-teal-500/20 text-teal-400 rounded-xl text-[10px] font-black uppercase border border-teal-500/30 hover:bg-teal-500/30"
+                                            >
+                                                Nueva consulta
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={closePendientesModal}
+                                                className="px-5 py-2.5 border border-app-border rounded-xl text-[10px] font-black uppercase text-app-muted hover:bg-app-input"
+                                            >
+                                                Cerrar
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isEnvioN8nModalOpen && user?.is_superuser ? (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[10059] flex items-center justify-center px-4 pb-10 bg-black/40 backdrop-blur-xs"
+                        onClick={() => setIsEnvioN8nModalOpen(false)}
+                    >
+                        <motion.div
+                            initial={{ opacity: 0, y: -28 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                            className="bg-app-panel border border-app-border w-full max-w-lg max-h-[min(85vh,calc(100vh-4rem))] rounded-[24px] flex flex-col overflow-hidden shadow-xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-4 sm:p-5 border-b border-app-border flex items-center justify-between gap-2 shrink-0">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
+                                    <Webhook size={18} /> Envío automático (n8n) · America/Lima
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEnvioN8nModalOpen(false)}
+                                    className="p-2 hover:bg-app-card-hover rounded-xl text-app-muted hover:text-app-accent shrink-0"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 min-h-0">
+                                <p className="text-[10px] text-app-muted leading-relaxed">
+                                    El servidor dispara el Webhook a la hora indicada con periodo{' '}
+                                    <strong className="text-app-text">última semana completa</strong>. URL y secreto se guardan en base de datos.
+                                </p>
+                                <div className="space-y-1.5">
+                                    <label className="text-[9px] font-black text-app-muted uppercase block">
+                                        URL Webhook n8n (POST)
+                                    </label>
+                                    <input
+                                        type="url"
+                                        value={n8nWebhookUrl}
+                                        onChange={(e) => setN8nWebhookUrl(e.target.value)}
+                                        placeholder="https://…/webhook/…"
+                                        className="w-full bg-app-input border border-app-border rounded-xl px-3 py-2 text-[11px] text-app-text"
+                                    />
+                                    <label className="text-[9px] font-black text-app-muted uppercase block pt-1">
+                                        Secreto compartido (opcional)
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={n8nWebhookSecret}
+                                        onChange={(e) => {
+                                            setN8nWebhookSecret(e.target.value);
+                                            setN8nSecretTouched(true);
+                                        }}
+                                        placeholder={
+                                            n8nSecretConfigured
+                                                ? 'Vacío = no cambiar; borrar todo y guardar = quitar secreto'
+                                                : 'Bearer para n8n'
+                                        }
+                                        autoComplete="new-password"
+                                        className="w-full bg-app-input border border-app-border rounded-xl px-3 py-2 text-[11px] text-app-text"
+                                    />
+                                </div>
+                                <label className="flex items-center gap-2 text-[10px] text-app-text cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={scheduleEnabled}
+                                        onChange={(e) => setScheduleEnabled(e.target.checked)}
+                                        className="accent-teal-500"
+                                    />
+                                    Activar envío programado
+                                </label>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <label className="text-[9px] font-black text-app-muted uppercase">Hora</label>
+                                    <input
+                                        type="time"
+                                        value={scheduleHHMM}
+                                        onChange={(e) => setScheduleHHMM(e.target.value)}
+                                        className="bg-app-input border border-app-border rounded-xl px-3 py-2 text-[11px] text-app-text"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => void guardarEnvioConfig()}
+                                        disabled={envioSaveBusy}
+                                        className="px-4 py-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/40 text-[10px] font-black uppercase disabled:opacity-50"
+                                    >
+                                        {envioSaveBusy ? 'Guardando…' : 'Guardar configuración'}
+                                    </button>
+                                </div>
+                                <div className="pt-3 border-t border-app-border space-y-2">
+                                    <p className="text-[10px] text-app-muted leading-relaxed">
+                                        {pendientesResult ? (
+                                            <>
+                                                Envío manual usará el <strong className="text-app-text">mismo periodo</strong> que la
+                                                consulta actual: <strong className="text-app-text">{pendientesResult.semana}</strong> (
+                                                {pendientesResult.periodo_inicio} → {pendientesResult.periodo_fin}).
+                                            </>
+                                        ) : (
+                                            <>
+                                                Para enviar con un periodo concreto, ejecute antes una{' '}
+                                                <strong className="text-app-text">consulta de pendientes</strong> en el otro modal (mismo
+                                                modo y fechas que desee usar).
+                                            </>
+                                        )}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => void dispararEnvioN8n()}
+                                        disabled={
+                                            disparoBusy ||
+                                            !pendientesResult ||
+                                            (notifModo === 'rango_libre' && (!notifFechaIni.trim() || !notifFechaFin.trim()))
+                                        }
+                                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[10px] font-black uppercase disabled:opacity-50"
+                                    >
+                                        {disparoBusy ? 'Enviando…' : 'Enviar notificaciones ahora (periodo de la consulta)'}
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                ) : null}
             </AnimatePresence>
 
             <AnimatePresence>

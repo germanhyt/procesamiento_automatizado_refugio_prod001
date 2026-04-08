@@ -4,8 +4,9 @@ from app.database import engine, SessionLocal, Base
 from app.models.auth import Permission, Role
 # Restaurant: usado en seed_locatarios. DeliveryRunnerPushToken: no se referencia en este archivo;
 # al importar la clase, SQLAlchemy registra su tabla en Base.metadata y create_all() crea delivery_runner_push_tokens.
-from app.models.delivery import DeliveryRunnerPushToken, Restaurant  # noqa: F401
+from app.models.delivery import DeliveryRunnerPushToken, Restaurant, RestaurantNotificationEmail  # noqa: F401
 from app.core.constants import LOCATARIOS, get_locatario_code_from_full, build_codigo_comunicacion
+from app.core.locatario_notification_emails_seed import seed_locatario_notification_emails
 
 
 def rename_legacy_delivery_tables(conn) -> None:
@@ -175,13 +176,22 @@ def seed_locatarios():
                 )
                 db.add(row)
             else:
-                row.nombre = nombre or row.nombre
-                if not row.codigo_negocio:
-                    row.codigo_negocio = codigo_negocio
-                if not row.codigo_comunicacion:
-                    row.codigo_comunicacion = codigo_comunicacion
+                # Lista canónica = tabla real delivery_restaurants (ejecutar patch para alinear tras cambios)
+                row.nombre = nombre
+                row.codigo_negocio = codigo_negocio
+                row.codigo_comunicacion = codigo_comunicacion
                 if row.is_active is None:
                     row.is_active = True
+        db.commit()
+    finally:
+        db.close()
+
+
+def seed_locatario_notification_emails_from_map():
+    """Correos por locatario (map n8n). Idempotente: solo añade filas que no existan."""
+    db = SessionLocal()
+    try:
+        seed_locatario_notification_emails(db)
         db.commit()
     finally:
         db.close()
@@ -192,6 +202,7 @@ def main():
     ensure_columns()
     ensure_permissions_and_roles()
     seed_locatarios()
+    seed_locatario_notification_emails_from_map()
     print(">>> Patch completado.")
 
 

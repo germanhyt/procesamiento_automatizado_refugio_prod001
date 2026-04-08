@@ -8,7 +8,9 @@ from typing import Optional, List, Set, Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func as sql_func
+from starlette.responses import Response
 
 from app.core.delivery_constants import (
     DEFAULT_QUERY_LIMIT,
@@ -33,7 +35,7 @@ from app.core.delivery_constants import (
 from app.database import get_db, SessionLocal
 from app.api.auth import get_current_user
 from app.models.auth import User
-from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryRunnerPushToken
+from app.models.delivery import Restaurant, RestaurantNotificationEmail, Order, DriverArrival, DeliveryRunnerPushToken
 # from app.core.constants import LOCATARIO_CODES, build_codigo_comunicacion
 from app.core import security
 from jose import jwt, JWTError
@@ -48,6 +50,11 @@ from app.schemas.delivery import (
     OrderOut,
     DriverArrivalOut,
     RestaurantOut,
+    RestaurantAdminOut,
+    RestaurantCreateIn,
+    RestaurantUpdateIn,
+    RestaurantNotificationEmailOut,
+    RestaurantNotificationEmailCreateIn,
     order_orm_to_dict,
     driver_arrival_orm_to_dict,
     RunnerPushRegisterIn,
@@ -1145,3 +1152,184 @@ async def admin_unlock_order(
     )
     return _load_order_dict(db, order.id)
 
+
+def _normalize_notification_email(email: str) -> str:
+    return str(email).strip().lower()
+
+
+def _load_restaurant_admin(db: Session, restaurant_id: int) -> Restaurant:
+    r = (
+        db.query(Restaurant)
+        .options(joinedload(Restaurant.notification_emails))
+        .filter(Restaurant.id == restaurant_id)
+        .first()
+    )
+    if not r:
+        raise HTTPException(status_code=404, detail="Restaurante no encontrado")
+    return r
+
+
+@router.get("/admin/restaurants", response_model=List[RestaurantAdminOut])
+async def admin_list_restaurants(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    rows = (
+        db.query(Restaurant)
+        .options(joinedload(Restaurant.notification_emails))
+        .order_by(Restaurant.nombre.asc())
+        .all()
+    )
+    return rows
+
+
+@router.get("/admin/restaurants/{restaurant_id}", response_model=RestaurantAdminOut)
+async def admin_get_restaurant(
+    restaurant_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    return _load_restaurant_admin(db, restaurant_id)
+
+
+@router.post("/admin/restaurants", response_model=RestaurantAdminOut)
+async def admin_create_restaurant(
+    payload: RestaurantCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    fid = payload.fidelio_id.strip()
+    nombre = payload.nombre.strip()
+    if not fid or not nombre:
+        raise HTTPException(status_code=400, detail="fidelio_id y nombre son obligatorios")
+    if db.query(Restaurant).filter(Restaurant.fidelio_id == fid).first():
+        raise HTTPException(status_code=409, detail="Ya existe un restaurante con ese fidelio_id")
+
+    cn = payload.codigo_negocio
+    cc = payload.codigo_comunicacion
+    r = Restaurant(
+        fidelio_id=fid,
+        nombre=nombre,
+        is_active=payload.is_active,
+        codigo_negocio=(cn.strip() if isinstance(cn, str) and cn.strip() else None),
+        codigo_comunicacion=(cc.strip() if isinstance(cc, str) and cc.strip() else None),
+    )
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return _load_restaurant_admin(db, r.id)
+
+
+@router.patch("/admin/restaurants/{restaurant_id}", response_model=RestaurantAdminOut)
+async def admin_update_restaurant(
+    restaurant_id: int,
+    payload: RestaurantUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    r = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Restaurante no encontrado")
+
+    if payload.fidelio_id is not None:
+        nf = payload.fidelio_id.strip()
+        if not nf:
+            raise HTTPException(status_code=400, detail="fidelio_id no puede quedar vacío")
+        dup = (
+            db.query(Restaurant)
+            .filter(Restaurant.fidelio_id == nf, Restaurant.id != restaurant_id)
+            .first()
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail="Ya existe otro restaurante con ese fidelio_id")
+        r.fidelio_id = nf
+
+    if payload.nombre is not None:
+        nn = payload.nombre.strip()
+        if not nn:
+            raise HTTPException(status_code=400, detail="nombre no puede quedar vacío")
+        r.nombre = nn
+
+    if payload.is_active is not None:
+        r.is_active = payload.is_active
+
+    if payload.codigo_negocio is not None:
+        s = payload.codigo_negocio.strip() if payload.codigo_negocio else ""
+        r.codigo_negocio = s or None
+
+    if payload.codigo_comunicacion is not None:
+        s = payload.codigo_comunicacion.strip() if payload.codigo_comunicacion else ""
+        r.codigo_comunicacion = s or None
+
+    db.commit()
+    return _load_restaurant_admin(db, restaurant_id)
+
+
+@router.post(
+    "/admin/restaurants/{restaurant_id}/notification-emails",
+    response_model=RestaurantNotificationEmailOut,
+)
+async def admin_add_restaurant_notification_email(
+    restaurant_id: int,
+    payload: RestaurantNotificationEmailCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    if not db.query(Restaurant).filter(Restaurant.id == restaurant_id).first():
+        raise HTTPException(status_code=404, detail="Restaurante no encontrado")
+
+    norm = _normalize_notification_email(str(payload.email))
+    if not norm:
+        raise HTTPException(status_code=400, detail="Correo inválido")
+
+    exists = (
+        db.query(RestaurantNotificationEmail)
+        .filter(
+            RestaurantNotificationEmail.restaurant_id == restaurant_id,
+            sql_func.lower(RestaurantNotificationEmail.email) == norm,
+        )
+        .first()
+    )
+    if exists:
+        raise HTTPException(status_code=409, detail="Ese correo ya está registrado para este restaurante")
+
+    row = RestaurantNotificationEmail(restaurant_id=restaurant_id, email=norm)
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ese correo ya está registrado para este restaurante")
+    db.refresh(row)
+    return row
+
+
+@router.delete(
+    "/admin/restaurants/{restaurant_id}/notification-emails/{email_row_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def admin_delete_restaurant_notification_email(
+    restaurant_id: int,
+    email_row_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    row = (
+        db.query(RestaurantNotificationEmail)
+        .filter(
+            RestaurantNotificationEmail.id == email_row_id,
+            RestaurantNotificationEmail.restaurant_id == restaurant_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Correo no encontrado")
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

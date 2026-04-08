@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import AppSelect from '@/components/ui/AppSelect';
 import DeliveryAdminTable from '@/pages/delivery/DeliveryAdminTable';
+import DeliveryRestaurantsModal from '@/pages/delivery/DeliveryRestaurantsModal';
 import { useDeliveryWS } from '@/hooks/useDeliveryWS';
 import {
     useActiveOrders,
@@ -57,6 +58,7 @@ const DeliveryPanel: React.FC = () => {
     const [sortMode, setSortMode] = useState<'oldest' | 'newest'>('oldest');
     const [matchModalOrder, setMatchModalOrder] = useState<{ id: number; codigo_pedido: string } | null>(null);
     const [selectedMatchDriver, setSelectedMatchDriver] = useState<{ value: number; label: string } | null>(null);
+    const [restaurantsModalOpen, setRestaurantsModalOpen] = useState(false);
 
     const platformOptions = useMemo(() => {
         const set = new Set<string>();
@@ -208,6 +210,15 @@ const DeliveryPanel: React.FC = () => {
                     </p>
                 </div>
                 <div className="flex gap-2">
+                    {canAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => setRestaurantsModalOpen(true)}
+                            className="px-4 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-[10px] font-black uppercase tracking-widest text-teal-400"
+                        >
+                            Restaurantes
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={() => {
@@ -502,6 +513,8 @@ const DeliveryPanel: React.FC = () => {
             )}
 
             {/* Modal Match manual con AppSelect */}
+            <DeliveryRestaurantsModal open={restaurantsModalOpen} onClose={() => setRestaurantsModalOpen(false)} toast={toast} />
+
             {matchModalOrder && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"

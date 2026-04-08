@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AdminCancelIn, AdminUnlockIn, deliveryService } from '@/services/deliveryService';
+import {
+    AdminCancelIn,
+    AdminUnlockIn,
+    RestaurantCreateIn,
+    RestaurantUpdateIn,
+    deliveryService,
+} from '@/services/deliveryService';
 import { useAuth } from '@/context/AuthContext';
 
 export function useActiveOrders(refetchIntervalMs: number | false = 5000) {
@@ -112,5 +118,48 @@ export function useAdminActions() {
     });
 
     return { markDevolucion, cancel, unlock };
+}
+
+export function useAdminRestaurants(open: boolean) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: ['delivery', 'admin', 'restaurants'],
+        queryFn: async () => deliveryService.adminListRestaurants(token as string),
+        enabled: !!token && open,
+    });
+}
+
+export function useAdminRestaurantMutations() {
+    const { token } = useAuth();
+    const qc = useQueryClient();
+
+    const invalidate = async () => {
+        await qc.invalidateQueries({ queryKey: ['delivery', 'admin', 'restaurants'] });
+    };
+
+    const createRestaurant = useMutation({
+        mutationFn: async (payload: RestaurantCreateIn) => deliveryService.adminCreateRestaurant(token as string, payload),
+        onSuccess: invalidate,
+    });
+
+    const updateRestaurant = useMutation({
+        mutationFn: async ({ id, payload }: { id: number; payload: RestaurantUpdateIn }) =>
+            deliveryService.adminUpdateRestaurant(token as string, id, payload),
+        onSuccess: invalidate,
+    });
+
+    const addNotificationEmail = useMutation({
+        mutationFn: async ({ restaurantId, email }: { restaurantId: number; email: string }) =>
+            deliveryService.adminAddRestaurantNotificationEmail(token as string, restaurantId, email),
+        onSuccess: invalidate,
+    });
+
+    const deleteNotificationEmail = useMutation({
+        mutationFn: async ({ restaurantId, emailRowId }: { restaurantId: number; emailRowId: number }) =>
+            deliveryService.adminDeleteRestaurantNotificationEmail(token as string, restaurantId, emailRowId),
+        onSuccess: invalidate,
+    });
+
+    return { createRestaurant, updateRestaurant, addNotificationEmail, deleteNotificationEmail };
 }
 

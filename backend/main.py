@@ -1,14 +1,29 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
-from app.api import procesamiento, auth, users_roles, powerbi, file_store, delivery, comercial
+from app.api import procesamiento, auth, users_roles, powerbi, file_store, delivery, comercial, notificaciones
 
 # Configuración de logs para ver errores reales
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Refugio API", version="1.0.4")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    from app.services.notificaciones_scheduler import (
+        shutdown_notificaciones_scheduler,
+        start_notificaciones_scheduler,
+    )
+
+    start_notificaciones_scheduler()
+    yield
+    shutdown_notificaciones_scheduler()
+
+
+app = FastAPI(title="Refugio API", version="1.0.4", lifespan=lifespan)
 
 # CORS TOTAL - SIN RESTRICCIONES
 app.add_middleware(
@@ -28,6 +43,7 @@ app.include_router(powerbi.router, prefix="/api")
 app.include_router(file_store.router, prefix="/api")
 app.include_router(delivery.router, prefix="/api")
 app.include_router(comercial.router, prefix="/api")
+app.include_router(notificaciones.router, prefix="/api")
 
 @app.get("/")
 async def root():

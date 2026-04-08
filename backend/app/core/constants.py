@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Constantes de negocio. Locatarios sincronizados con frontend constants/locatarios.ts.
-Migrable a tabla BD después.
+
+Orden y datos alineados con delivery_restaurants en producción (fidelio_id, nombre,
+codigo_negocio / codigo_comunicacion vía patch_db_delivery.seed_locatarios).
 """
 LOCATARIOS = [
     {"name": "Barrio Mancora", "codigo": "A03_BARRIO_MANCORA"},

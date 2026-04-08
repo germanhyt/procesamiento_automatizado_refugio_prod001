@@ -1,8 +1,8 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, EmailStr, Field, validator
 
 
 def order_orm_to_dict(order: Any) -> Dict[str, Any]:
@@ -45,6 +45,39 @@ class RestaurantOut(RestaurantBase):
     class Config:
         orm_mode = True
         from_attributes = True
+
+
+class RestaurantNotificationEmailOut(BaseModel):
+    id: int
+    restaurant_id: int
+    email: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
+
+
+class RestaurantAdminOut(RestaurantOut):
+    """Restaurante con correos de notificación (panel admin / n8n)."""
+
+    notification_emails: List[RestaurantNotificationEmailOut] = Field(default_factory=list)
+
+
+class RestaurantCreateIn(RestaurantBase):
+    pass
+
+
+class RestaurantUpdateIn(BaseModel):
+    fidelio_id: Optional[str] = None
+    nombre: Optional[str] = None
+    is_active: Optional[bool] = None
+    codigo_negocio: Optional[str] = None
+    codigo_comunicacion: Optional[str] = None
+
+
+class RestaurantNotificationEmailCreateIn(BaseModel):
+    email: EmailStr
 
 
 class OrderBase(BaseModel):

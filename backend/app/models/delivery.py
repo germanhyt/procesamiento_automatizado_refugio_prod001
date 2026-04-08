@@ -18,6 +18,28 @@ class Restaurant(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     orders = relationship("Order", back_populates="restaurant")
+    notification_emails = relationship(
+        "RestaurantNotificationEmail",
+        back_populates="restaurant",
+        cascade="all, delete-orphan",
+    )
+
+
+class RestaurantNotificationEmail(Base):
+    """Correos por restaurante/locatario (notificaciones, n8n, etc.)."""
+
+    __tablename__ = "delivery_restaurant_notification_emails"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("delivery_restaurants.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    restaurant = relationship("Restaurant", back_populates="notification_emails")
+
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "email", name="uq_delivery_restaurant_notification_email"),
+    )
 
 
 class Order(Base):
