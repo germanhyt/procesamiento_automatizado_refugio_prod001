@@ -1,0 +1,447 @@
+{
+  "name": "Notificaciones a Locatarios",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1f01d866-6597-415b-89e5-ef94c45ee375",
+              "leftValue": "={{ $json.isNotification }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        624,
+        240
+      ],
+      "id": "36f0d8b3-29d0-4793-a8df-361064eaff31",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.data.emails.join(', ') }}",
+        "subject": "=⚠️ Notificación sobre sus Reportes de ventas - {{ $json.data.nombre }} ({{ $now.toFormat('dd-MM-yyyy') }})",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        256
+      ],
+      "id": "79951954-bb25-4fb9-ae5b-b64904d02f3b",
+      "name": "Send a message",
+      "webhookId": "5d030c9f-6659-4b2f-8b74-a2dabc232f47",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "18NzG6oDDyQifQ9n",
+          "name": "Gmail account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name='{{ $json.locatario }}'",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -368,
+        -64
+      ],
+      "id": "b74cb9a5-bb3a-4718-a3f2-9220e92de85c",
+      "name": "BUSQUEDA DE CARPETA",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "KVHeg2icnwJBJG7h",
+          "name": "Google Drive account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const files = $input.all().map(i => i.json);\n\nfiles.sort((a, b) => {\n  const timeA = new Date(a.createdTime).getTime();\n  const timeB = new Date(b.createdTime).getTime();\n  return timeB - timeA; // más reciente primero\n});\n\n// devolver solo el más reciente\nreturn [files[0]];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        176
+      ],
+      "id": "0e444e63-fbf9-40dc-b133-8f2d633d67b6",
+      "name": "GET ULTIMO REPORTE"
+    },
+    {
+      "parameters": {
+        "jsCode": "const file = $input.first().json;\nconst created = new Date(file.createdTime).getTime(); // timestamp en ms\nconst now = Date.now(); // timestamp actual en ms\nconst diffHours = (now - created) / (1000 * 60 * 60);\n\nif (!file.empty && diffHours > 24) {\n  return [\n    {\n      file: file.name,\n      lastUpload: new Date(created).toISOString(),\n      diffHours,\n      isNotification: true,\n    },\n  ];\n} else {\n  return [\n    {\n      isNotification: false,\n    },\n  ];\n}\n\n// const input = $json; // ya trae info del archivo\n// const locatario = $item(0).$node[\"GET DATA\"].json.locatario; // arrastras el campo del otro nodo\n\n// const created = new Date(input.createdTime).getTime();\n// const now = Date.now();\n// const diffHours = (now - created) / (1000 * 60 * 60);\n\n// if (diffHours > 24) {\n//   return [{\n//     locatario,   // << importante\n//     file: input.name,\n//     lastUpload: new Date(created).toISOString(),\n//     diffHours,\n//     isNotification: true\n//   }];\n// } else {\n//   return [{\n//     locatario,   // << importante\n//     isNotification: false\n//   }];\n// }\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        176
+      ],
+      "id": "a8e4a7e8-67a3-4ce6-9808-1cd9602c96a8",
+      "name": "VERIFICACIÓN CARGA ANTES DE 24HR",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -976,
+        -240
+      ],
+      "id": "28458dba-0ae1-474a-867e-113d352d8798",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "='{{ $json.id }}' in parents and trashed=false",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -80,
+        -64
+      ],
+      "id": "b8f02bd6-6a26-47e5-a05c-c656d4e08507",
+      "name": "GET FILES",
+      "alwaysOutputData": true,
+      "retryOnFail": false,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "KVHeg2icnwJBJG7h",
+          "name": "Google Drive account 5"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const map_locatarios = [\n  {\n    locatario: \"BARRIO_MANCORA\",\n    nombre: \"Puerto Máncora\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"glennys.huaihua@puertosunidos.com\",\n      \"karolinacalderonde@gmail.com\",\n    ],\n  },\n  {\n    locatario: \"PATIO_CAVENECIA\",\n    nombre: \"Patio Cavenecia\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"steakrefugio@gmail.com\",\n      \"janethcarcamo13@gmail.com\",\n    ],\n  },\n  {\n    locatario: \"MR_SMASH\",\n    nombre: \"MR SMASH\",\n    emails: [\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n      // \"germanhuaytalla22@gmail.com\",\n\n      \"admimrsmash@gmail.com\",\n    ],\n  },\n  {\n    locatario: \"LA_22\",\n    nombre: \"La 22\",\n    emails: [\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n      // \"germanhuaytalla22@gmail.com\",\n\n      \"lroque.reyes@la22.pe\",\n      \"finanzas@la22.pe\",\n    ],\n  },\n  {\n    locatario: \"HANZO\",\n    nombre: \"Hanzo\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"gakanashiro@gmail.com\",\n      \"julioendo81@gmail.com\",\n    ],\n  },\n  {\n    locatario: \"CAJA_CHINA_CRIOLLA\",\n    nombre: \"Caja China Criolla\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"edsondesouza@hotmail.com\",\n    ],\n  },\n  {\n    locatario: \"ANTICUCHING\",\n    nombre: \"Anticuching\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"nathaly.angel.chingay@gmail.com\",\n      \"julioendo81@gmail.com\",\n    ],\n  },\n\n  {\n    locatario: \"CHOZA_DE_LA_ANACONDA\",\n    nombre: \"Choza de la Anaconda\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"jccrisanto10@gmail.com\",\n      \"chozadelaanacondarefugio.11@gmail.com\",\n    ],\n  },\n  {\n    locatario: \"TORTAS_GABY\",\n    nombre: \"Tortas Gaby\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"admrefugio@tortasgaby.com.pe\",\n    ],\n  },\n  {\n    locatario: \"DON_MELCHOR\",\n    nombre: \"Don Melchor\",\n    emails: [\n      // \"germanhuaytalla22@gmail.com\",\n      \"refugiogastronomico8222@gmail.com\",\n      \"carlos@refugiogastronomico.pe\",\n      \"mario@refugiogastronomico.pe\",\n\n      \"refugio.adm1@grupobalta.net\",\n      \"refugio.adm2@grupobalta.net\",\n    ],\n  },\n\n  // ----\n\n  // {\n  //   locatario: \"QPP_Y_LA_VIKINGA\",\n  //   emails: [\"lavikingahamburguesa@gmail.com\", \"cesarond25@gmail.com\"],\n  // },\n  // {\n  //   locatario: \"BAR_SISA_LIMANESAS\",\n  //   emails: [\"administracion@cavas.pe\"],\n  // },\n  // {\n  //   locatario: \"BROS_BELGOFRE_SALTAO\",\n  //   emails: [\"vanechinen@gmail.com\"],\n  // },\n  // {\n  //   locatario: \"LA_VICTORIA\",\n  //   emails: [\"lavict8ria@gmail.com\"],\n  // },\n  // {\n  //   locatario: \"CURICH\",\n  //   emails: [\"contabilidad@cremoladascurich.com\"],\n  // },\n  // {\n  //   locatario: \"LA_BODEGA_TURCA\",\n  //   emails: [\"labodegaturca@gmail.com\"],\n  // },\n  // {\n  //   locatario: \"TAQUEADO\",\n  //   emails: [\"foodison.gerencia@gmail.com\"],\n  // },\n];\n\nreturn map_locatarios;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        -240
+      ],
+      "id": "a390d348-234f-43d1-9570-76cc852bba09",
+      "name": "Lista de locatarios"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -576,
+        -240
+      ],
+      "id": "f24d3819-f7e7-430a-b50d-523c77ed37b7",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst isNotification = input.isNotification === true;\n\nif (!isNotification) {\n  // No hay notificación → devolver un objeto limpio\n  return [\n    {\n      message: null,\n      isNotification: false,\n    },\n  ];\n}\n\nconst fecha = input.lastUpload ? input.lastUpload.split(\"T\")[0] : \"---\";\n\nconst message = `\n<p>Buen día,</p>\n\n<p>Hemos revisado que no ha entregado su reporte desde el día <strong>${fecha}</strong>.</p>\n\n<p>Por favor cárguelo a través de la plataforma o, en su defecto, envíelo por correo.</p>\n\n<p>👉 <a href=\"https://softapp-gcb-refugio-carga-archivos.vercel.app\" target=\"_blank\">\nWeb de carga de reportes</a></p>\n\n<p><strong>Nota: </strong>Recuerde que hay una penalización en caso de no entregar sus reportes a tiempo.</p>\n`;\n\nreturn [\n  {\n    message,\n    isNotification: true,\n  },\n];\n\n// Loop over input items and add a new field called 'myNewField' to the JSON of each one\n\n// const fecha = $input.first().json.lastUpload.split(\"T\")[0];\n// const isNotification = $input.first().json.isNotification;\n\n// const message = `\n// <p>Buen día,</p>\n\n// <p>Hemos revisado que no ha entregado su reporte desde el día <strong>${fecha}</strong>.</p>\n\n// <p>Por favor cárguelo a través de la plataforma o, en su defecto, envíelo por correo.</p>\n\n// <p>👉 <a href=\"https://softapp-gcb-refugio-carga-archivos.vercel.app\" target=\"_blank\">\n// Web de carga de reportes</a></p>\n// `;\n\n// return { message, isNotification };\n\n// const input = $input.first().json;\n// const fecha = input.lastUpload ? input.lastUpload.split(\"T\")[0] : '---';\n\n// const message = `\n// <p>Buen día,</p>\n\n// <p>Hemos revisado que no ha entregado su reporte desde el día <strong>${fecha}</strong>.</p>\n\n// <p>Por favor cárguelo a través de la plataforma o, en su defecto, envíelo por correo.</p>\n\n// <p>👉 <a href=\"https://softapp-gcb-refugio-carga-archivos.vercel.app\" target=\"_blank\">\n// Web de carga de reportes</a></p>\n// `;\n\n// return [{\n//   locatario: input.locatario?.locatario || input.locatario, // normaliza el campo\n//   message\n// }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        176
+      ],
+      "id": "3421635d-18ca-48e4-b2f2-f5e7bb585dda",
+      "name": "Mensaje"
+    },
+    {
+      "parameters": {
+        "content": "## Automatización de Notificaciones\n",
+        "height": 960,
+        "width": 2224,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1056,
+        -416
+      ],
+      "typeVersion": 1,
+      "id": "d06a7784-edd9-425c-aefa-810af288329f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5d4e8fb3-df2b-45fb-b5da-c0a8bde564d7",
+              "name": "data",
+              "value": "={{ $json }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -80,
+        -288
+      ],
+      "id": "32f4da05-339c-458c-9edb-aa100b087506",
+      "name": "GET DATA",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        -80
+      ],
+      "id": "469804e8-0e4d-43cd-ab64-6ab94e6e14bf",
+      "name": "Merge",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Si no hay items o el primero viene vacío\nif (!items || items.length === 0 || Object.keys(items[0].json).length === 0) {\n  return [{\n    id: null,\n    name: null,\n    createdTime: null,\n    empty: true\n  }];\n}\n\n// Si hay resultados válidos\nreturn items.map(i => ({ ...i.json, empty: false }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        176
+      ],
+      "id": "eb47aab6-8648-4378-b902-302bd48b2bf5",
+      "name": "VERIFICACION DE DATOS"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BUSQUEDA DE CARPETA": {
+      "main": [
+        [
+          {
+            "node": "GET FILES",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET ULTIMO REPORTE": {
+      "main": [
+        [
+          {
+            "node": "VERIFICACIÓN CARGA ANTES DE 24HR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICACIÓN CARGA ANTES DE 24HR": {
+      "main": [
+        [
+          {
+            "node": "Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Lista de locatarios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET FILES": {
+      "main": [
+        [
+          {
+            "node": "VERIFICACION DE DATOS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "BUSQUEDA DE CARPETA",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GET DATA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lista de locatarios": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "GET DATA": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VERIFICACION DE DATOS": {
+      "main": [
+        [
+          {
+            "node": "GET ULTIMO REPORTE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7b5c1fa5-2355-49c9-9d1b-ae930138932f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0fe2d092259553ef8ee26e1e7d1ba87d8a0df8994f404066522276b2e2eae95f"
+  },
+  "id": "GZaEONZ7Fd3MUpIT",
+  "tags": []
+}

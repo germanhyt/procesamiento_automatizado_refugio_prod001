@@ -10,6 +10,7 @@ import PowerBIDashboard from '@/pages/PowerBIDashboard';
 import UserManagement from '@/pages/UserManagement';
 import FuentesDatos from '@/pages/FuentesDatos';
 import DeliveryPanel from '@/pages/delivery/DeliveryPanel';
+import ComercialPanel from '@/pages/comercial/ComercialPanel';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -52,6 +53,9 @@ const AppRoutes: React.FC = () => {
                     <Route path="users" element={<UserManagement />} />
                     <Route element={<PrivateRoute permission="delivery:view" />}>
                         <Route path="delivery" element={<DeliveryPanel />} />
+                    </Route>
+                    <Route element={<PrivateRoute permission="comercial:view" />}>
+                        <Route path="comercial" element={<ComercialPanel />} />
                     </Route>
                 </Route>
             </Route>

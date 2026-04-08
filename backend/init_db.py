@@ -1,6 +1,7 @@
 from app.database import SessionLocal, engine, Base
 from app.models.auth import User, Role, Permission
 from app.models.delivery import Restaurant, Order, DriverArrival
+from app.models.comercial import ComercialReserva, ComercialEvento  # noqa: F401 — registra tablas en metadata
 from app.core.security import get_password_hash
 import sys
 
@@ -18,6 +19,8 @@ def init():
         {"name": "Procesar Legacy", "codename": "legacy:process", "module": "legacy"},
         {"name": "Gestionar Usuarios", "codename": "users:manage", "module": "users"},
         {"name": "Configurador Sistema", "codename": "system:config", "module": "core"},
+        {"name": "Ver Comercial", "codename": "comercial:view", "module": "comercial"},
+        {"name": "Gestionar Comercial", "codename": "comercial:manage", "module": "comercial"},
     ]
     
     perms = []
@@ -42,6 +45,12 @@ def init():
         op_role = Role(name="Operador", description="Solo procesos de carga")
         op_role.permissions = [p for p in perms if p.module == "legacy"]
         db.add(op_role)
+
+    if admin_role:
+        have = {p.codename for p in admin_role.permissions}
+        for p in perms:
+            if p.codename not in have:
+                admin_role.permissions.append(p)
     db.commit()
 
     # 3. Crear Superuser Inicial

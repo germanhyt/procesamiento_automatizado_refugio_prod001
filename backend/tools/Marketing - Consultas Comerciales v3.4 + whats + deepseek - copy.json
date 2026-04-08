@@ -1,0 +1,929 @@
+{
+  "name": "Marketing - Consultas Comerciales v3.4 + whats + deepseek - copy",
+  "nodes": [
+    {
+      "parameters": {
+        "sendTo": "refugiogastronomico8222@gmail.com, leilah@gcb.pe, mike@gcb.pe",
+        "subject": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Subject', `Nuevo Evento Registrado - ${$json.nombres || 'Cliente'}`, 'string') }}",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Message', `<div\n  style=\"font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #f0f4f0 0%, #e8f5e9 100%); padding: 20px; margin: 0;\">\n  <div\n    style=\"background-color: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 12px rgba(27, 94, 32, 0.15); max-width: 600px; margin: 0 20px;\">\n\n    <!-- HEADER CON VERDE OSCURO -->\n    <div\n      style=\"background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); border-radius: 10px; padding: 20px; text-align: left; margin-bottom: 30px;\">\n      <h1 style=\"color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;\">Nueva Solicitud de Evento</h1>\n      <p style=\"color: #c8e6c9; margin: 5px 0 0 0; font-size: 14px;\">Refugio Gastronómico - Área Comercial</p>\n    </div>\n\n    <!-- TABLA DE DATOS -->\n    <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 25px;\">\n      <!-- Cliente -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; width: 40%; border-left: 4px solid #2e7d32;\">\n          Cliente:</td>\n        <td style=\"padding: 14px; color: #333; font-weight: 500;\">${$json.nombres || 'N/A'}</td>\n      </tr>\n\n      <!-- Celular -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Celular:</td>\n        <td style=\"padding: 14px; color: #333;\">${$json.celular || 'N/A'}</td>\n      </tr>\n\n      <!-- Tipo de Evento -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Tipo de Evento:\n        </td>\n        <td style=\"padding: 14px; color: #333;\">${$json.tipo || 'N/A'}</td>\n      </tr>\n\n      <!-- Cantidad de Personas -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Cantidad de\n          Personas:</td>\n        <td style=\"padding: 14px; color: #333;\">${$json.cantidad_personas || 'N/A'}</td>\n      </tr>\n\n      <!-- Fecha Tentativa -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Fecha Tentativa:\n        </td>\n        <td style=\"padding: 14px; color: #333; font-weight: 500;\">${$json.fecha_tentativa || 'N/A'}</td>\n      </tr>\n\n      <!-- Fecha de Registro -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Fecha de Registro:\n        </td>\n        <td style=\"padding: 14px; color: #666; font-size: 13px;\">${new Date().toLocaleDateString('es-PE')}</td>\n      </tr>\n\n      <!-- Estado -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Estado:</td>\n        <td style=\"padding: 14px;\">\n          <span\n            style=\"color: #1b5e20; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 13px; display: inline-block;\">Pendiente</span>\n        </td>\n      </tr>\n    </table>\n\n    <!-- FOOTER -->\n    <div style=\"text-align: center; border-top: 2px solid #e8f5e9; padding-top: 20px; color: #757575; font-size: 12px;\">\n      <p style=\"margin: 4px 0 0 0; color: #999;\">Sistema Automático de Eventos</p>\n    </div>\n\n  </div>\n</div>`, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.1,
+      "position": [
+        2128,
+        192
+      ],
+      "id": "4a5d3946-9271-4d42-8f07-d440609eedc0",
+      "name": "tool_eventos_notificacion",
+      "webhookId": "04c476c4-5c6a-4d4a-8619-ee4ad5f23e29",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "18NzG6oDDyQifQ9n",
+          "name": "Gmail account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "refugiogastronomico8222@gmail.com, leilah@gcb.pe, mike@gcb.pe",
+        "subject": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Subject', `Nueva Reserva Registrada - ${$json.nombres || 'Cliente'}`, 'string') }}",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Message', `<div\n  style=\"font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #f0f4f0 0%, #e8f5e9 100%); padding: 20px; margin: 0;\">\n  <div\n    style=\"background-color: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 12px rgba(27, 94, 32, 0.15); max-width: 600px; margin: 0 20px;\">\n\n    <!-- HEADER CON VERDE OSCURO -->\n    <div\n      style=\"background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); border-radius: 10px; padding: 20px; text-align: left; margin-bottom: 30px;\">\n      <h1 style=\"color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;\">Nueva Reserva</h1>\n      <p style=\"color: #c8e6c9; margin: 5px 0 0 0; font-size: 14px;\">Refugio Gastronómico - Área Comercial</p>\n    </div>\n\n    <!-- TABLA DE DATOS -->\n    <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 25px;\">\n      <!-- Nombre -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; width: 40%; border-left: 4px solid #2e7d32;\">\n          Cliente:</td>\n        <td style=\"padding: 14px; color: #333; font-weight: 500;\">${$json.nombres}</td>\n      </tr>\n\n      <!-- Celular -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Celular:</td>\n        <td style=\"padding: 14px; color: #333;\">${$json.celular}</td>\n      </tr>\n\n      <!-- Cantidad de Personas -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Cantidad de\n          Personas:</td>\n        <td style=\"padding: 14px; color: #333;\">${$json.cantidad_personas}</td>\n      </tr>\n\n      <!-- Fecha -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Fecha:</td>\n        <td style=\"padding: 14px; color: #333;\">${$json.fecha_reserva}</td>\n      </tr>\n\n      <!-- Hora -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Hora:</td>\n        <td style=\"padding: 14px; color: #333; font-weight: 500;\">${$json.hora_reserva}</td>\n      </tr>\n\n      <!-- Fecha de Registro -->\n      <tr>\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Fecha de Registro:\n        </td>\n        <td style=\"padding: 14px; color: #666; font-size: 13px;\">${new Date().toLocaleDateString('es-PE')}</td>\n      </tr>\n\n      <!-- Estado -->\n      <tr style=\"background-color: #f1f8f6;\">\n        <td style=\"padding: 14px; font-weight: 600; color: #1b5e20; border-left: 4px solid #2e7d32;\">Estado:</td>\n        <td style=\"padding: 14px;\">\n          <span\n            style=\"color: #1b5e20; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 13px; display: inline-block;\">Pendiente</span>\n        </td>\n      </tr>\n    </table>\n\n    <!-- FOOTER -->\n    <div style=\"text-align: center; border-top: 2px solid #e8f5e9; padding-top: 20px; color: #757575; font-size: 12px;\">\n      <p style=\"margin: 4px 0 0 0; color: #999;\">Sistema Automático de Reservas</p>\n\n    </div>\n\n  </div>\n</div>`, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.1,
+      "position": [
+        1808,
+        208
+      ],
+      "id": "3bafdb12-7ea5-427d-9144-606e819034ca",
+      "name": "tool_reservas_notificacion",
+      "webhookId": "5183624a-da25-4cd1-a53c-bd47495a17ce",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "18NzG6oDDyQifQ9n",
+          "name": "Gmail account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 4.  Notificaciones (Tools)\nEstas herramientas solo se activan cuando la IA tiene todos los datos necesarios, y luego de convocar a los nodos de sheets.",
+        "height": 480,
+        "width": 596,
+        "color": 2
+      },
+      "id": "6152477e-c487-4f65-9c84-268b220052c4",
+      "name": "Sticky Note Tools1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Entrada del Usuario\nAquí recibimos los mensajes desde Telegram (o WhatsApp API). Se inicia la sesión.",
+        "height": 612,
+        "width": 308,
+        "color": 4
+      },
+      "id": "616b30f0-ba96-468b-b097-71220a6afa3e",
+      "name": "Sticky Note Input",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        272,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Cerebro (Gemini Agent)\nEl agente orquesta la conversación. Decide si responde con texto o si necesita guardar datos en Sheets.\n\n**Modelo:** Gemini 1.5 Flash\n\n**MEJORAS:**\n- Instrucciones JSON explícitas\n- Validación de datos completa\n- Formato de salida estructurado",
+        "height": 496,
+        "width": 360,
+        "color": 5
+      },
+      "id": "4e31c505-c61d-416b-966b-10d89351e30d",
+      "name": "Sticky Note Brain",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        656,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Sheets (Tools)\nEstas herramientas solo se activan cuando la IA tiene todos los datos necesarios.\n\n**MEJORAS:**\n- Descripciones explícitas\n- Schema JSON claro\n- Validación de campos requeridos",
+        "height": 1040,
+        "width": 596,
+        "color": 2
+      },
+      "id": "eaf54ba2-5834-4992-99b7-299db97ad17b",
+      "name": "Sticky Note Tools",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.whatsappInboundMessage.text.body }}",
+        "options": {
+          "systemMessage": "=### IDENTIDAD Y PROPÓSITO\nEres el Asistente Virtual de \"Refugio Gastronómico\", un espacio único en Surco.\nTu motor es Deepseek, por lo que debes ser rápido, preciso y empático.\nTu objetivo principal es: CAPTURAR LEADS (Reservas y Eventos) y resolver dudas simples, no alucines.\n\n### CONTEXTO TEMPORAL\nHoy es: {{ $now.toFormat('cccc, d MMMM yyyy') }}\n(Usa esta fecha para calcular cuando el usuario diga \"mañana\" o \"el viernes\").\n\n### FLUJO DE CONVERSACIÓN (MENU PRINCIPAL)\nAl inicio, saluda y presenta estas opciones numeradas:\n1. Información general ℹ️\n2. Reservas en el parque 🍽️\n3. Alquiler para eventos 🎉\n4. Eventos programados 🎷\n\n\n### INSTRUCCIONES CRÍTICAS PARA USAR HERRAMIENTAS\n\n**IMPORTANTE:** Cuando tengas TODOS los datos necesarios, debes invocar la herramienta o tool correspondiente pasando un objeto JSON con las propiedades exactas, no saltes pasos.\n\n#### CASO A: RESERVAS DE MESA (Opción 2)\n1. Recolecta estos 5 datos obligatorios:\n   - nombres (texto)\n   - celular (número de 9 dígitos)\n   - cantidad_personas (cantidad de personas)\n   - fecha_reserva (formato: DD/MM/YYYY)\n   - hora_reserva (formato: HH:MM)\n\n2. **CUANDO TENGAS LOS 5 DATOS**, invoca `tool_reservas` con este JSON EXACTO:\n```json\n{\n  \"nombres\": \"Nombres del cliente\",\n  \"celular\": \"987654321\",\n  \"cantidad_personas\": \"4\",\n  \"fecha_reserva\": \"25/12/2025\",\n  \"hora_reserva\": \"19:00\"\n}\n```\n\n3. Después de invocar `tool_reservas`, invocar a `tool_reservas_notificacion` pasando los MISMOS datos.\n\n4. Después de invocar a las herramientas o tools, confirma como respuesta: \"✅ Solicitud guardada. Un asesor confirmará disponibilidad pronto\".\n\n#### CASO B: EVENTOS (Opción 3)\n1 Solicitamos el tipo (\"Social\", \"Corporativo\" o “Fiestas Infantiles”) el lista enumerada de opciones:\n     Nota: donde de forma complementario al texto por tipo son Social (Cumpleaños,  bautizos) y Corporativo (Celebraciones empresariales) este complemento solo mostrar más no son los tipos como tal\n2. En caso sea tipo de \"Social\" o \"Fiestas Infantiles\" recolecta estos 4 datos obligatorios:\n   - nombres (texto)\n   - celular (número de 9 dígitos)  \n   - cantidad_personas (cantidad de personas)\n   - fecha_tentativa (formato: DD/MM/YYYY)\n3. En caso sea tipo de \"Corporativo\" recolecta estos 5 datos obligatorios:\n   - nombres (texto)\n   - celular (número de 9 dígitos)  \n   - cantidad_personas (cantidad de personas)\n   - fecha_tentativa (formato: DD/MM/YYYY)\n   - nombre_empresa (texto)\n4. **CUANDO TENGAS LOS 5 DATOS**, invoca `tool_eventos` con este JSON EXACTO:\n- caso \"Social\" o \"Fiestas Infantiles\"\n```json\n{\n  \"nombres\": \"Nombres del cliente\",\n  \"celular\": \"987654321\",\n  \"tipo\": \"Social\",\n  \"cantidad_personas\": \"50\"\n  \"fecha_tentativa\": \"30/12/2025\",\n  \n}\n```\n- caso \"Corporativo\"\n```json\n{\n  \"nombres\": \"Nombres del cliente\",\n  \"celular\": \"987654321\",\n  \"tipo\": \"Social\",\n  \"cantidad_personas\": \"50\"\n  \"fecha_tentativa\": \"30/12/2025\",\n  \"razon_social\": \"PUNTOZIP SAC\" \n}\n```\n\n\n\n3. Después de invocar `tool_eventos`, invoca `tool_eventos_notificacion` pasando los MISMOS datos.\n\n4. Después de invocar a las herramientas o tools, confirma como respuesta, esto se responde:\nEn caso sea de tipo “Fiestas Infantiles”, respondemos con “ Gracias! 🙌 Nuestro asesor se contactará lo más pronto posible. Así mismo, compartimos contigo nuestro portafolio: https://bit.ly/4jD52Qk y también un pequeño video para que puedas conocernos más. ¡Saludos! “\nEn caso sea tipo “Social o Corporativo”, respondemos con “¡Gracias! 🙌 Nuestro asesor se contactará lo más pronto posible. Así mismo, compartimos contigo nuestro portafoli https://bit.ly/4jD52Qk :y también un pequeño video para que puedas conocernos más. ¡Saludos!\n”\n  \n\n### INSTRUCCIONES PARA RESPUESTAS RÁPIDAS\n\n#### CASO INFORMACIÓN GENERAL (Opción 1)\n1. Invocamos la herramienta `tool_info_general` para obtener la lista de datos exactos.\n2. Usa un formato profesional con salto de línea y considerando los emojis. Listamos los registros por \"tema\" (en negrita), más las \"descripcion\" y el \"link\" en caso exista (caso contrario no mostrarlo),\n\n#### CASO EVENTOS PROGRAMADOS (Opción 4)\n1. Invocamos la herramienta o tool `tool_eventos_programados` para obtener la lista de datos exactos.\n2. Usa un formato profesional con salto de línea y considerando los emojis. Listamos los registros por \"tema\" (en negrita), más las \"descripcion\" y el \"\" en caso exista (caso contrario no mostrarlo),\n3. Adicional al contenido agregamos un texto con lo siguiente “ Durante el mes, tenemos muchos eventos programados. Conoce nuestro cronograma mensual: https://www.instagram.com/refugiogastronomico.pe\n¡Síguenos en nuestras redes sociales para enterarte primero de nuestros eventos gratuitos!”\n4. Sugerir la \"Opción 2\" comentando \"¿Quieres reservar con nosotros?\"\n\n\n### PROTOCOLO DE HUMAN HANDOFF\nSi el usuario pide hablar con humano o la consulta es compleja/confusa:\n\"Entiendo. Para darte la mejor atención, derivaré tu caso a un asesor humano. Escríbenos aquí: https://wa.link/r4410k\nRecuerda que nuestro horario de atención por este canal es de lunes a viernes de 9 am a 6:00 p.m. ¡Te contestaremos lo más pronto posible! \n\"\n\n\n### VALIDACIÓN ANTES DE GUARDAR\nAntes de invocar cualquier herramienta, verifica que:\n1. TODOS los campos estén completos\n2. El celular tenga 9 dígitos\n3. La fecha_reserva o fecha_tentativa esté en formato DD/MM/YYYY\n4. La hora_reserva esté en formato HH:MM (para reservas)\n5. Sobre la cantidad_personas (No se admiten reservas para grupos mayores a 20 personas)\n\n\nSi falta algún dato, pregunta amablemente por él. Al completar los datos, invoca la herramienta o tool correspondiente.\n\n"
+        }
+      },
+      "id": "501d5194-1fa8-4599-ac23-ad1211adcf0c",
+      "name": "Agente IA (Gemini)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        704,
+        272
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "sessionKey": "{{ $('Webhook').item.json.body.whatsappInboundMessage.id }}"
+      },
+      "id": "e95e458a-445d-4087-b0b2-82b76b42d7cb",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        832,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "DB_Refugio_Gastronomico",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2075311222,
+          "mode": "list",
+          "cachedResultName": "reservas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=2075311222"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha_creacion": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('fecha_creacion', ``, 'string') }}",
+            "nombres": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('nombres', ``, 'string') }}",
+            "celular": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('celular', ``, 'string') }}",
+            "cantidad_personas": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('cantidad_personas', ``, 'string') }}",
+            "fecha_reserva": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('fecha_reserva', ``, 'string') }}",
+            "hora_reserva": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('hora_reserva', ``, 'string') }}",
+            "estado": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('estado', `este campo de tipo Menú Desplegable (Pendiente, Atendido) por defecto será Pendiente`, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "fecha_creacion",
+              "displayName": "fecha_creacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nombres",
+              "displayName": "nombres",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "celular",
+              "displayName": "celular",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "cantidad_personas",
+              "displayName": "cantidad_personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fecha_reserva",
+              "displayName": "fecha_reserva",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hora_reserva",
+              "displayName": "hora_reserva",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7f8dbe15-dec6-48b1-8b2b-a6e49fbe0096",
+      "name": "tool_reservas",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.3,
+      "position": [
+        1328,
+        144
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "DB_Refugio_Gastronomico",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 255258792,
+          "mode": "list",
+          "cachedResultName": "eventos",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=255258792"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha_creacion": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('fecha_creacion', ``, 'string') }}",
+            "nombres": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('nombres', ``, 'string') }}",
+            "razon_social": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('razon_social', ``, 'string') }}",
+            "celular": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('celular', ``, 'string') }}",
+            "tipo_evento": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('tipo_evento', ``, 'string') }}",
+            "cantidad_personas": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('cantidad_personas', ``, 'string') }}",
+            "fecha_tentativa": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('fecha_tentativa', ``, 'string') }}",
+            "estado": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('estado', `este campo de tipo Menú Desplegable (Pendiente, Atendido) por defecto será Pendiente`, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "fecha_creacion",
+              "displayName": "fecha_creacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nombres",
+              "displayName": "nombres",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "razon_social",
+              "displayName": "razon_social",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "celular",
+              "displayName": "celular",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tipo_evento",
+              "displayName": "tipo_evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "cantidad_personas",
+              "displayName": "cantidad_personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fecha_tentativa",
+              "displayName": "fecha_tentativa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5e41af42-c1d5-4252-beb5-bd14cab7d358",
+      "name": "tool_eventos",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.3,
+      "position": [
+        1440,
+        16
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "datatables_comercial_refugio",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 769690590,
+          "mode": "list",
+          "cachedResultName": "info_general",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=769690590"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1520,
+        368
+      ],
+      "id": "64994eff-60c7-491a-a4f4-4476990608ee",
+      "name": "tool_info_general",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "datatables_comercial_refugio",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1393011835,
+          "mode": "list",
+          "cachedResultName": "eventos_programados",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=1393011835"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1376,
+        400
+      ],
+      "id": "07f17b21-4651-4d12-a196-5fab5d591822",
+      "name": "tool_eventos_programados",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        672,
+        512
+      ],
+      "id": "2943b0b1-89ed-47e8-8a7f-1b7528f6d800",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "XArsnbVz00tPlKgt",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "5bc8f4081d0b0dd6457e239f991f11ba"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"{{ $('Webhook').item.json.body.whatsappInboundMessage.to }}\",\n  \"to\": \"{{ $('Webhook').item.json.body.whatsappInboundMessage.from }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.output.replace(/\\n/g, '\\\\n').replace(/\"/g, '\\\\\"') }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1072,
+        736
+      ],
+      "id": "4c87c25e-f67d-4be2-94be-932cb1212299",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "5bc8f4081d0b0dd6457e239f991f11ba"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"{{ $json.body.whatsappInboundMessage.to }}\",\n  \"to\": \"{{ $json.body.whatsappInboundMessage.from }}\",\n  \"type\": \"reaction\",\n  \"reaction\": {\n    \"message_id\": \"{{ $json.body.whatsappInboundMessage.wamid }}\",\n    \"emoji\": \"⏳\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        528,
+        208
+      ],
+      "id": "7501c7cf-73ad-49c8-8cc8-91f2bfd8d0ef",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "datatables_comercial_refugio",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 67951216,
+          "mode": "list",
+          "cachedResultName": "mapa_mesas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=67951216"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1280,
+        544
+      ],
+      "id": "6c7831cd-f0db-4b55-96d1-c4b0beda550b",
+      "name": "tool_mapa_mesas_read",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8",
+          "mode": "list",
+          "cachedResultName": "datatables_comercial_refugio",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 67951216,
+          "mode": "list",
+          "cachedResultName": "mapa_mesas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1kBX0me_6wNLsUnUkuyNuBLNwNSqD1PqX1Wz50MWII_8/edit#gid=67951216"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zona": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('zona', ``, 'string') }}",
+            "negocio": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('negocio', ``, 'string') }}",
+            "correlativo_mesa": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('correlativo_mesa', ``, 'string') }}",
+            "numero_espacios_max": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('numero_espacios_max', ``, 'string') }}",
+            "estado": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('estado', `este campo de tipo Menú Desplegable (disponible, ocupado) por defecto será disponible`, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "zona",
+              "displayName": "zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "negocio",
+              "displayName": "negocio",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "correlativo_mesa",
+              "displayName": "correlativo_mesa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "numero_espacios_max",
+              "displayName": "numero_espacios_max",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1136,
+        528
+      ],
+      "id": "5fdd92e0-3f98-4997-8f76-a27bebeac2be",
+      "name": "tool_mapa_mesas_update",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "x8kMaGdN14Hh0Kir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ycloud",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        320,
+        368
+      ],
+      "id": "6416b4c3-9150-456f-9722-5f9707b4bf59",
+      "name": "Webhook",
+      "webhookId": "6534494d-8834-47c8-a9fb-f6b636296803"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        -144
+      ],
+      "id": "02c068cc-e87f-47ef-a7f8-4cebd9eb5951",
+      "name": "Insert rows in a table in Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "TO9UtCb9dFWsWRtC",
+          "name": "refugio_procesamiento_app"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "=",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1312,
+        -128
+      ],
+      "id": "0b905475-3dc5-4ba0-a610-2a945b2b4f88",
+      "name": "Insert rows in a table in Postgres1",
+      "credentials": {
+        "postgres": {
+          "id": "TO9UtCb9dFWsWRtC",
+          "name": "refugio_procesamiento_app"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "tool_eventos_notificacion": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_reservas_notificacion": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_reservas": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_eventos": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente IA (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_info_general": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_eventos_programados": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_mapa_mesas_read": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tool_mapa_mesas_update": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table in Postgres": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table in Postgres1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente IA (Gemini)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "9de59b33-68d8-44c3-8935-6f9e41c59036",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0fe2d092259553ef8ee26e1e7d1ba87d8a0df8994f404066522276b2e2eae95f"
+  },
+  "id": "d7Xe8SGdAjSAE5zB",
+  "tags": []
+}
