@@ -571,8 +571,14 @@ export default function KioskScreen() {
                                 {formatTime(o.updated_at)}
                               </Text>
                             </View>
+                            <Text style={[styles.deliveredRestaurant, { color: palette.text }]} numberOfLines={2}>
+                              {o.restaurant_nombre != null && String(o.restaurant_nombre).trim() !== ''
+                                ? String(o.restaurant_nombre).trim()
+                                : o.restaurant_id != null
+                                  ? `Restaurante #${o.restaurant_id}`
+                                  : '—'}
+                            </Text>
                             <Text style={[styles.deliveredMeta, { color: palette.muted }]} numberOfLines={2}>
-                              {o.restaurant_nombre ? `${o.restaurant_nombre} · ` : ''}
                               {o.plataforma} · bolsas: {o.numero_bolsas ?? 0}
                             </Text>
                           </View>
@@ -933,6 +939,11 @@ const styles = StyleSheet.create({
   deliveredTime: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  deliveredRestaurant: {
+    marginTop: space.xs + 1,
+    fontSize: 11,
+    fontWeight: '800',
   },
   deliveredMeta: {
     marginTop: space.xs + 1,

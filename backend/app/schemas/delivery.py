@@ -241,3 +241,21 @@ class RunnerPushUnregisterIn(BaseModel):
 class RunnerPushRegisterOut(BaseModel):
     ok: bool = True
 
+
+class RunnerNotificationOut(BaseModel):
+    """Fila de bandeja Runner (API + misma lógica que push)."""
+
+    id: int
+    kind: str
+    title: str
+    body: str
+    order_id: Optional[int] = None
+    driver_arrival_id: Optional[int] = None
+    dedupe_key: str
+    read_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
+

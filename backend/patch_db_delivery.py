@@ -4,7 +4,12 @@ from app.database import engine, SessionLocal, Base
 from app.models.auth import Permission, Role
 # Restaurant: usado en seed_locatarios. DeliveryRunnerPushToken: no se referencia en este archivo;
 # al importar la clase, SQLAlchemy registra su tabla en Base.metadata y create_all() crea delivery_runner_push_tokens.
-from app.models.delivery import DeliveryRunnerPushToken, Restaurant, RestaurantNotificationEmail  # noqa: F401
+from app.models.delivery import (  # noqa: F401
+    DeliveryRunnerPushToken,
+    Restaurant,
+    RestaurantNotificationEmail,
+    RunnerNotification,
+)
 from app.core.constants import LOCATARIOS, get_locatario_code_from_full, build_codigo_comunicacion
 from app.core.locatario_notification_emails_seed import seed_locatario_notification_emails
 

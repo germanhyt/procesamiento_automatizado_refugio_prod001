@@ -20,7 +20,7 @@ export function RunnerNotificationBell({ iconSize, toggleSize }: Props) {
   const router = useRouter();
   const { theme, palette: p } = useRunnerTheme();
   const isDark = theme === 'dark';
-  const { items, unreadCount, markAllRead, clearAll } = useRunnerNotificationInbox();
+  const { items, unreadCount, markAllRead, clearAll, syncInboxFromApi } = useRunnerNotificationInbox();
   const [inboxOpen, setInboxOpen] = useState(false);
 
   const ripple = (hex: string) =>
@@ -32,6 +32,7 @@ export function RunnerNotificationBell({ iconSize, toggleSize }: Props) {
         onPress={() => {
           markAllRead();
           setInboxOpen(true);
+          void syncInboxFromApi();
         }}
         accessibilityLabel={
           unreadCount > 0 ? `Notificaciones, ${unreadCount} sin leer` : 'Notificaciones'

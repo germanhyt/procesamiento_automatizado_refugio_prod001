@@ -48,3 +48,5 @@ RUNNER_PUSH_ANDROID_CHANNEL_ID = "delivery-runner"
 # `data.type` en el payload Expo (el Runner puede filtrar por esto además de `order_id`).
 RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO = "PEDIDO_LISTO"
 RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO = "NUEVO_DRIVER_ESPERANDO"
+# Pedido enlazado con driver en kiosko (match automático o manual).
+RUNNER_PUSH_DATA_TYPE_KIOSK_MATCH = "KIOSK_MATCH"

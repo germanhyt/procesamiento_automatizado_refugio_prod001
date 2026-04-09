@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/logo-refugio.png",
     "scheme": "kiosk",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/logo-refugio.png",
       "resizeMode": "contain",
@@ -16,6 +16,7 @@
       "supportsTablet": true
     },
     "android": {
+      "minSdkVersion": 21,
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

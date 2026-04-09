@@ -19,7 +19,8 @@ type Params = {
  * Mantiene la pantalla principal declarativa y permite testear parsers por separado.
  */
 export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
-  const { addOrderListoFromWs, addDriverWaitingFromWs } = useRunnerNotificationInbox();
+  const { addOrderListoFromWs, addDriverWaitingFromWs, syncInboxFromApi } = useRunnerNotificationInbox();
+  const lastInboxSyncRef = useRef(0);
   const { play: playAlertChime } = useRunnerAlertChime();
   const [kioskDriverAlerts, setKioskDriverAlerts] = useState<KioskDriverAlert[]>([]);
   const seenKioskDriverArrivalIdsRef = useRef<Set<number>>(new Set());
@@ -36,6 +37,12 @@ export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
     token: token ?? undefined,
     onEvent: (msg) => {
       void queryClient.invalidateQueries({ queryKey: ['delivery', 'orders'] });
+
+      const inboxSyncNow = Date.now();
+      if (inboxSyncNow - lastInboxSyncRef.current > 8000) {
+        lastInboxSyncRef.current = inboxSyncNow;
+        void syncInboxFromApi();
+      }
 
       const listo = parseFidelioListoFromWs(msg);
       if (listo != null && addOrderListoFromWs(listo.orderId, listo.restaurantNombre)) {

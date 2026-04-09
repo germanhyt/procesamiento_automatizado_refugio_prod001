@@ -11,5 +11,5 @@ export type RunnerInboxItem = {
   orderId?: number;
   driverArrivalId?: number;
   read: boolean;
-  sourceChannel: 'push' | 'ws';
+  sourceChannel: 'push' | 'ws' | 'api';
 };

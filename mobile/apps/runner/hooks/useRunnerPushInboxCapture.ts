@@ -1,23 +1,39 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-import {
-  RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
-  RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
-} from '@/constants/runnerPush';
 import { useRunnerNotificationInbox } from '@/context/RunnerNotificationInboxContext';
 
 function mustSkipExpoNotificationsNativeModule(): boolean {
   return Constants.appOwnership === 'expo' && Platform.OS === 'android';
 }
 
+/** Expo suele usar `date` en ms; si faltara, no recortamos por antigüedad. */
+function notificationAgeMs(notification: { date?: number }): number | null {
+  const d = notification.date;
+  if (d == null || !Number.isFinite(d)) return null;
+  const createdMs = d > 1e12 ? d : d * 1000;
+  return Date.now() - createdMs;
+}
+
+const COLD_START_RESPONSE_MAX_AGE_MS = 10 * 60 * 1000;
+const PUSH_SYNC_DEBOUNCE_MS = 400;
+
 /**
- * Añade entradas al Centro de notificaciones cuando llega un push en primer plano
- * (el listener de "tap" sigue en useRunnerPushRegistration).
+ * Al llegar un push, el backend ya persistió la fila: reconciliamos con GET en lugar
+ * de duplicar filas en memoria (fuente de verdad = API).
  */
 export function useRunnerPushInboxCapture() {
-  const { addFromPush } = useRunnerNotificationInbox();
+  const { syncInboxFromApi } = useRunnerNotificationInbox();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleSync = useCallback(() => {
+    if (debounceRef.current != null) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      void syncInboxFromApi();
+    }, PUSH_SYNC_DEBOUNCE_MS);
+  }, [syncInboxFromApi]);
 
   useEffect(() => {
     if (Platform.OS === 'web' || mustSkipExpoNotificationsNativeModule()) {
@@ -25,58 +41,27 @@ export function useRunnerPushInboxCapture() {
     }
 
     let cancelled = false;
-    let sub: { remove: () => void } | undefined;
+    let subReceived: { remove: () => void } | undefined;
+    let subResponse: { remove: () => void } | undefined;
 
     void (async () => {
       try {
         const Notifications = await import('expo-notifications');
         if (cancelled) return;
 
-        sub = Notifications.addNotificationReceivedListener((notification) => {
-          const content = notification.request.content;
-          const data = (content.data ?? {}) as Record<string, unknown>;
-          const typeRaw = data.type != null ? String(data.type) : '';
-          const title = content.title ?? '';
-          const body = content.body ?? '';
-          const dedupeId = notification.request.identifier ?? `${title}-${body}-${Date.now()}`;
-
-          if (typeRaw === RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO || data.order_id != null) {
-            const oid = data.order_id != null ? Number(data.order_id) : NaN;
-            const orderPart = Number.isFinite(oid) && oid > 0 ? ` · Pedido #${oid}` : '';
-            addFromPush({
-              dedupeKey: Number.isFinite(oid) && oid > 0 ? `listo:${oid}` : `listo-push:${dedupeId}`,
-              kind: RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
-              title: title || 'Pedido listo',
-              subtitle: (body || `Nuevo pedido listo${orderPart}`) as string,
-              orderId: Number.isFinite(oid) && oid > 0 ? oid : undefined,
-              sourceChannel: 'push',
-            });
-            return;
-          }
-
-          if (
-            typeRaw === RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO ||
-            data.driver_arrival_id != null
-          ) {
-            const aid = data.driver_arrival_id != null ? Number(data.driver_arrival_id) : NaN;
-            const rName =
-              data.restaurant_nombre != null && String(data.restaurant_nombre).trim() !== ''
-                ? String(data.restaurant_nombre).trim()
-                : '';
-            const plat = String(data.plataforma ?? '');
-            const cIngr = String(data.codigo_ingresado ?? '');
-            const fallbackBody = rName ? `${rName} · ${plat} · ${cIngr}` : `${plat} · ${cIngr}`.trim();
-            addFromPush({
-              dedupeKey: Number.isFinite(aid) && aid > 0 ? `driver:${aid}` : `driver-push:${dedupeId}`,
-              kind: RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
-              title: title || 'Driver en kiosko',
-              subtitle:
-                (body && String(body).trim() !== '' ? String(body) : fallbackBody) || 'Driver esperando',
-              driverArrivalId: Number.isFinite(aid) && aid > 0 ? aid : undefined,
-              sourceChannel: 'push',
-            });
-          }
+        subReceived = Notifications.addNotificationReceivedListener(() => {
+          scheduleSync();
         });
+
+        subResponse = Notifications.addNotificationResponseReceivedListener(() => {
+          scheduleSync();
+        });
+
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (cancelled || !last) return;
+        const age = notificationAgeMs(last.notification);
+        if (age != null && age > COLD_START_RESPONSE_MAX_AGE_MS) return;
+        scheduleSync();
       } catch {
         /* expo-notifications no disponible */
       }
@@ -84,7 +69,9 @@ export function useRunnerPushInboxCapture() {
 
     return () => {
       cancelled = true;
-      sub?.remove();
+      if (debounceRef.current != null) clearTimeout(debounceRef.current);
+      subReceived?.remove();
+      subResponse?.remove();
     };
-  }, [addFromPush]);
+  }, [scheduleSync]);
 }

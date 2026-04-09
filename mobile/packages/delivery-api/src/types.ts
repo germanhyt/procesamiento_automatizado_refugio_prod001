@@ -64,3 +64,16 @@ export interface AdminUnlockIn {
   note?: string | null;
 }
 
+/** Fila de bandeja Runner (`GET /delivery/runner/notifications`). */
+export interface RunnerNotification {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  order_id?: number | null;
+  driver_arrival_id?: number | null;
+  dedupe_key: string;
+  read_at?: string | null;
+  created_at: string;
+}
+

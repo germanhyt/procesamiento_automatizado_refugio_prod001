@@ -6,8 +6,8 @@ import os
 import re
 from typing import Optional, List, Set, Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
-from sqlalchemy.orm import Session, joinedload
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy.orm import Session, contains_eager, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func as sql_func
 from starlette.responses import Response
@@ -35,7 +35,14 @@ from app.core.delivery_constants import (
 from app.database import get_db, SessionLocal
 from app.api.auth import get_current_user
 from app.models.auth import User
-from app.models.delivery import Restaurant, RestaurantNotificationEmail, Order, DriverArrival, DeliveryRunnerPushToken
+from app.models.delivery import (
+    Restaurant,
+    RestaurantNotificationEmail,
+    Order,
+    DriverArrival,
+    DeliveryRunnerPushToken,
+    RunnerNotification,
+)
 # from app.core.constants import LOCATARIO_CODES, build_codigo_comunicacion
 from app.core import security
 from jose import jwt, JWTError
@@ -60,11 +67,17 @@ from app.schemas.delivery import (
     RunnerPushRegisterIn,
     RunnerPushUnregisterIn,
     RunnerPushRegisterOut,
+    RunnerNotificationOut,
 )
 
 from app.services.delivery_push import (
+    notify_runners_kiosk_match_sync,
     notify_runners_new_driver_waiting_sync,
     notify_runners_order_listo_sync,
+)
+from app.services.delivery_runner_notifications import (
+    delete_all_runner_notifications_for_user,
+    mark_all_runner_notifications_read,
 )
 
 from fuzzywuzzy import fuzz
@@ -166,7 +179,8 @@ def _apply_order_driver_match(order: Order, arrival: DriverArrival, now: datetim
 def _try_match_waiting_driver_for_order(db: Session, order: Order) -> Optional[DriverArrival]:
     """
     Escenario Early Bird:
-    Si existe un driver ESPERANDO con el mismo código (exacto o fuzzy), matchea y retorna el driver.
+    Si existe un driver ESPERANDO en el mismo restaurante + plataforma con código compatible
+    (exacto vía normalización o fuzzy), matchea y retorna el driver.
     """
     if not order or order.estado != ORDER_STATUS_LISTO:
         return None
@@ -177,12 +191,16 @@ def _try_match_waiting_driver_for_order(db: Session, order: Order) -> Optional[D
     if not codigo_norm:
         return None
 
+    da_filters = [
+        DriverArrival.plataforma == order.plataforma,
+        DriverArrival.estado == DRIVER_STATUS_ESPERANDO,
+    ]
+    if order.restaurant_id is not None:
+        da_filters.append(DriverArrival.restaurant_id == order.restaurant_id)
+
     drivers = (
         db.query(DriverArrival)
-        .filter(
-            DriverArrival.plataforma == order.plataforma,
-            DriverArrival.estado == DRIVER_STATUS_ESPERANDO,
-        )
+        .filter(*da_filters)
         .order_by(DriverArrival.id.desc())
         .limit(MATCH_CANDIDATES_LIMIT)
         .all()
@@ -496,7 +514,7 @@ async def kiosk_arrival(
     Implementa:
     - Driver ESPERANDO
     - Colisión de código (doble driver): marca previos como ABANDONO
-    - Match exacto básico contra pedidos LISTO/PROCESO_ENTREGA
+    - Match contra pedidos LISTO/PROCESO_ENTREGA del mismo restaurante (kiosko), misma plataforma y código compatible.
     """
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
@@ -512,10 +530,11 @@ async def kiosk_arrival(
     codigo_ingresado = payload.codigo_ingresado.strip().upper()
     codigo_norm = _normalize_code(codigo_ingresado)
 
-    # Colisión: si existe otro arrival activo con mismo código/plataforma, lo marcamos ABANDONO
+    # Colisión: mismo local + plataforma + código (no cruzar restaurantes ni kioskos)
     prevs = (
         db.query(DriverArrival)
         .filter(
+            DriverArrival.restaurant_id == rest.id,
             DriverArrival.plataforma == plataforma,
             DriverArrival.codigo_ingresado == codigo_ingresado,
             DriverArrival.estado.in_([DRIVER_STATUS_ESPERANDO, DRIVER_STATUS_EN_MATCH]),
@@ -542,10 +561,11 @@ async def kiosk_arrival(
     db.commit()
     db.refresh(arrival)
 
-    # Match exacto básico (normalizado) contra pedidos activos
+    # Match: mismo restaurante (kiosko) + plataforma + código de pedido (normalizado / fuzzy)
     candidates = (
         db.query(Order)
         .filter(
+            Order.restaurant_id == rest.id,
             Order.plataforma == plataforma,
             Order.estado.in_([ORDER_STATUS_LISTO, ORDER_STATUS_PROCESO_ENTREGA]),
         )
@@ -622,6 +642,14 @@ async def kiosk_arrival(
         {"driver_arrival_id": arrival.id, "estado": arrival.estado, "source": "kiosk_match"},
     )
 
+    background_tasks.add_task(
+        notify_runners_kiosk_match_sync,
+        matched_order.id,
+        arrival.id,
+        plataforma,
+        matched_order.codigo_pedido,
+    )
+
     arrival.restaurant = rest
     return {
         "driver_arrival": driver_arrival_orm_to_dict(arrival),
@@ -688,6 +716,47 @@ def unregister_runner_push_token(
             {"is_active": False},
             synchronize_session=False,
         )
+    db.commit()
+    return RunnerPushRegisterOut()
+
+
+@router.get("/runner/notifications", response_model=List[RunnerNotificationOut])
+def list_runner_notifications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Historial de avisos operativos para el usuario Runner (alineado con push)."""
+    _require_permission(current_user, "delivery:view")
+    rows = (
+        db.query(RunnerNotification)
+        .filter(RunnerNotification.user_id == current_user.id)
+        .order_by(RunnerNotification.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return rows
+
+
+@router.patch("/runner/notifications/read-all", response_model=RunnerPushRegisterOut)
+def runner_notifications_mark_all_read(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:view")
+    mark_all_runner_notifications_read(db, current_user.id)
+    db.commit()
+    return RunnerPushRegisterOut()
+
+
+@router.delete("/runner/notifications", response_model=RunnerPushRegisterOut)
+def runner_notifications_clear_all(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina todas las filas de bandeja del usuario (acción «Vaciar» en app)."""
+    _require_permission(current_user, "delivery:view")
+    delete_all_runner_notifications_for_user(db, current_user.id)
     db.commit()
     return RunnerPushRegisterOut()
 
@@ -801,9 +870,10 @@ async def kiosk_list_delivered_orders_today(
     delivered_ts = sql_func.coalesce(Order.entregado_at, Order.estado_changed_at)
     orders = (
         db.query(Order)
+        .join(Restaurant, Order.restaurant_id == Restaurant.id)
         .options(
+            contains_eager(Order.restaurant),
             joinedload(Order.matched_driver_arrival),
-            joinedload(Order.restaurant),
         )
         .filter(
             Order.estado == ORDER_STATUS_ENTREGADO,
@@ -822,6 +892,7 @@ async def kiosk_list_delivered_orders_today(
 async def manual_match_order(
     order_id: int,
     payload: ManualMatchIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -844,6 +915,15 @@ async def manual_match_order(
         raise HTTPException(status_code=404, detail="DriverArrival no encontrado")
     if arrival.estado == DRIVER_STATUS_ABANDONO:
         raise HTTPException(status_code=400, detail="DriverArrival no es matchable por estado")
+    if (
+        order.restaurant_id is not None
+        and arrival.restaurant_id is not None
+        and order.restaurant_id != arrival.restaurant_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Pedido y llegada de driver no pertenecen al mismo restaurante",
+        )
 
     # Si el pedido estaba enlazado, liberamos
     if order.matched_driver_arrival and order.matched_driver_arrival.id != arrival.id:
@@ -875,6 +955,14 @@ async def manual_match_order(
     )
     await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "manual_match"})
     await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": arrival.id, "estado": arrival.estado, "source": "manual_match"})
+
+    background_tasks.add_task(
+        notify_runners_kiosk_match_sync,
+        order.id,
+        arrival.id,
+        order.plataforma,
+        order.codigo_pedido,
+    )
 
     return {
         "driver_arrival": driver_arrival_orm_to_dict(arrival),
