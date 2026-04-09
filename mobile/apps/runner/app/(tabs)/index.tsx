@@ -78,6 +78,12 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {o.restaurant_nombre ? (
+          <Text style={[styles.restaurantText, { color: p.muted }]} numberOfLines={2}>
+            {o.restaurant_nombre}
+          </Text>
+        ) : null}
+
         <Text style={[styles.codeText, { color: p.text }]}>{o.codigo_pedido}</Text>
 
         <View style={[styles.cardFooter, { borderTopColor: p.border }]}>
@@ -161,6 +167,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+  },
+  restaurantText: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 8,
+    lineHeight: 18,
   },
   badge: {
     paddingHorizontal: 10,

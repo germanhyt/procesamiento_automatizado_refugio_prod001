@@ -3,6 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import { setAuthToken } from '@refugio/delivery-api';
 import { Platform } from 'react-native';
 
+import { clearPersistedInbox } from '@/lib/runnerInboxPersistence';
+
 interface AuthContextType {
   token: string | null;
   isLoading: boolean;
@@ -66,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    await clearPersistedInbox();
     await storage.removeItem(TOKEN_KEY);
     setToken(null);
     setAuthToken(null);

@@ -1,10 +1,22 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { RUNNER_INBOX_DEDUPE_MS, RUNNER_INBOX_MAX_ITEMS } from '@/constants/runnerInboxConfig';
+import { useAuth } from '@/context/AuthContext';
+import {
+  RUNNER_INBOX_DEDUPE_MS,
+  RUNNER_INBOX_MAX_ITEMS,
+  RUNNER_INBOX_SAVE_DEBOUNCE_MS,
+} from '@/constants/runnerInboxConfig';
 import {
   RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
   RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
 } from '@/constants/runnerPush';
+import {
+  clearPersistedInbox,
+  dedupeMapToEntries,
+  loadPersistedInbox,
+  restoreDedupeMap,
+  savePersistedInbox,
+} from '@/lib/runnerInboxPersistence';
 import type { RunnerInboxItem } from '@/types/runnerInbox';
 
 export type { RunnerInboxItemKind, RunnerInboxItem } from '@/types/runnerInbox';
@@ -13,8 +25,13 @@ type Ctx = {
   items: RunnerInboxItem[];
   unreadCount: number;
   addFromPush: (item: Omit<RunnerInboxItem, 'id' | 'read' | 'createdAt'> & { dedupeKey: string }) => void;
-  addOrderListoFromWs: (orderId: number) => boolean;
-  addDriverWaitingFromWs: (driverArrivalId: number, plat: string, code: string) => void;
+  addOrderListoFromWs: (orderId: number, restaurantNombre?: string | null) => boolean;
+  addDriverWaitingFromWs: (
+    driverArrivalId: number,
+    plat: string,
+    code: string,
+    restaurantNombre?: string | null,
+  ) => void;
   markAllRead: () => void;
   clearAll: () => void;
 };
@@ -25,15 +42,15 @@ function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-
 /**
- * Contexto para la bandeja de notificaciones.
- * Mantiene la lista de notificaciones y las funciones para añadir y marcar como leídas.
+ * Bandeja de notificaciones Runner con persistencia local (AsyncStorage).
  */
-
 export function RunnerNotificationInboxProvider({ children }: { children: React.ReactNode }) {
+  const { token, isLoading } = useAuth();
   const [items, setItems] = useState<RunnerInboxItem[]>([]);
   const dedupeRef = useRef<Map<string, number>>(new Map());
+  const persistReadyRef = useRef(false);
+  const prevTokenRef = useRef<string | null | undefined>(undefined);
 
   const pruneDedupe = useCallback(() => {
     const now = Date.now();
@@ -55,6 +72,41 @@ export function RunnerNotificationInboxProvider({ children }: { children: React.
     [pruneDedupe],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void loadPersistedInbox().then(({ items: loaded, dedupeEntries }) => {
+      if (cancelled) return;
+      dedupeRef.current = restoreDedupeMap(dedupeEntries);
+      setItems(loaded);
+      persistReadyRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const prev = prevTokenRef.current;
+    if (prev === undefined) {
+      prevTokenRef.current = token;
+      return;
+    }
+    if (prev != null && token == null) {
+      dedupeRef.current.clear();
+      setItems([]);
+    }
+    prevTokenRef.current = token;
+  }, [token, isLoading]);
+
+  useEffect(() => {
+    if (!persistReadyRef.current) return;
+    const id = setTimeout(() => {
+      void savePersistedInbox(items, dedupeMapToEntries(dedupeRef.current));
+    }, RUNNER_INBOX_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [items]);
+
   const addFromPush = useCallback(
     (partial: Omit<RunnerInboxItem, 'id' | 'read' | 'createdAt'> & { dedupeKey: string }) => {
       const { dedupeKey, ...rest } = partial;
@@ -71,15 +123,19 @@ export function RunnerNotificationInboxProvider({ children }: { children: React.
   );
 
   const addOrderListoFromWs = useCallback(
-    (orderId: number): boolean => {
+    (orderId: number, restaurantNombre?: string | null): boolean => {
       if (!Number.isFinite(orderId) || orderId <= 0) return false;
       if (shouldSkip(`evt:listo:${orderId}`)) return false;
+      const rn =
+        restaurantNombre != null && String(restaurantNombre).trim() !== ''
+          ? String(restaurantNombre).trim()
+          : '';
       const row: RunnerInboxItem = {
         id: newId(),
         createdAt: Date.now(),
         kind: RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO,
         title: 'Pedido listo',
-        subtitle: `Pedido #${orderId} · Fidelio / cocina`,
+        subtitle: rn ? `${rn} · Pedido #${orderId}` : `Pedido #${orderId} · Fidelio / cocina`,
         orderId,
         sourceChannel: 'ws',
         read: false,
@@ -91,15 +147,19 @@ export function RunnerNotificationInboxProvider({ children }: { children: React.
   );
 
   const addDriverWaitingFromWs = useCallback(
-    (driverArrivalId: number, plat: string, code: string) => {
+    (driverArrivalId: number, plat: string, code: string, restaurantNombre?: string | null) => {
       if (!Number.isFinite(driverArrivalId) || driverArrivalId <= 0) return;
       if (shouldSkip(`evt:driver:${driverArrivalId}`)) return;
+      const rn =
+        restaurantNombre != null && String(restaurantNombre).trim() !== ''
+          ? String(restaurantNombre).trim()
+          : '';
       const row: RunnerInboxItem = {
         id: newId(),
         createdAt: Date.now(),
         kind: RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
         title: 'Driver en kiosko',
-        subtitle: `${plat} · ${code}`,
+        subtitle: rn ? `${rn} · ${plat} · ${code}` : `${plat} · ${code}`,
         driverArrivalId,
         sourceChannel: 'ws',
         read: false,
@@ -113,7 +173,11 @@ export function RunnerNotificationInboxProvider({ children }: { children: React.
     setItems((prev) => prev.map((x) => (x.read ? x : { ...x, read: true })));
   }, []);
 
-  const clearAll = useCallback(() => setItems([]), []);
+  const clearAll = useCallback(() => {
+    dedupeRef.current.clear();
+    setItems([]);
+    void clearPersistedInbox();
+  }, []);
 
   const unreadCount = useMemo(() => items.filter((x) => !x.read).length, [items]);
 

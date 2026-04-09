@@ -4,7 +4,7 @@ import { useDeliveryWS } from '@refugio/hooks';
 
 import { KIOSK_DRIVER_ALERTS_MAX } from '@/constants/runnerDeliveryRealtime';
 import { useRunnerNotificationInbox } from '@/context/RunnerNotificationInboxContext';
-import { parseFidelioListoOrderId, parseNuevoDriverEsperando } from '@/lib/deliveryWsMessages';
+import { parseFidelioListoFromWs, parseNuevoDriverEsperando } from '@/lib/deliveryWsMessages';
 import type { KioskDriverAlert } from '@/types/kioskDriverAlert';
 
 import { useRunnerAlertChime } from './useRunnerAlertChime';
@@ -37,15 +37,15 @@ export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
     onEvent: (msg) => {
       void queryClient.invalidateQueries({ queryKey: ['delivery', 'orders'] });
 
-      const oid = parseFidelioListoOrderId(msg);
-      if (oid != null && addOrderListoFromWs(oid)) {
+      const listo = parseFidelioListoFromWs(msg);
+      if (listo != null && addOrderListoFromWs(listo.orderId, listo.restaurantNombre)) {
         playAlertChime();
       }
 
       const driverPayload = parseNuevoDriverEsperando(msg);
       if (!driverPayload) return;
 
-      const { driverArrivalId, plat, code } = driverPayload;
+      const { driverArrivalId, plat, code, restaurantNombre } = driverPayload;
       if (seenKioskDriverArrivalIdsRef.current.has(driverArrivalId)) {
         return;
       }
@@ -63,13 +63,14 @@ export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
           driverArrivalId,
           plat,
           code,
+          restaurantNombre: restaurantNombre ?? undefined,
           receivedAt: now,
         };
         return [row, ...prev].slice(0, KIOSK_DRIVER_ALERTS_MAX);
       });
 
       if (!appended) return;
-      addDriverWaitingFromWs(driverArrivalId, plat, code);
+      addDriverWaitingFromWs(driverArrivalId, plat, code, restaurantNombre);
       playAlertChime();
     },
   });

@@ -115,18 +115,24 @@ async def _emit(event_type: str, payload: Dict[str, Any]) -> None:
     )
 
 
-async def _emit_nuevo_driver_esperando(driver_arrival_id: int, plataforma: str, codigo_ingresado: str) -> None:
-    await _emit(
-        EVENT_DRIVER_UPDATED,
-        {
-            "driver_arrival_id": driver_arrival_id,
-            "estado": DRIVER_STATUS_ESPERANDO,
-            "source": "kiosk_arrival",
-            "kind": "NUEVO_DRIVER_ESPERANDO",
-            "plataforma": plataforma,
-            "codigo_ingresado": codigo_ingresado,
-        },
-    )
+async def _emit_nuevo_driver_esperando(
+    driver_arrival_id: int,
+    plataforma: str,
+    codigo_ingresado: str,
+    restaurant_nombre: Optional[str] = None,
+) -> None:
+    payload: Dict[str, Any] = {
+        "driver_arrival_id": driver_arrival_id,
+        "estado": DRIVER_STATUS_ESPERANDO,
+        "source": "kiosk_arrival",
+        "kind": "NUEVO_DRIVER_ESPERANDO",
+        "plataforma": plataforma,
+        "codigo_ingresado": codigo_ingresado,
+    }
+    rn = (restaurant_nombre or "").strip()
+    if rn:
+        payload["restaurant_nombre"] = rn
+    await _emit(EVENT_DRIVER_UPDATED, payload)
 
 
 def _apply_order_driver_match(order: Order, arrival: DriverArrival, now: datetime) -> None:
@@ -324,7 +330,10 @@ def _load_order_dict(db: Session, order_id: int) -> Dict[str, Any]:
     """Re-carga Order con driver matcheado para serializar sin lazy-load."""
     o = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .filter(Order.id == order_id)
         .one()
     )
@@ -394,7 +403,12 @@ async def fidelio_order_ready(
         db.refresh(order)
         await _emit(
             EVENT_ORDER_UPDATED,
-            {"order_id": order.id, "estado": order.estado, "source": "fidelio_webhook"},
+            {
+                "order_id": order.id,
+                "estado": order.estado,
+                "source": "fidelio_webhook",
+                "restaurant_nombre": rest.nombre,
+            },
         )
         background_tasks.add_task(notify_runners_order_listo_sync, order.id, plataforma, codigo)
         # Early Bird: si hay driver esperando, matchear al toque
@@ -432,7 +446,12 @@ async def fidelio_order_ready(
     
     await _emit(
         EVENT_ORDER_UPDATED,
-        {"order_id": order.id, "estado": order.estado, "source": "fidelio_webhook"},
+        {
+            "order_id": order.id,
+            "estado": order.estado,
+            "source": "fidelio_webhook",
+            "restaurant_nombre": rest.nombre,
+        },
     )
     if prev_estado != ORDER_STATUS_LISTO:
         background_tasks.add_task(notify_runners_order_listo_sync, order.id, plataforma, codigo)
@@ -556,7 +575,7 @@ async def kiosk_arrival(
             matched_order = best_order
             match_score = int(best_score)
         else:
-            await _emit_nuevo_driver_esperando(arrival.id, plataforma, codigo_ingresado)
+            await _emit_nuevo_driver_esperando(arrival.id, plataforma, codigo_ingresado, rest.nombre)
             background_tasks.add_task(
                 notify_runners_new_driver_waiting_sync,
                 arrival.id,
@@ -688,7 +707,10 @@ async def list_active_orders(
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
     orders = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .filter(Order.estado.notin_([ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO]))
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
@@ -709,7 +731,10 @@ async def get_order_by_id(
     _require_permission(current_user, "delivery:view")
     order = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .filter(Order.id == order_id)
         .first()
     )
@@ -776,7 +801,10 @@ async def kiosk_list_delivered_orders_today(
     delivered_ts = sql_func.coalesce(Order.entregado_at, Order.estado_changed_at)
     orders = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .filter(
             Order.estado == ORDER_STATUS_ENTREGADO,
             delivered_ts.isnot(None),
@@ -1028,7 +1056,10 @@ async def admin_list_orders(
     apply_timeouts(db)
     orders = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
@@ -1046,7 +1077,10 @@ async def admin_list_orders_by_status(
     apply_timeouts(db)
     orders = (
         db.query(Order)
-        .options(joinedload(Order.matched_driver_arrival))
+        .options(
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.restaurant),
+        )
         .filter(Order.estado == status.strip().upper())
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)

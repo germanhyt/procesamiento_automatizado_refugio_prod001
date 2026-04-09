@@ -70,6 +70,12 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+        {o.restaurant_nombre ? (
+          <Text style={[styles.restaurantName, { color: p.text }]} numberOfLines={2}>
+            {o.restaurant_nombre}
+          </Text>
+        ) : null}
+
         <Text style={[styles.code, { color: p.text }]}>{o.codigo_pedido}</Text>
         <Text style={[styles.bags, { color: p.muted }]}>{o.numero_bolsas ?? 1} bolsa(s)</Text>
 
@@ -182,6 +188,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  restaurantName: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 12,
+    lineHeight: 22,
   },
   code: {
     fontSize: 52,

@@ -571,7 +571,8 @@ export default function KioskScreen() {
                                 {formatTime(o.updated_at)}
                               </Text>
                             </View>
-                            <Text style={[styles.deliveredMeta, { color: palette.muted }]} numberOfLines={1}>
+                            <Text style={[styles.deliveredMeta, { color: palette.muted }]} numberOfLines={2}>
+                              {o.restaurant_nombre ? `${o.restaurant_nombre} · ` : ''}
                               {o.plataforma} · bolsas: {o.numero_bolsas ?? 0}
                             </Text>
                           </View>

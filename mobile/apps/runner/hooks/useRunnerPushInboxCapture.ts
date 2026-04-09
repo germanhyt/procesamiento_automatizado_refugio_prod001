@@ -59,13 +59,19 @@ export function useRunnerPushInboxCapture() {
             data.driver_arrival_id != null
           ) {
             const aid = data.driver_arrival_id != null ? Number(data.driver_arrival_id) : NaN;
+            const rName =
+              data.restaurant_nombre != null && String(data.restaurant_nombre).trim() !== ''
+                ? String(data.restaurant_nombre).trim()
+                : '';
+            const plat = String(data.plataforma ?? '');
+            const cIngr = String(data.codigo_ingresado ?? '');
+            const fallbackBody = rName ? `${rName} · ${plat} · ${cIngr}` : `${plat} · ${cIngr}`.trim();
             addFromPush({
               dedupeKey: Number.isFinite(aid) && aid > 0 ? `driver:${aid}` : `driver-push:${dedupeId}`,
               kind: RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO,
               title: title || 'Driver en kiosko',
               subtitle:
-                (body || `${data.plataforma ?? ''} · ${data.codigo_ingresado ?? ''}`).trim() ||
-                'Driver esperando',
+                (body && String(body).trim() !== '' ? String(body) : fallbackBody) || 'Driver esperando',
               driverArrivalId: Number.isFinite(aid) && aid > 0 ? aid : undefined,
               sourceChannel: 'push',
             });

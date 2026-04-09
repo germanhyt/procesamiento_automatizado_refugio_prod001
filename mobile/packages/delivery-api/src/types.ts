@@ -31,6 +31,8 @@ export interface DriverArrival {
 export interface Order {
   id: number;
   restaurant_id: number;
+  /** Nombre del local (`delivery_restaurants.nombre`), útil en listas Runner/Kiosk. */
+  restaurant_nombre?: string | null;
   plataforma: string;
   codigo_pedido: string;
   estado: OrderStatus;

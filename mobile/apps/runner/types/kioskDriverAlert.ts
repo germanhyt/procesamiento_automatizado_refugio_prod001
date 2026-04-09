@@ -3,5 +3,6 @@ export type KioskDriverAlert = {
   driverArrivalId: number;
   plat: string;
   code: string;
+  restaurantNombre?: string;
   receivedAt: number;
 };

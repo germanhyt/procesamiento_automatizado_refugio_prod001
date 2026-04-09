@@ -12,6 +12,9 @@ def order_orm_to_dict(order: Any) -> Dict[str, Any]:
         d = m.model_dump(mode="python")
     else:
         d = OrderOut.from_orm(order).dict()
+    rest = getattr(order, "restaurant", None)
+    if rest is not None:
+        d["restaurant_nombre"] = rest.nombre
     arr = getattr(order, "matched_driver_arrival", None)
     if arr is not None:
         d["matched_driver_arrival"] = driver_arrival_orm_to_dict(arr)
@@ -115,6 +118,7 @@ class DriverArrivalOut(DriverArrivalBase):
 
 class OrderOut(OrderBase):
     id: int
+    restaurant_nombre: Optional[str] = None
     locked_by_runner_id: Optional[int] = None
     matched_driver_arrival_id: Optional[int] = None
     matched_driver_arrival: Optional[DriverArrivalOut] = None
