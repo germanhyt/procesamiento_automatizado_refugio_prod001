@@ -1,0 +1,23 @@
+{
+  "name": "Kiosk Refugio",
+  "short_name": "Kiosk",
+  "description": "Kiosk de autogestión Refugio",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#E6F4FE",
+  "icons": [
+    {
+      "src": "/assets/images/logo-refugio.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/images/logo-refugio.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

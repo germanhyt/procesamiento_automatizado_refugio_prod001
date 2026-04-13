@@ -51,6 +51,17 @@
         "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",
         "EXPO_PUBLIC_WS_URL": "wss://api.datarefugio.gcbprojects.site"
       }
+    },
+    "kiosk-sunmi": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.datarefugio.gcbprojects.site",
+        "EXPO_PUBLIC_WS_URL": "wss://api.datarefugio.gcbprojects.site"
+      }
     }
   },
   "submit": {
