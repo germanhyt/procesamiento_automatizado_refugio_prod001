@@ -18,7 +18,7 @@ function getSystemTheme(): RunnerThemeMode {
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<RunnerThemeMode>('dark');
+  const [theme, setThemeState] = useState<RunnerThemeMode>('light');
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -30,14 +30,14 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } else {
           stored = await SecureStore.getItemAsync(STORAGE_KEY);
         }
-        
+
         if (stored === 'light' || stored === 'dark') {
           setThemeState(stored as RunnerThemeMode);
         } else {
-          setThemeState(getSystemTheme());
+          setThemeState('light');
         }
       } catch (e) {
-        setThemeState(getSystemTheme());
+        setThemeState('light');
       } finally {
         setIsReady(true);
       }

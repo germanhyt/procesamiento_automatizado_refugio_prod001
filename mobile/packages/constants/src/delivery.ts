@@ -39,5 +39,7 @@ export const DELIVERY_PERMISSIONS = {
   VIEW: 'delivery:view',
   OPERATE: 'delivery:operate',
   ADMIN: 'delivery:admin',
+  /** Simular pedido listo (Runner → POST /delivery/runner/simulate/order-ready). */
+  SIMULATE_ORDER_READY: 'delivery:simulate_order_ready',
 } as const;
 

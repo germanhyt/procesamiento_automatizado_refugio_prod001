@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import AppSelect from '@/components/ui/AppSelect';
 import DeliveryAdminTable from '@/pages/delivery/DeliveryAdminTable';
+import DeliveryKioskAppsModal from '@/pages/delivery/DeliveryKioskAppsModal';
 import DeliveryRestaurantsModal from '@/pages/delivery/DeliveryRestaurantsModal';
 import { useDeliveryWS } from '@/hooks/useDeliveryWS';
 import {
@@ -20,6 +21,7 @@ import {
     ORDER_STATUSES_RUNNER,
     orderStatusBadgeClass,
 } from '@/constants/delivery';
+import type { Order } from '@/services/deliveryService';
 
 function hasPermission(user: any, codename: string): boolean {
     if (!user) return false;
@@ -49,14 +51,17 @@ const DeliveryPanel: React.FC = () => {
 
     const canOperate = hasPermission(user, DELIVERY_PERMISSIONS.OPERATE);
     const canAdmin = hasPermission(user, DELIVERY_PERMISSIONS.ADMIN);
+    const canUpdateKioskSettings = hasPermission(user, DELIVERY_PERMISSIONS.SETTINGS_UPDATE);
 
     const [tab, setTab] = useState<'runner' | 'admin'>(() => (canAdmin && !canOperate ? 'admin' : 'runner'));
+    const [kioskAppsModalOpen, setKioskAppsModalOpen] = useState(false);
+
     const [adminStatus, setAdminStatus] = useState<string>(ADMIN_ORDERS_FILTER_ALL);
     const adminOrders = useAdminOrders(adminStatus, polling);
 
     const [platform, setPlatform] = useState<string>('ALL');
     const [sortMode, setSortMode] = useState<'oldest' | 'newest'>('oldest');
-    const [matchModalOrder, setMatchModalOrder] = useState<{ id: number; codigo_pedido: string } | null>(null);
+    const [matchModalOrder, setMatchModalOrder] = useState<Pick<Order, 'id' | 'codigo_pedido' | 'restaurant_nombre'> | null>(null);
     const [selectedMatchDriver, setSelectedMatchDriver] = useState<{ value: number; label: string } | null>(null);
     const [restaurantsModalOpen, setRestaurantsModalOpen] = useState(false);
 
@@ -145,7 +150,7 @@ const DeliveryPanel: React.FC = () => {
         return String(res.value ?? '').trim();
     };
 
-    const openMatchModal = (order: { id: number; codigo_pedido: string }) => {
+    const openMatchModal = (order: Pick<Order, 'id' | 'codigo_pedido' | 'restaurant_nombre'>) => {
         const list = (drivers.data ?? []).filter((d) => d.estado === 'ESPERANDO' || d.estado === 'EN_MATCH');
         if (list.length === 0) {
             void toast({ icon: 'info', title: 'Sin drivers disponibles', text: 'No hay drivers en ESPERANDO/EN_MATCH.' });
@@ -162,12 +167,14 @@ const DeliveryPanel: React.FC = () => {
 
     const confirmMatchFromModal = async () => {
         if (!matchModalOrder || !selectedMatchDriver) return;
+        const loc = matchModalOrder.restaurant_nombre?.trim();
         const ok = await confirm({
             title: 'Confirmar match manual',
-            text: `¿Confirmas matchear ${matchModalOrder.codigo_pedido} con driver #${selectedMatchDriver.value}?`,
+            text: `¿Confirmas matchear ${matchModalOrder?.codigo_pedido}${loc ? ` · ${loc}` : ''} con driver #${selectedMatchDriver.value}?`,
             confirmText: 'Matchear',
         });
         if (!ok) return;
+
         closeMatchModal();
         manualMatch.mutate(
             { orderId: matchModalOrder.id, driverArrivalId: selectedMatchDriver.value },
@@ -210,6 +217,7 @@ const DeliveryPanel: React.FC = () => {
                     </p>
                 </div>
                 <div className="flex gap-2">
+
                     {canAdmin && (
                         <button
                             type="button"
@@ -217,6 +225,15 @@ const DeliveryPanel: React.FC = () => {
                             className="px-4 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-[10px] font-black uppercase tracking-widest text-teal-400"
                         >
                             Restaurantes
+                        </button>
+                    )}
+                    {canAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => setKioskAppsModalOpen(true)}
+                            className="px-4 py-2 rounded-2xl bg-app-input hover:bg-app-surface border border-app-border text-[10px] font-black uppercase tracking-widest text-app-text"
+                        >
+                            Permisos a apps
                         </button>
                     )}
                     <button
@@ -233,29 +250,32 @@ const DeliveryPanel: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex gap-2">
-                <button
-                    type="button"
-                    onClick={() => setTab('runner')}
-                    className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
-                        ? 'bg-teal-500 text-black border-teal-500/50'
-                        : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
-                        }`}
-                >
-                    Runner
-                </button>
-                {canAdmin && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex gap-2">
                     <button
                         type="button"
-                        onClick={() => setTab('admin')}
-                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
+                        onClick={() => setTab('runner')}
+                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
                             ? 'bg-teal-500 text-black border-teal-500/50'
                             : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                             }`}
                     >
-                        Admin
+                        Runner
                     </button>
-                )}
+                    {canAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => setTab('admin')}
+                            className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
+                                ? 'bg-teal-500 text-black border-teal-500/50'
+                                : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
+                                }`}
+                        >
+                            Admin
+                        </button>
+                    )}
+                </div>
+
             </div>
 
             {tab === 'runner' && (
@@ -328,7 +348,7 @@ const DeliveryPanel: React.FC = () => {
                                 </div>
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
-                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted">EN_MATCH</h3>
+                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted">EN_MATCH (Coincidencia)</h3>
                                         <span className="text-[10px] font-mono text-app-muted">{driversEnMatch.length}</span>
                                     </div>
                                     {driversEnMatch.map((d) => (
@@ -372,13 +392,23 @@ const DeliveryPanel: React.FC = () => {
                                                         <p className="text-[10px] font-mono text-app-muted">
                                                             {o.plataforma}
                                                             {o.numero_bolsas ? ` · bolsas: ${o.numero_bolsas}` : ''}
+                                                            {o?.restaurant_nombre ? ` · ${o?.restaurant_nombre}` : ''}
                                                             {minutesSince(o.created_at) !== null ? ` · ${minutesSince(o.created_at)}m` : ''}
                                                         </p>
                                                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                                                             <span className={orderStatusBadgeClass(o.estado)}>{o.estado}</span>
                                                             {o.locked_by_runner_id ? (
-                                                                <span className="px-2 py-1 rounded-lg border border-app-border bg-app-surface text-[9px] font-mono text-app-text text-zinc-300">
-                                                                    locked_by: {o.locked_by_runner_id}
+                                                                <span
+                                                                    className="px-2 py-1 rounded-lg border border-app-border bg-app-surface text-[9px] text-zinc-300 max-w-[200px] truncate"
+                                                                    title={
+                                                                        o.locked_by_runner_username
+                                                                        ?? undefined
+                                                                    }
+                                                                >
+                                                                    Bloqueado por:{' '}
+                                                                    <span className="font-semibold text-app-text">
+                                                                        {o.locked_by_runner_username?.trim() ?? `usuario #${o?.locked_by_runner_id}`}
+                                                                    </span>
                                                                 </span>
                                                             ) : null}
                                                             {o.matched_driver_arrival_id ? (
@@ -393,7 +423,13 @@ const DeliveryPanel: React.FC = () => {
                                                             {/* Match: Siempre disponible para Admin/Operador si no está entregado */}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => openMatchModal({ id: o.id, codigo_pedido: o.codigo_pedido })}
+                                                                onClick={() =>
+                                                                    openMatchModal({
+                                                                        id: o.id,
+                                                                        codigo_pedido: o.codigo_pedido,
+                                                                        restaurant_nombre: o.restaurant_nombre,
+                                                                    })
+                                                                }
                                                                 disabled={manualMatch.isPending}
                                                                 className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
                                                             >
@@ -407,7 +443,7 @@ const DeliveryPanel: React.FC = () => {
                                                                     onClick={async () => {
                                                                         const ok = await confirm({
                                                                             title: 'Tomar pedido',
-                                                                            text: `¿Confirmas tomar el pedido ${o.codigo_pedido}?`,
+                                                                            text: `¿Confirmas tomar el pedido ${o.codigo_pedido}${o.restaurant_nombre?.trim() ? ` · ${o.restaurant_nombre.trim()}` : ''}?`,
                                                                             confirmText: 'Tomar',
                                                                         });
                                                                         if (!ok) return;
@@ -430,7 +466,7 @@ const DeliveryPanel: React.FC = () => {
                                                                     onClick={async () => {
                                                                         const ok = await confirm({
                                                                             title: 'Marcar en estante',
-                                                                            text: `¿Confirmas marcar en estante el pedido ${o.codigo_pedido}?`,
+                                                                            text: `¿Confirmas marcar en estante el pedido ${o.codigo_pedido}${o.restaurant_nombre?.trim() ? ` · ${o.restaurant_nombre.trim()}` : ''}?`,
                                                                             confirmText: 'Marcar',
                                                                         });
                                                                         if (!ok) return;
@@ -453,7 +489,7 @@ const DeliveryPanel: React.FC = () => {
                                                                     onClick={async () => {
                                                                         const ok = await confirm({
                                                                             title: 'Entregar pedido',
-                                                                            text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}?`,
+                                                                            text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}${o.restaurant_nombre?.trim() ? ` · ${o.restaurant_nombre.trim()}` : ''}?`,
                                                                             confirmText: 'Entregar',
                                                                             confirmColor: '#22c55e',
                                                                         });
@@ -515,6 +551,13 @@ const DeliveryPanel: React.FC = () => {
             {/* Modal Match manual con AppSelect */}
             <DeliveryRestaurantsModal open={restaurantsModalOpen} onClose={() => setRestaurantsModalOpen(false)} toast={toast} />
 
+            <DeliveryKioskAppsModal
+                open={kioskAppsModalOpen}
+                onClose={() => setKioskAppsModalOpen(false)}
+                canUpdateKioskSettings={canUpdateKioskSettings}
+                toast={toast}
+            />
+
             {matchModalOrder && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -530,6 +573,9 @@ const DeliveryPanel: React.FC = () => {
                     >
                         <h2 id="match-modal-title" className="text-[10px] font-black uppercase tracking-widest text-app-muted mb-4">
                             Match manual · {matchModalOrder.codigo_pedido}
+                            {matchModalOrder?.restaurant_nombre?.trim()
+                                ? ` · ${matchModalOrder.restaurant_nombre.trim()}`
+                                : ''}
                         </h2>
                         <div className="space-y-4">
                             <div>

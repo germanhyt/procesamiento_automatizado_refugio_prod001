@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,9 +19,6 @@ import Animated, {
   FadeIn,
   FadeInDown,
   Layout,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
   ZoomIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,9 +26,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dropdown } from 'react-native-element-dropdown';
 import {
   kioskArrival,
-  kioskListDeliveredOrdersToday,
+  kioskDniLookup,
   kioskListRestaurants,
   kioskListWaitingDrivers,
+  kioskPublicConfig,
+  kioskUploadDriverPhoto,
 } from '@refugio/delivery-api';
 import { DRIVER_STATUS } from '@refugio/constants';
 import {
@@ -46,13 +46,54 @@ import { cardShadow, modalCardShadow, motion, radius, space, topBarShadow } from
 import { useKioskTheme } from '@/components/useKioskTheme';
 import type { KioskPalette } from '@/constants/kioskTheme';
 
-const QUEUE_GRID_GAP = 10;
-const QUEUE_CARD_MIN_W = 140;
-const QUEUE_MAX_ITEMS = 24;
-const DELIVERED_PREVIEW_ITEMS = 12;
+const QUEUE_GRID_GAP = 8;
+/**
+ * ~Mitad de 380px menos gap: con flexWrap, si el contenedor no alcanza para 2×basis+gap, queda 1 columna; si alcanza, 2+.
+ * Sin JS de anchos ni onLayout en la cola (menos trabajo por frame).
+ */
+const QUEUE_CELL_FLEX_BASIS = Math.ceil((320 - QUEUE_GRID_GAP) / 2);
+const QUEUE_MAX_ITEMS = 30;
 const MODAL_SUCCESS_CLOSE_MS = 1400;
-/** Padding horizontal interno del bloque de cola (cada lado) — alinear con `styles.queueBlock.padding` */
-const QUEUE_BLOCK_PAD_H = space.lg;
+/** Altura máxima de la lista del dropdown (evita pantalla completa; `mode="auto"` aplica maxHeight en el modal). */
+const DROPDOWN_LIST_MAX_H = 240;
+
+/** Mapa de colores por estado del driver en la cola */
+const STATUS_CONFIG = {
+  ESPERANDO: {
+    label: 'Esperando',
+    borderColor: 'rgba(245,158,11,0.65)',
+    bgColorDark: 'rgba(245,158,11,0.11)',
+    bgColorLight: 'rgba(245,158,11,0.07)',
+    dot: '#F59E0B',
+  },
+  EN_MATCH: {
+    label: 'Coincidencia',
+    borderColor: 'rgba(20,184,166,0.65)',
+    bgColorDark: 'rgba(20,184,166,0.13)',
+    bgColorLight: 'rgba(20,184,166,0.07)',
+    dot: '#14B8A6',
+  },
+  DESPACHADO: {
+    label: 'Despachado',
+    borderColor: 'rgba(100,116,139,0.40)',
+    bgColorDark: 'rgba(100,116,139,0.08)',
+    bgColorLight: 'rgba(100,116,139,0.05)',
+    dot: '#64748B',
+  },
+  ABANDONO: {
+    label: 'Abandono',
+    borderColor: 'rgba(239,68,68,0.65)',
+    bgColorDark: 'rgba(239,68,68,0.13)',
+    bgColorLight: 'rgba(239,68,68,0.07)',
+    dot: '#EF4444',
+  },
+} as const;
+
+type KioskDriverStatus = keyof typeof STATUS_CONFIG;
+
+function getStatusCfg(estado: string) {
+  return STATUS_CONFIG[estado as KioskDriverStatus] ?? STATUS_CONFIG.ESPERANDO;
+}
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -69,41 +110,48 @@ function formatTime(iso: string): string {
   }
 }
 
-function queueGridMetrics(innerWidth: number): { cols: number; cardWidth: number } {
-  if (innerWidth <= 0) return { cols: 1, cardWidth: 0 };
-  const cols = Math.max(
-    1,
-    Math.min(4, Math.floor((innerWidth + QUEUE_GRID_GAP) / (QUEUE_CARD_MIN_W + QUEUE_GRID_GAP))),
+/** Leyenda visual de estados activos en la cola */
+function QueueLegend({ palette }: { palette: KioskPalette }) {
+  const items = [
+    STATUS_CONFIG.ESPERANDO,
+    STATUS_CONFIG.EN_MATCH,
+    STATUS_CONFIG.ABANDONO,
+  ] as const;
+  return (
+    <View style={legendStyles.row}>
+      {items.map((cfg) => (
+        <View key={cfg.label} style={legendStyles.item}>
+          <View style={[legendStyles.dot, { backgroundColor: cfg.dot }]} />
+          <Text style={[legendStyles.lbl, { color: palette.muted }]}>{cfg.label}</Text>
+        </View>
+      ))}
+    </View>
   );
-  const cardWidth = (innerWidth - QUEUE_GRID_GAP * (cols - 1)) / cols;
-  return { cols, cardWidth };
 }
 
+const legendStyles = StyleSheet.create({
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12, marginTop: 4, paddingHorizontal: 2 },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dot: { width: 9, height: 9, borderRadius: 5 },
+  lbl: { fontSize: 11, fontWeight: '700' },
+});
+
 function DriverQueueGrid({
-  title,
   drivers,
-  variant,
-  layoutWidth,
   palette,
   isDark,
 }: {
-  title: string;
   drivers: Array<{
     id: number;
     plataforma: string;
     estado: string;
     codigo_ingresado: string;
-    placa?: string | null;
     alias_conductor?: string | null;
-    conductor_dni?: string | null;
     restaurant_nombre?: string | null;
   }>;
-  variant: 'esperando' | 'en_match';
-  layoutWidth: number;
   palette: KioskPalette;
   isDark: boolean;
 }) {
-  const { cardWidth } = queueGridMetrics(layoutWidth);
   const themeMode = isDark ? 'dark' : 'light';
 
   return (
@@ -114,44 +162,54 @@ function DriverQueueGrid({
         styles.queueBlock,
         { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
         cardShadow(themeMode),
-        variant === 'esperando' && styles.queueBlockWaiting,
-        variant === 'en_match' && styles.queueBlockMatch,
       ]}
     >
-      <Text style={[styles.queueBlockTitle, { color: palette.text }]}>{title}</Text>
+      <View style={styles.queueBlockHeader}>
+        <Text style={[styles.queueBlockTitle, { color: palette.text }]}>Cola de drivers</Text>
+        <Text style={[styles.queueBlockCount, { color: palette.muted }]}>
+          {drivers.length} {drivers.length === 1 ? 'driver' : 'drivers'}
+        </Text>
+      </View>
+      <QueueLegend palette={palette} />
       {drivers.length === 0 ? (
-        <Text style={[styles.queueEmpty, { color: palette.muted }]}>Sin registros</Text>
+        <Text style={[styles.queueEmpty, { color: palette.muted }]}>Sin drivers en espera</Text>
       ) : (
         <View style={styles.gridWrap}>
-          {drivers.map((d, index) => (
-            <Animated.View
-              key={d.id}
-              entering={FadeIn.delay(Math.min(index * 48, 280)).duration(motion.normal)}
-              style={[
-                layoutWidth > 0 && cardWidth > 0 ? { width: cardWidth } : styles.driverCardFlex,
-              ]}
-            >
-              <View
-                style={[
-                  styles.driverCard,
-                  { backgroundColor: palette.bg, borderColor: palette.border },
-                  cardShadow(themeMode),
-                  variant === 'esperando' ? styles.driverCardWaiting : styles.driverCardMatch,
-                ]}
+          {drivers.map((d, index) => {
+            const cfg = getStatusCfg(d.estado);
+            const cardBg = isDark ? cfg.bgColorDark : cfg.bgColorLight;
+            return (
+              <Animated.View
+                key={d.id}
+                entering={FadeIn.delay(Math.min(index * 48, 280)).duration(motion.normal)}
+                style={styles.driverCardCell}
               >
-                <Text style={[styles.driverCode, { color: palette.text }]} numberOfLines={1}>
-                  {d.codigo_ingresado}
-                </Text>
-                <Text style={[styles.driverMeta, { color: palette.muted }]} numberOfLines={4}>
-                  {d.plataforma} · {d.estado}
-                  {d.placa ? ` · ${d.placa}` : ''}
-                  {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
-                  {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
-                  {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
-                </Text>
-              </View>
-            </Animated.View>
-          ))}
+                <View
+                  style={[
+                    styles.driverCard,
+                    { backgroundColor: cardBg, borderColor: cfg.borderColor },
+                  ]}
+                >
+                  <Text style={[styles.driverCode, { color: palette.text }]} numberOfLines={1}>
+                    {d.codigo_ingresado}
+                  </Text>
+                  <Text style={[styles.driverPlatform, { color: palette.muted }]} numberOfLines={1}>
+                    {d.plataforma}
+                  </Text>
+                  {d.alias_conductor ? (
+                    <Text style={[styles.driverName, { color: palette.text }]} numberOfLines={1}>
+                      {d.alias_conductor}
+                    </Text>
+                  ) : null}
+                  {d.restaurant_nombre ? (
+                    <Text style={[styles.driverLocal, { color: palette.muted }]} numberOfLines={1}>
+                      {d.restaurant_nombre}
+                    </Text>
+                  ) : null}
+                </View>
+              </Animated.View>
+            );
+          })}
         </View>
       )}
     </Animated.View>
@@ -169,10 +227,8 @@ export default function KioskScreen() {
   const titleFontSize = isCompactHeader ? 16 : 20;
   const subtitleFontSize = isCompactHeader ? 12 : 14;
 
-  const [queuePanelWidth, setQueuePanelWidth] = useState(0);
   const [registerModalVisible, setRegisterModalVisible] = useState(false);
   const [modalAnimKey, setModalAnimKey] = useState(0);
-  const [deliveredExpanded, setDeliveredExpanded] = useState(false);
   const [plataforma, setPlataforma] = useState<KioskPlatform>(KIOSK_PLATFORM_OPTIONS[0]);
   const [codigo, setCodigo] = useState('');
   const [placa, setPlaca] = useState('');
@@ -183,29 +239,28 @@ export default function KioskScreen() {
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err' | 'info'; msg: string } | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const successCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const chevronRotation = useSharedValue(0);
 
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${chevronRotation.value}deg` }],
-  }));
+  // ── Registration flow ──
+  const [registrationStep, setRegistrationStep] = useState<'form' | 'confirm'>('form');
+  const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
+  const [dniLookupName, setDniLookupName] = useState<string | null>(null);
+  const [dniLookupLoading, setDniLookupLoading] = useState(false);
+  const [lastArrivalMatched, setLastArrivalMatched] = useState(false);
+  const [lastMatchedCode, setLastMatchedCode] = useState<string | null>(null);
+  const lastDniRef = useRef<string>('');
+  const lastArrivalIdRef = useRef<number | null>(null);
+  const lastAliasRef = useRef('');
+  const photoUploadedRef = useRef(false);
+  // Camera
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraCountdown, setCameraCountdown] = useState<number | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraCaptured, setCameraCaptured] = useState(false);
+  const cameraRef = useRef<CameraView | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Pre-fetch DNI: stores the last fetched DNI to avoid duplicate requests
+  const prefetchedDniRef = useRef<string>('');
 
-  useEffect(() => {
-    chevronRotation.value = withTiming(deliveredExpanded ? 180 : 0, { duration: motion.fast });
-  }, [deliveredExpanded, chevronRotation]);
-
-  const dniDigits = useMemo(() => dni.replace(/[\s-]/g, ''), [dni]);
-  const canSubmit = useMemo(
-    () =>
-      restaurantId != null &&
-      codigo.trim().length > 0 &&
-      placa.trim().length > 0 &&
-      alias.trim().length > 0 &&
-      dniDigits.length >= KIOSK_DNI_MIN_LEN &&
-      dniDigits.length <= KIOSK_DNI_MAX_LEN &&
-      /^\d+$/.test(dniDigits) &&
-      !isSubmitting,
-    [restaurantId, codigo, placa, alias, dniDigits, isSubmitting],
-  );
   const qc = useQueryClient();
 
   const restaurantsQuery = useQuery({
@@ -213,6 +268,35 @@ export default function KioskScreen() {
     queryFn: kioskListRestaurants,
     staleTime: 60_000,
   });
+
+  const kioskConfigQuery = useQuery({
+    queryKey: ['delivery', 'kiosk', 'config'],
+    queryFn: kioskPublicConfig,
+    staleTime: 30_000,
+  });
+
+  const enableDriverDni = kioskConfigQuery.data?.enable_driver_dni_lookup ?? false;
+  const enableDriverPhoto = kioskConfigQuery.data?.enable_driver_photo_capture ?? false;
+
+  const dniDigits = useMemo(() => dni.replace(/[\s-]/g, ''), [dni]);
+  const dniFieldOk = useMemo(() => {
+    if (!enableDriverDni) return true;
+    return (
+      dniDigits.length >= KIOSK_DNI_MIN_LEN &&
+      dniDigits.length <= KIOSK_DNI_MAX_LEN &&
+      /^\d+$/.test(dniDigits)
+    );
+  }, [enableDriverDni, dniDigits]);
+  const canSubmit = useMemo(
+    () =>
+      restaurantId != null &&
+      codigo.trim().length > 0 &&
+      placa.trim().length > 0 &&
+      alias.trim().length > 0 &&
+      dniFieldOk &&
+      !isSubmitting,
+    [restaurantId, codigo, placa, alias, dniFieldOk, isSubmitting],
+  );
 
   const restaurantOptions = useMemo(
     () => (restaurantsQuery.data ?? []).map((r) => ({ label: r.nombre, value: r.id })),
@@ -225,11 +309,7 @@ export default function KioskScreen() {
     refetchInterval: KIOSK_DRIVER_POLLING_MS,
   });
 
-  const deliveredQuery = useQuery({
-    queryKey: ['delivery', 'kiosk', 'orders', 'delivered-today'],
-    queryFn: kioskListDeliveredOrdersToday,
-    refetchInterval: KIOSK_DRIVER_POLLING_MS,
-  });
+
 
   const arrivalMutation = useMutation({
     mutationFn: async (payload: {
@@ -238,11 +318,10 @@ export default function KioskScreen() {
       codigo_ingresado: string;
       placa: string;
       alias_conductor: string;
-      conductor_dni: string;
+      conductor_dni?: string | null;
     }) => kioskArrival(payload),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['delivery', 'drivers', 'waiting'] });
-      await qc.invalidateQueries({ queryKey: ['delivery', 'kiosk', 'orders', 'delivered-today'] });
     },
   });
 
@@ -261,6 +340,24 @@ export default function KioskScreen() {
     setDni('');
     setFeedback(null);
     setFieldError(null);
+    setRegistrationStep('form');
+    setCapturedPhotoUri(null);
+    setDniLookupName(null);
+    setDniLookupLoading(false);
+    setLastArrivalMatched(false);
+    setLastMatchedCode(null);
+    lastDniRef.current = '';
+    lastArrivalIdRef.current = null;
+    lastAliasRef.current = '';
+    photoUploadedRef.current = false;
+    setCameraCountdown(null);
+    setCameraReady(false);
+    setCameraCaptured(false);
+    prefetchedDniRef.current = '';
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
   }, []);
 
   const closeRegisterModal = useCallback(() => {
@@ -270,92 +367,151 @@ export default function KioskScreen() {
   }, [clearSuccessTimer, resetForm]);
 
   useEffect(() => {
-    return () => clearSuccessTimer();
+    return () => {
+      clearSuccessTimer();
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
   }, [clearSuccessTimer]);
+
+  // ── Pre-fetch DNI while user is still on the form ──
+  useEffect(() => {
+    if (
+      !enableDriverDni ||
+      registrationStep !== 'form' ||
+      dniDigits.length < KIOSK_DNI_MIN_LEN ||
+      dniDigits.length > KIOSK_DNI_MAX_LEN ||
+      !/^\d+$/.test(dniDigits) ||
+      prefetchedDniRef.current === dniDigits
+    ) return;
+    prefetchedDniRef.current = dniDigits;
+    setDniLookupLoading(true);
+    setDniLookupName(null);
+    kioskDniLookup(dniDigits)
+      .then((res) => setDniLookupName(res.full_name ?? null))
+      .catch(() => setDniLookupName(null))
+      .finally(() => setDniLookupLoading(false));
+  }, [dniDigits, registrationStep, enableDriverDni]);
+
+  // ── Auto-capture countdown ──
+  const startCameraCountdown = useCallback(() => {
+    setCameraCountdown(3);
+    setCameraCaptured(false);
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    countdownTimerRef.current = setInterval(() => {
+      setCameraCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(countdownTimerRef.current!);
+          countdownTimerRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  // Trigger capture when countdown finishes and camera is ready
+  useEffect(() => {
+    if (!enableDriverPhoto) return;
+    if (cameraCountdown !== null || !cameraReady || cameraCaptured || registrationStep !== 'confirm') return;
+    setCameraCaptured(true);
+    cameraRef.current
+      ?.takePictureAsync({ quality: 0.75, skipProcessing: true })
+      .then((photo) => { if (photo?.uri) setCapturedPhotoUri(photo.uri); })
+      .catch(() => {/* continue without photo */ });
+  }, [cameraCountdown, cameraReady, cameraCaptured, registrationStep, enableDriverPhoto]);
+
+  useEffect(() => {
+    if (!enableDriverPhoto || !capturedPhotoUri) return;
+    const id = lastArrivalIdRef.current;
+    const dni = lastDniRef.current;
+    if (!id || !dni || photoUploadedRef.current) return;
+    photoUploadedRef.current = true;
+    kioskUploadDriverPhoto(id, dni, capturedPhotoUri).catch(() => {
+      photoUploadedRef.current = false;
+    });
+  }, [capturedPhotoUri, enableDriverPhoto]);
 
   const submit = async () => {
     setFieldError(null);
-    if (!codigo.trim()) {
-      setFieldError('Ingresa el código del pedido.');
-      return;
-    }
-    if (!placa.trim()) {
-      setFieldError('Ingresa la placa.');
-      return;
-    }
-    if (!alias.trim()) {
-      setFieldError('Ingresa el nombre o alias del conductor.');
-      return;
-    }
-    if (restaurantId == null) {
-      setFieldError('Selecciona el restaurante.');
-      return;
-    }
-    const dniNorm = dni.replace(/[\s-]/g, '');
-    if (!/^\d+$/.test(dniNorm) || dniNorm.length < KIOSK_DNI_MIN_LEN || dniNorm.length > KIOSK_DNI_MAX_LEN) {
-      setFieldError(`DNI: ${KIOSK_DNI_MIN_LEN} a ${KIOSK_DNI_MAX_LEN} dígitos.`);
-      return;
+    if (!codigo.trim()) { setFieldError('Ingresa el código del pedido.'); return; }
+    if (!placa.trim()) { setFieldError('Ingresa la placa.'); return; }
+    if (!alias.trim()) { setFieldError('Ingresa el nombre o alias del conductor.'); return; }
+    if (restaurantId == null) { setFieldError('Selecciona el restaurante.'); return; }
+    let dniNorm = '';
+    if (enableDriverDni) {
+      dniNorm = dni.replace(/[\s-]/g, '');
+      if (!/^\d+$/.test(dniNorm) || dniNorm.length < KIOSK_DNI_MIN_LEN || dniNorm.length > KIOSK_DNI_MAX_LEN) {
+        setFieldError(`DNI: ${KIOSK_DNI_MIN_LEN} a ${KIOSK_DNI_MAX_LEN} dígitos.`);
+        return;
+      }
     }
     if (!canSubmit) return;
     setIsSubmitting(true);
     setFeedback(null);
+
+    // If name wasn't pre-fetched yet, start it now (non-blocking)
+    if (
+      enableDriverDni &&
+      dniNorm &&
+      !dniLookupName &&
+      prefetchedDniRef.current !== dniNorm
+    ) {
+      prefetchedDniRef.current = dniNorm;
+      setDniLookupLoading(true);
+      kioskDniLookup(dniNorm)
+        .then((res) => setDniLookupName(res.full_name ?? null))
+        .catch(() => setDniLookupName(null))
+        .finally(() => setDniLookupLoading(false));
+    }
+
     try {
+      lastAliasRef.current = alias.trim();
       const data = await arrivalMutation.mutateAsync({
         restaurant_id: restaurantId!,
         plataforma,
         codigo_ingresado: codigo.trim(),
         placa: placa.trim().toUpperCase(),
         alias_conductor: alias.trim(),
-        conductor_dni: dniNorm,
+        ...(enableDriverDni && dniNorm ? { conductor_dni: dniNorm } : {}),
       });
-      const successMsg = data?.matched
-        ? `Registrado y matcheado: ${data?.matched_order?.codigo_pedido ?? ''}`.trim()
-        : 'Registrado (esperando match)';
-      setFeedback({
-        kind: 'ok',
-        msg: successMsg,
-      });
-      setCodigo('');
-      setPlaca('');
-      setAlias('');
-      setDni('');
+
+      setLastArrivalMatched(data?.matched ?? false);
+      setLastMatchedCode(data?.matched_order?.codigo_pedido ?? null);
+      lastDniRef.current = enableDriverDni ? dniNorm : '';
+      lastArrivalIdRef.current = data.driver_arrival.id;
+      photoUploadedRef.current = false;
+      const serverName = data.driver_arrival.conductor_nombre_completo?.trim();
+      if (serverName) setDniLookupName(serverName);
+
+      setCodigo(''); setPlaca(''); setAlias(''); setDni('');
       setFieldError(null);
-      clearSuccessTimer();
-      successCloseTimer.current = setTimeout(() => {
-        closeRegisterModal();
-      }, MODAL_SUCCESS_CLOSE_MS);
-    } catch {
-      setFeedback({ kind: 'err', msg: 'No se pudo registrar (ver backend/API URL)' });
+
+      // Request camera permission and go directly to confirm (with embedded camera)
+      if (enableDriverPhoto && cameraPermission && !cameraPermission.granted) {
+        await requestCameraPermission();
+      }
+      setCameraReady(false);
+      setCapturedPhotoUri(null);
+      setCameraCaptured(false);
+      setRegistrationStep('confirm');
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? 'No se pudo registrar. Verifica la conexión con el backend.';
+      setFeedback({ kind: 'err', msg });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const esperando = useMemo(
+  /** Cola unificada: todos los estados excepto DESPACHADO (entregados se sacan de la cola) */
+  const queueDrivers = useMemo(
     () =>
       (driversQuery.data ?? [])
-        .filter((d) => d.estado === DRIVER_STATUS.ESPERANDO)
+        .filter((d) => d.estado !== DRIVER_STATUS.DESPACHADO)
         .slice(0, QUEUE_MAX_ITEMS),
     [driversQuery.data],
   );
-
-  const enMatch = useMemo(
-    () =>
-      (driversQuery.data ?? [])
-        .filter((d) => d.estado === DRIVER_STATUS.EN_MATCH)
-        .slice(0, QUEUE_MAX_ITEMS),
-    [driversQuery.data],
-  );
-  const deliveredToday = useMemo(() => deliveredQuery.data ?? [], [deliveredQuery.data]);
-  const deliveredPreview = useMemo(
-    () => deliveredToday.slice(0, deliveredExpanded ? deliveredToday.length : DELIVERED_PREVIEW_ITEMS),
-    [deliveredToday, deliveredExpanded],
-  );
-
-  const gridInnerW =
-    queuePanelWidth > 0
-      ? Math.max(0, queuePanelWidth - contentPadH * 2 - QUEUE_BLOCK_PAD_H * 2)
-      : Math.max(0, windowWidth - contentPadH * 2 - QUEUE_BLOCK_PAD_H * 2);
 
   const openRegisterModal = () => {
     clearSuccessTimer();
@@ -366,6 +522,7 @@ export default function KioskScreen() {
 
   const onBackdropPress = () => {
     if (isSubmitting) return;
+    if (registrationStep === 'confirm') return;
     closeRegisterModal();
   };
 
@@ -465,10 +622,7 @@ export default function KioskScreen() {
         )}
       </Animated.View>
 
-      <View
-        style={[styles.main, { paddingHorizontal: contentPadH, paddingTop: space.lg, paddingBottom: space.lg }]}
-        onLayout={(e) => setQueuePanelWidth(e.nativeEvent.layout.width)}
-      >
+      <View style={[styles.main, { paddingHorizontal: contentPadH, paddingTop: space.lg, paddingBottom: space.lg }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <Pressable
             style={({ pressed }) => [
@@ -489,105 +643,13 @@ export default function KioskScreen() {
           contentContainerStyle={styles.queueScrollContent}
           showsVerticalScrollIndicator
         >
-          <Animated.View entering={FadeIn.delay(80).duration(motion.normal)}>
-            <View style={styles.queueHeader}>
-              <Text style={[styles.queueTitle, { color: palette.text }]}>Cola de drivers</Text>
-            </View>
-          </Animated.View>
           {driversQuery.isLoading ? (
             <Text style={[styles.queueHint, { color: palette.muted }]}>Cargando…</Text>
           ) : driversQuery.isError ? (
             <Text style={[styles.queueHint, { color: palette.error }]}>Error cargando drivers.</Text>
           ) : (
             <View style={styles.queueSections}>
-              <DriverQueueGrid
-                title="ESPERANDO"
-                drivers={esperando}
-                variant="esperando"
-                layoutWidth={gridInnerW}
-                palette={palette}
-                isDark={isDark}
-              />
-              <DriverQueueGrid
-                title="EN_MATCH (Coincidencias)"
-                drivers={enMatch}
-                variant="en_match"
-                layoutWidth={gridInnerW}
-                palette={palette}
-                isDark={isDark}
-              />
-
-              <Animated.View
-                layout={Layout.springify().damping(17).stiffness(200)}
-                style={[
-                  styles.deliveredBlock,
-                  { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
-                  cardShadow(isDark ? 'dark' : 'light'),
-                ]}
-              >
-                <Pressable
-                  style={({ pressed }) => [styles.deliveredHeader, pressed && { opacity: 0.92 }]}
-                  onPress={() => setDeliveredExpanded((v) => !v)}
-                  android_ripple={ripple(isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)')}
-                >
-                  <View style={styles.deliveredHeaderText}>
-                    <Text style={[styles.deliveredTitle, { color: palette.text }]}>Entregados hoy</Text>
-                    <Text style={[styles.deliveredCount, { color: palette.muted }]}>
-                      {deliveredToday.length} pedidos
-                    </Text>
-                  </View>
-                  <Animated.View style={chevronStyle}>
-                    <Ionicons name="chevron-down" size={20} color={palette.muted} />
-                  </Animated.View>
-                </Pressable>
-
-                {deliveredExpanded ? (
-                  <Animated.View
-                    entering={FadeIn.duration(motion.normal)}
-                    layout={Layout.springify()}
-                    style={styles.deliveredList}
-                  >
-                    {deliveredQuery.isLoading ? (
-                      <Text style={[styles.queueHint, { color: palette.muted }]}>Cargando entregados…</Text>
-                    ) : deliveredQuery.isError ? (
-                      <Text style={[styles.queueHint, { color: palette.error }]}>No se pudo cargar entregados.</Text>
-                    ) : deliveredPreview.length === 0 ? (
-                      <Text style={[styles.queueHint, { color: palette.muted }]}>Sin entregados hoy.</Text>
-                    ) : (
-                      deliveredPreview.map((o, i) => (
-                        <Animated.View key={o.id} entering={FadeIn.delay(Math.min(i * 40, 200)).duration(motion.fast)}>
-                          <View
-                            style={[
-                              styles.deliveredItem,
-                              { borderColor: palette.border, backgroundColor: palette.bg },
-                              cardShadow(isDark ? 'dark' : 'light'),
-                            ]}
-                          >
-                            <View style={styles.deliveredTopRow}>
-                              <Text style={[styles.deliveredCode, { color: palette.text }]} numberOfLines={1}>
-                                {o.codigo_pedido}
-                              </Text>
-                              <Text style={[styles.deliveredTime, { color: palette.muted }]}>
-                                {formatTime(o.updated_at)}
-                              </Text>
-                            </View>
-                            <Text style={[styles.deliveredRestaurant, { color: palette.text }]} numberOfLines={2}>
-                              {o.restaurant_nombre != null && String(o.restaurant_nombre).trim() !== ''
-                                ? String(o.restaurant_nombre).trim()
-                                : o.restaurant_id != null
-                                  ? `Restaurante #${o.restaurant_id}`
-                                  : '—'}
-                            </Text>
-                            <Text style={[styles.deliveredMeta, { color: palette.muted }]} numberOfLines={2}>
-                              {o.plataforma} · bolsas: {o.numero_bolsas ?? 0}
-                            </Text>
-                          </View>
-                        </Animated.View>
-                      ))
-                    )}
-                  </Animated.View>
-                ) : null}
-              </Animated.View>
+              <DriverQueueGrid drivers={queueDrivers} palette={palette} isDark={isDark} />
             </View>
           )}
         </ScrollView>
@@ -608,8 +670,11 @@ export default function KioskScreen() {
               modalCardShadow(),
             ]}
           >
+            {/* ───── HEADER ───── */}
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.text }]}>Registro de driver</Text>
+              <Text style={[styles.modalTitle, { color: palette.text }]}>
+                {registrationStep === 'form' ? 'Registro de driver' : '¡Registrado!'}
+              </Text>
               <Pressable
                 onPress={closeRegisterModal}
                 style={({ pressed }) => [pressed && { opacity: 0.7 }]}
@@ -619,184 +684,286 @@ export default function KioskScreen() {
               </Pressable>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalBody}>
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Plataforma</Text>
-              <View style={styles.platformRow}>
-                {KIOSK_PLATFORM_OPTIONS.map((plat) => (
-                  <Pressable
-                    key={plat}
-                    onPress={() => setPlataforma(plat)}
-                    style={({ pressed }) => [
-                      styles.platformBtn,
-                      { borderColor: palette.border, backgroundColor: palette.cardBg },
-                      plataforma === plat && { borderColor: palette.accent, backgroundColor: palette.topBarBg },
-                      pressed && styles.pressedSubtle,
-                    ]}
-                  >
-                    <Text style={[styles.platformText, { color: plataforma === plat ? palette.accent : palette.text }]}>
-                      {plat}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+            {/* ───── STEP 1: FORM ───── */}
+            {registrationStep === 'form' && (
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalBody}>
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Plataforma</Text>
+                <View style={styles.platformRow}>
+                  {KIOSK_PLATFORM_OPTIONS.map((plat) => (
+                    <Pressable
+                      key={plat}
+                      onPress={() => setPlataforma(plat)}
+                      style={({ pressed }) => [
+                        styles.platformBtn,
+                        { borderColor: palette.border, backgroundColor: palette.cardBg },
+                        plataforma === plat && { borderColor: palette.accent, backgroundColor: palette.topBarBg },
+                        pressed && styles.pressedSubtle,
+                      ]}
+                    >
+                      <Text style={[styles.platformText, { color: plataforma === plat ? palette.accent : palette.text }]}>
+                        {plat}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Restaurante *</Text>
-              {restaurantsQuery.isError ? (
-                <Text style={[styles.fieldError, { color: palette.error, marginBottom: space.sm }]}>
-                  No se pudieron cargar restaurantes. Revise la API.
-                </Text>
-              ) : null}
-              <Dropdown
-                style={[
-                  styles.dropdown,
-                  {
-                    borderColor:
-                      fieldError && restaurantId == null ? palette.error : palette.inputBorder,
-                    backgroundColor: palette.inputBg,
-                  },
-                ]}
-                containerStyle={[
-                  styles.dropdownListContainer,
-                  { backgroundColor: palette.modalBg, borderColor: palette.border },
-                ]}
-                placeholderStyle={[styles.dropdownPlaceholder, { color: palette.placeholder }]}
-                selectedTextStyle={[styles.dropdownSelected, { color: palette.inputText }]}
-                itemTextStyle={{ color: palette.inputText }}
-                activeColor={isDark ? 'rgba(45,212,191,0.15)' : 'rgba(13,148,136,0.12)'}
-                data={restaurantOptions}
-                maxHeight={280}
-                labelField="label"
-                valueField="value"
-                placeholder={restaurantsQuery.isLoading ? 'Cargando locales…' : 'Elegir restaurante…'}
-                value={restaurantId}
-                onChange={(item) => {
-                  setRestaurantId(item.value as number);
-                  setFieldError(null);
-                }}
-                disable={restaurantsQuery.isLoading || restaurantOptions.length === 0}
-                search
-                searchPlaceholder="Buscar restaurante…"
-                renderInputSearch={(onSearch) => (
-                  <View
-                    style={[
-                      styles.dropdownSearchOuter,
-                      {
-                        borderColor: palette.border,
-                        backgroundColor: palette.inputBg,
-                      },
-                    ]}
-                  >
-                    <TextInput
-                      style={[styles.dropdownSearchInput, { color: palette.inputText }]}
-                      placeholder="Buscar restaurante…"
-                      placeholderTextColor={palette.placeholder}
-                      onChangeText={onSearch}
-                      autoCorrect={false}
-                      autoCapitalize="none"
-                      underlineColorAndroid="transparent"
-                    />
-                  </View>
-                )}
-              />
-
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>DNI conductor *</Text>
-              <TextInput
-                value={dni}
-                onChangeText={(t) => setDni(t.replace(/[^\d\s-]/g, ''))}
-                // placeholder="8 a 12 dígitos"
-                placeholder="DNI…"
-                placeholderTextColor={palette.placeholder}
-                style={[
-                  styles.input,
-                  {
-                    color: palette.inputText,
-                    backgroundColor: palette.inputBg,
-                    borderColor: palette.inputBorder,
-                  },
-                ]}
-                keyboardType="number-pad"
-                maxLength={KIOSK_DNI_MAX_LEN + 2}
-              />
-
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Código de pedido *</Text>
-              <TextInput
-                value={codigo}
-                onChangeText={(t) => setCodigo(t.toUpperCase())}
-                placeholder="Código pedido…"
-                placeholderTextColor={palette.placeholder}
-                style={[
-                  styles.input,
-                  {
-                    color: palette.inputText,
-                    backgroundColor: palette.inputBg,
-                    borderColor: fieldError ? palette.error : palette.inputBorder,
-                  },
-                ]}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={KIOSK_CODE_MAX_LEN}
-              />
-              {fieldError ? <Text style={[styles.fieldError, { color: palette.error }]}>{fieldError}</Text> : null}
-
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Placa *</Text>
-              <TextInput
-                value={placa}
-                onChangeText={(t) => setPlaca(t.toUpperCase())}
-                placeholder="Placa…"
-                placeholderTextColor={palette.placeholder}
-                style={[
-                  styles.input,
-                  { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
-                ]}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={KIOSK_PLACA_MAX_LEN}
-              />
-
-              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre / alias *</Text>
-              <TextInput
-                value={alias}
-                onChangeText={setAlias}
-                placeholder="Nombre / alias…"
-                placeholderTextColor={palette.placeholder}
-                style={[
-                  styles.input,
-                  { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
-                ]}
-                autoCapitalize="words"
-                autoCorrect={false}
-              />
-
-              <Pressable
-                onPress={submit}
-                disabled={!canSubmit}
-                style={({ pressed }) => [
-                  styles.submitBtn,
-                  { backgroundColor: palette.accent },
-                  !canSubmit && styles.submitBtnDisabled,
-                  canSubmit && pressed && styles.pressedPrimary,
-                ]}
-                android_ripple={canSubmit ? ripple('rgba(0,0,0,0.15)') : undefined}
-              >
-                <Text style={[styles.submitText, { color: palette.accentText }]}>
-                  {isSubmitting ? 'ENVIANDO…' : 'REGISTRAR'}
-                </Text>
-              </Pressable>
-
-              {feedback ? (
-                <Animated.View
-                  entering={FadeIn.duration(240)}
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Restaurante *</Text>
+                {restaurantsQuery.isError ? (
+                  <Text style={[styles.fieldError, { color: palette.error, marginBottom: space.sm }]}>
+                    No se pudieron cargar restaurantes. Revise la API.
+                  </Text>
+                ) : null}
+                <Dropdown
+                  mode="auto"
                   style={[
-                    styles.feedback,
-                    feedback.kind === 'ok' && { backgroundColor: palette.successBg, borderColor: palette.successBorder },
-                    feedback.kind === 'err' && { backgroundColor: palette.dangerBg, borderColor: palette.dangerBorder },
-                    feedback.kind === 'info' && { backgroundColor: palette.infoBg, borderColor: palette.infoBorder },
+                    styles.dropdown,
+                    {
+                      borderColor:
+                        fieldError && restaurantId == null ? palette.error : palette.inputBorder,
+                      backgroundColor: palette.inputBg,
+                    },
+                  ]}
+                  containerStyle={[
+                    styles.dropdownListContainer,
+                    {
+                      backgroundColor: palette.modalBg,
+                      borderColor: palette.border,
+                      maxHeight: DROPDOWN_LIST_MAX_H,
+                    },
+                  ]}
+                  placeholderStyle={[styles.dropdownPlaceholder, { color: palette.placeholder }]}
+                  selectedTextStyle={[styles.dropdownSelected, { color: palette.inputText }]}
+                  itemTextStyle={{ color: palette.inputText }}
+                  activeColor={isDark ? 'rgba(45,212,191,0.15)' : 'rgba(13,148,136,0.12)'}
+                  data={restaurantOptions}
+                  maxHeight={DROPDOWN_LIST_MAX_H}
+                  labelField="label"
+                  valueField="value"
+                  placeholder={restaurantsQuery.isLoading ? 'Cargando locales…' : 'Elegir restaurante…'}
+                  value={restaurantId}
+                  onChange={(item) => {
+                    setRestaurantId(item.value as number);
+                    setFieldError(null);
+                  }}
+                  disable={restaurantsQuery.isLoading || restaurantOptions.length === 0}
+                  search
+                  searchPlaceholder="Buscar restaurante…"
+                  renderInputSearch={(onSearch) => (
+                    <View
+                      style={[
+                        styles.dropdownSearchOuter,
+                        {
+                          borderColor: palette.border,
+                          backgroundColor: palette.inputBg,
+                        },
+                      ]}
+                    >
+                      <TextInput
+                        style={[styles.dropdownSearchInput, { color: palette.inputText }]}
+                        placeholder="Buscar restaurante…"
+                        placeholderTextColor={palette.placeholder}
+                        onChangeText={onSearch}
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                        underlineColorAndroid="transparent"
+                      />
+                    </View>
+                  )}
+                />
+
+                {enableDriverDni ? (
+                  <>
+                    <Text style={[styles.fieldLabel, { color: palette.muted }]}>DNI conductor *</Text>
+                    <TextInput
+                      value={dni}
+                      onChangeText={(t) => setDni(t.replace(/[^\d\s-]/g, ''))}
+                      placeholder="DNI…"
+                      placeholderTextColor={palette.placeholder}
+                      style={[
+                        styles.input,
+                        { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
+                      ]}
+                      keyboardType="number-pad"
+                      maxLength={KIOSK_DNI_MAX_LEN + 2}
+                    />
+                  </>
+                ) : null}
+
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Código de pedido *</Text>
+                <TextInput
+                  value={codigo}
+                  onChangeText={(t) => setCodigo(t.toUpperCase())}
+                  placeholder="Código pedido…"
+                  placeholderTextColor={palette.placeholder}
+                  style={[
+                    styles.input,
+                    {
+                      color: palette.inputText, backgroundColor: palette.inputBg,
+                      borderColor: fieldError ? palette.error : palette.inputBorder
+                    },
+                  ]}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={KIOSK_CODE_MAX_LEN}
+                />
+                {fieldError ? <Text style={[styles.fieldError, { color: palette.error }]}>{fieldError}</Text> : null}
+
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Placa *</Text>
+                <TextInput
+                  value={placa}
+                  onChangeText={(t) => setPlaca(t.toUpperCase())}
+                  placeholder="Placa…"
+                  placeholderTextColor={palette.placeholder}
+                  style={[
+                    styles.input,
+                    { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
+                  ]}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={KIOSK_PLACA_MAX_LEN}
+                />
+
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre / alias *</Text>
+                <TextInput
+                  value={alias}
+                  onChangeText={setAlias}
+                  placeholder="Nombre / alias…"
+                  placeholderTextColor={palette.placeholder}
+                  style={[
+                    styles.input,
+                    { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
+                  ]}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+
+                <Pressable
+                  onPress={submit}
+                  disabled={!canSubmit}
+                  style={({ pressed }) => [
+                    styles.submitBtn,
+                    { backgroundColor: palette.accent },
+                    !canSubmit && styles.submitBtnDisabled,
+                    canSubmit && pressed && styles.pressedPrimary,
+                  ]}
+                  android_ripple={canSubmit ? ripple('rgba(0,0,0,0.15)') : undefined}
+                >
+                  <Text style={[styles.submitText, { color: palette.accentText }]}>
+                    {isSubmitting ? 'ENVIANDO…' : 'REGISTRAR'}
+                  </Text>
+                </Pressable>
+
+                {feedback ? (
+                  <Animated.View
+                    entering={FadeIn.duration(240)}
+                    style={[
+                      styles.feedback,
+                      feedback.kind === 'err' && { backgroundColor: palette.dangerBg, borderColor: palette.dangerBorder },
+                    ]}
+                  >
+                    <Text style={[styles.feedbackText, { color: palette.text }]}>{feedback.msg}</Text>
+                  </Animated.View>
+                ) : null}
+              </ScrollView>
+            )}
+
+            {/* ───── STEP 2: CONFIRM ───── */}
+            {registrationStep === 'confirm' && (
+              <Animated.View entering={FadeIn.duration(300)} style={styles.confirmStep}>
+                {/* Success header */}
+                <View style={styles.confirmSuccessRow}>
+                  <Ionicons name="checkmark-circle" size={28} color={palette.successBorder} />
+                  <Text style={[styles.confirmSuccessTitle, { color: palette.successBorder }]}>
+                    ¡Registro exitoso!
+                  </Text>
+                </View>
+
+                {/* Camera or captured photo */}
+                {enableDriverPhoto ? (
+                  capturedPhotoUri ? (
+                    <Animated.View entering={ZoomIn.duration(300)}>
+                      <Image source={{ uri: capturedPhotoUri }} style={[styles.driverPhoto, { borderColor: palette.accent }]} />
+                    </Animated.View>
+                  ) : cameraPermission?.granted ? (
+                    <View style={styles.cameraContainer}>
+                      <CameraView
+                        ref={cameraRef}
+                        style={styles.cameraPreview}
+                        facing="front"
+                        onCameraReady={() => {
+                          setCameraReady(true);
+                          startCameraCountdown();
+                        }}
+                      />
+                      {cameraCountdown !== null && (
+                        <View style={styles.countdownOverlay}>
+                          <Text style={styles.countdownText}>{cameraCountdown}</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={[styles.driverPhotoPlaceholder, { backgroundColor: palette.cardBg, borderColor: palette.border }]}>
+                      <Ionicons name="camera-off-outline" size={42} color={palette.muted} />
+                      <Text style={[styles.noPermText, { color: palette.muted }]}>Sin acceso a cámara</Text>
+                    </View>
+                  )
+                ) : null}
+
+                {/* Nombre RENIEC o alias (modo básico) */}
+                {enableDriverDni ? (
+                  dniLookupLoading ? (
+                    <View style={styles.confirmNameLoadingRow}>
+                      <Ionicons name="hourglass-outline" size={14} color={palette.muted} />
+                      <Text style={[styles.confirmNameLoading, { color: palette.muted }]}>Consultando RENIEC…</Text>
+                    </View>
+                  ) : dniLookupName ? (
+                    <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={2}>{dniLookupName}</Text>
+                  ) : (
+                    <Text style={[styles.confirmName, { color: palette.muted }]} numberOfLines={1}>{lastDniRef.current || 'Driver'}</Text>
+                  )
+                ) : (
+                  <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={2}>
+                    {lastAliasRef.current || 'Conductor'}
+                  </Text>
+                )}
+
+                {/* Match status badge */}
+                <View
+                  style={[
+                    styles.confirmBadge,
+                    {
+                      backgroundColor: lastArrivalMatched ? palette.successBg : palette.infoBg,
+                      borderColor: lastArrivalMatched ? palette.successBorder : palette.infoBorder,
+                    },
                   ]}
                 >
-                  <Text style={[styles.feedbackText, { color: palette.text }]}>{feedback.msg}</Text>
-                </Animated.View>
-              ) : null}
-            </ScrollView>
+                  <Ionicons
+                    name={lastArrivalMatched ? 'flash' : 'time-outline'}
+                    size={16}
+                    color={lastArrivalMatched ? palette.successBorder : palette.infoBorder}
+                  />
+                  <Text style={[styles.confirmBadgeTxt, { color: lastArrivalMatched ? palette.successBorder : palette.infoBorder }]}>
+                    {lastArrivalMatched
+                      ? `Pedido ${lastMatchedCode ?? ''} asignado`
+                      : 'En espera de pedido'}
+                  </Text>
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.submitBtn,
+                    {
+                      backgroundColor: palette.accent,
+                      marginTop: space.lg
+                    },
+                    pressed && styles.pressedPrimary,
+                  ]}
+                  onPress={closeRegisterModal}
+                >
+                  <Text style={[styles.submitText, { color: palette.accentText }]}>CERRAR</Text>
+                </Pressable>
+              </Animated.View>
+            )}
           </Animated.View>
         </KeyboardAvoidingView>
       </Modal>
@@ -958,27 +1125,35 @@ const styles = StyleSheet.create({
     padding: space.lg,
     overflow: 'hidden',
   },
-  queueBlockWaiting: {
-    borderColor: 'rgba(245,158,11,0.35)',
+  queueBlockHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: space.xs,
   },
-  queueBlockMatch: {
-    borderColor: 'rgba(20,184,166,0.35)',
+  queueBlockTitle: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6 },
+  queueBlockCount: { fontSize: 11, fontWeight: '700' },
+  queueEmpty: { fontSize: 13, fontWeight: '600', marginTop: space.sm },
+  gridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: QUEUE_GRID_GAP, marginTop: space.xs },
+  /** Responsive solo con flex: 1 col si el ancho no alcanza para 2×QUEUE_CELL_FLEX_BASIS + gap */
+  driverCardCell: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: QUEUE_CELL_FLEX_BASIS,
+    minWidth: 0,
+    maxWidth: '100%',
   },
-  queueBlockTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: space.sm },
-  queueEmpty: { fontSize: 12, fontWeight: '600' },
-  gridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: QUEUE_GRID_GAP },
   driverCard: {
-    paddingVertical: space.sm + 2,
+    paddingVertical: space.md,
     paddingHorizontal: space.md,
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1.5,
     overflow: 'hidden',
   },
-  driverCardFlex: { flexGrow: 1, flexBasis: '100%', maxWidth: '100%' },
-  driverCardWaiting: { borderColor: 'rgba(245,158,11,0.45)' },
-  driverCardMatch: { borderColor: 'rgba(20,184,166,0.45)' },
-  driverCode: { fontSize: 14, fontWeight: '900' },
-  driverMeta: { fontSize: 11, marginTop: space.xs, fontWeight: '700', lineHeight: 16 },
+  driverCode: { fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
+  driverPlatform: { fontSize: 11, fontWeight: '700', marginTop: 3, opacity: 0.8 },
+  driverName: { fontSize: 13, fontWeight: '800', marginTop: 5 },
+  driverLocal: { fontSize: 11, fontWeight: '700', marginTop: 2, opacity: 0.7 },
   modalRoot: { flex: 1, justifyContent: 'center', padding: space.xl },
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: {
@@ -1061,9 +1236,82 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 10
   },
   submitBtnDisabled: { opacity: 0.5 },
   submitText: { fontSize: 12, fontWeight: '900', letterSpacing: 2 },
   feedback: { marginTop: space.md + 2, padding: space.md + 2, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
   feedbackText: { fontSize: 12, fontWeight: '700', lineHeight: 18 },
+
+  // ── Step 2: Confirm + Camera ──
+  cameraContainer: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cameraPreview: {
+    width: 160,
+    height: 160,
+  },
+  countdownOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  countdownText: {
+    fontSize: 56,
+    fontWeight: '900',
+    color: '#ffffff',
+  },
+  noPermText: { fontSize: 11, fontWeight: '600', marginTop: 6 },
+  confirmStep: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.xl,
+    paddingBottom: space.xl + 8,
+    gap: 14,
+  },
+  confirmSuccessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  confirmSuccessTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  driverPhoto: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    resizeMode: 'cover',
+    borderWidth: 3,
+  },
+  driverPhotoPlaceholder: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmName: { fontSize: 20, fontWeight: '900', textAlign: 'center', letterSpacing: 0.2 },
+  confirmNameLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  confirmNameLoading: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  confirmBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 99,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+  },
+  confirmBadgeTxt: { fontSize: 13, fontWeight: '700' },
 });

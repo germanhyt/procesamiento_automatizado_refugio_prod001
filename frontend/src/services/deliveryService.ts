@@ -46,7 +46,11 @@ export interface DriverArrival {
     alias_conductor?: string | null;
     restaurant_id?: number | null;
     conductor_dni?: string | null;
+    conductor_nombre_completo?: string | null;
     restaurant_nombre?: string | null;
+    foto_path?: string | null;
+    foto_mime?: string | null;
+    foto_uploaded_at?: string | null;
     estado: DriverStatus;
     matched_order_id?: number | null;
     created_at: string;
@@ -56,14 +60,28 @@ export interface DriverArrival {
     despachado_at?: string | null;
 }
 
+export interface KioskConfigPublic {
+    enable_driver_dni_lookup: boolean;
+    enable_driver_photo_capture: boolean;
+}
+
+/** Respuesta de GET/PATCH admin `/delivery/admin/kiosk-config` (kiosk + flag simular listo Runner). */
+export interface AdminDeliveryAppConfig extends KioskConfigPublic {
+    enable_runner_simulate_order_ready: boolean;
+}
+
 export interface Order {
     id: number;
     restaurant_id: number;
+    /** Nombre del local (`delivery_restaurants.nombre`), igual que en la API. */
+    restaurant_nombre?: string | null;
     plataforma: string;
     codigo_pedido: string;
     estado: OrderStatus;
     numero_bolsas?: number | null;
     locked_by_runner_id?: number | null;
+    /** Usuario que tomó el pedido (runner); viene del backend, no requiere listar /users. */
+    locked_by_runner_username?: string | null;
     matched_driver_arrival_id?: number | null;
     matched_driver_arrival?: DriverArrival | null;
     created_at: string;
@@ -191,6 +209,25 @@ export const deliveryService = {
             `${API_URL}/delivery/admin/restaurants/${restaurantId}/notification-emails/${emailRowId}`,
             { headers: authHeaders(token) }
         );
+    },
+
+    async adminGetKioskConfig(token: string) {
+        const res = await axios.get<AdminDeliveryAppConfig>(`${API_URL}/delivery/admin/kiosk-config`, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async adminPatchKioskConfig(
+        token: string,
+        payload: {
+            enable_driver_dni_lookup?: boolean;
+            enable_driver_photo_capture?: boolean;
+            enable_runner_simulate_order_ready?: boolean;
+        }
+    ) {
+        const res = await axios.patch<AdminDeliveryAppConfig>(`${API_URL}/delivery/admin/kiosk-config`, payload, {
+            headers: authHeaders(token),
+        });
+        return res.data;
     },
 };
 

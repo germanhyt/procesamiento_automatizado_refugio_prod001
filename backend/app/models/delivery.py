@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models.auth import User
 
 
 class Restaurant(Base):
@@ -55,6 +56,7 @@ class Order(Base):
     numero_bolsas = Column(Integer, nullable=True)
 
     locked_by_runner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    locked_by_runner = relationship(User, foreign_keys=[locked_by_runner_id])
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -90,6 +92,10 @@ class DriverArrival(Base):
     codigo_ingresado = Column(String(80), nullable=False, index=True)
     restaurant_id = Column(Integer, ForeignKey("delivery_restaurants.id", ondelete="SET NULL"), nullable=True, index=True)
     conductor_dni = Column(String(20), nullable=True)
+    conductor_nombre_completo = Column(String(220), nullable=True)
+    foto_path = Column(String(512), nullable=True)
+    foto_mime = Column(String(64), nullable=True)
+    foto_uploaded_at = Column(DateTime(timezone=True), nullable=True)
 
     estado = Column(String(40), nullable=False, index=True)  # ESPERANDO, EN_MATCH, ...
 
@@ -109,6 +115,18 @@ class DriverArrival(Base):
         Index("ix_delivery_driver_arrivals_plataforma_estado", "plataforma", "estado"),
         UniqueConstraint("matched_order_id", name="uq_delivery_driver_arrivals_matched_order_id"),
     )
+
+
+class DeliveryConfig(Base):
+    """Singleton id=1: configuración operativa delivery (kiosk, Runner, etc.)."""
+
+    __tablename__ = "delivery_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enable_driver_dni_lookup = Column(Boolean, nullable=False, default=False)
+    enable_driver_photo_capture = Column(Boolean, nullable=False, default=False)
+    enable_runner_simulate_order_ready = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class DeliveryRunnerPushToken(Base):

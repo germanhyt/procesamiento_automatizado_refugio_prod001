@@ -1,6 +1,6 @@
 from app.database import SessionLocal, engine, Base
 from app.models.auth import User, Role, Permission
-from app.models.delivery import Restaurant, Order, DriverArrival
+from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryConfig  # noqa: F401
 from app.models.comercial import ComercialReserva, ComercialEvento  # noqa: F401 — registra tablas en metadata
 from app.core.security import get_password_hash
 import sys

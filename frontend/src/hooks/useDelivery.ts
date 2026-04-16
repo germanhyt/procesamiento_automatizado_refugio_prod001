@@ -163,3 +163,27 @@ export function useAdminRestaurantMutations() {
     return { createRestaurant, updateRestaurant, addNotificationEmail, deleteNotificationEmail };
 }
 
+export function useAdminKioskConfig(enabled: boolean) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: ['delivery', 'admin', 'kiosk-config'],
+        queryFn: async () => deliveryService.adminGetKioskConfig(token as string),
+        enabled: !!token && enabled,
+    });
+}
+
+export function useAdminKioskConfigPatch() {
+    const { token } = useAuth();
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: {
+            enable_driver_dni_lookup?: boolean;
+            enable_driver_photo_capture?: boolean;
+            enable_runner_simulate_order_ready?: boolean;
+        }) => deliveryService.adminPatchKioskConfig(token as string, payload),
+        onSuccess: async () => {
+            await qc.invalidateQueries({ queryKey: ['delivery', 'admin', 'kiosk-config'] });
+        },
+    });
+}
+

@@ -16,6 +16,9 @@
       "supportsTablet": true
     },
     "android": {
+      "minSdkVersion": 23,
+      "targetSdkVersion": 33,
+      "compileSdkVersion": 33,
       "usesCleartextTraffic": true,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
@@ -25,7 +28,7 @@
         "monochromeImage": "./assets/images/logo-refugio.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.refugiodata.runner"
+      "package": "com.refugdata.runner"
     },
     "web": {
       "bundler": "metro",
@@ -49,8 +52,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "d664cc5d-916b-4661-a806-ca6af0fe08c3"
+        "projectId": "63c062ba-a50c-4716-a275-9faf8f0b412d"
       }
-    }
+    },
+    "owner": "refugdata"
   }
 }

@@ -18,6 +18,8 @@ def order_orm_to_dict(order: Any) -> Dict[str, Any]:
     arr = getattr(order, "matched_driver_arrival", None)
     if arr is not None:
         d["matched_driver_arrival"] = driver_arrival_orm_to_dict(arr)
+    lock_u = getattr(order, "locked_by_runner", None)
+    d["locked_by_runner_username"] = getattr(lock_u, "username", None) if lock_u is not None else None
     return d
 
 
@@ -99,12 +101,16 @@ class DriverArrivalBase(BaseModel):
     estado: str
     restaurant_id: Optional[int] = None
     conductor_dni: Optional[str] = None
+    conductor_nombre_completo: Optional[str] = None
 
 
 class DriverArrivalOut(DriverArrivalBase):
     id: int
     matched_order_id: Optional[int] = None
     restaurant_nombre: Optional[str] = None
+    foto_path: Optional[str] = None
+    foto_mime: Optional[str] = None
+    foto_uploaded_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     estado_changed_at: Optional[datetime] = None
@@ -120,6 +126,7 @@ class OrderOut(OrderBase):
     id: int
     restaurant_nombre: Optional[str] = None
     locked_by_runner_id: Optional[int] = None
+    locked_by_runner_username: Optional[str] = None
     matched_driver_arrival_id: Optional[int] = None
     matched_driver_arrival: Optional[DriverArrivalOut] = None
     created_at: datetime
@@ -151,14 +158,14 @@ class FidelioOrderReadyIn(BaseModel):
 
 
 class KioskArrivalIn(BaseModel):
-    """Registro kiosk: restaurante, DNI, plataforma, código, placa y alias son obligatorios."""
+    """Registro kiosk: restaurante, plataforma, código, placa y alias obligatorios; DNI según flag en servidor."""
 
     restaurant_id: int
     plataforma: str
     codigo_ingresado: str
     placa: str
     alias_conductor: str
-    conductor_dni: str
+    conductor_dni: Optional[str] = None
 
     @validator("restaurant_id")
     def _restaurant_id_ok(cls, v):
@@ -181,13 +188,36 @@ class KioskArrivalIn(BaseModel):
     @validator("conductor_dni", pre=True)
     def _dni_normalize(cls, v):
         if v is None:
-            raise ValueError("Ingrese DNI")
+            return None
         s = re.sub(r"[\s-]", "", str(v).strip())
         if not s:
-            raise ValueError("DNI no puede estar vacío")
+            return None
         if not s.isdigit() or len(s) < 8 or len(s) > 12:
             raise ValueError("DNI: entre 8 y 12 dígitos")
         return s
+
+
+class KioskConfigPublicOut(BaseModel):
+    enable_driver_dni_lookup: bool
+    enable_driver_photo_capture: bool
+
+
+class AdminAppConfigOut(KioskConfigPublicOut):
+    """Kiosk + flags Runner (fila singleton `delivery_config`), solo rutas admin."""
+
+    enable_runner_simulate_order_ready: bool
+
+
+class KioskConfigPatchIn(BaseModel):
+    enable_driver_dni_lookup: Optional[bool] = None
+    enable_driver_photo_capture: Optional[bool] = None
+    enable_runner_simulate_order_ready: Optional[bool] = None
+
+
+class RunnerFeatureFlagsOut(BaseModel):
+    """Flags para la app Runner (requiere JWT + delivery:view)."""
+
+    enable_runner_simulate_order_ready: bool
 
 
 class KioskArrivalResult(BaseModel):

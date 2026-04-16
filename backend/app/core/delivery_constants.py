@@ -50,3 +50,9 @@ RUNNER_PUSH_DATA_TYPE_PEDIDO_LISTO = "PEDIDO_LISTO"
 RUNNER_PUSH_DATA_TYPE_NUEVO_DRIVER_ESPERANDO = "NUEVO_DRIVER_ESPERANDO"
 # Pedido enlazado con driver en kiosko (match automático o manual).
 RUNNER_PUSH_DATA_TYPE_KIOSK_MATCH = "KIOSK_MATCH"
+
+# Permisos delivery (tabla `permissions.codename`; alineados con patch_db_delivery).
+# Kiosk DNI/foto: sin codename de uso en dispositivo; solo flags en `delivery_config` y
+# admin `delivery:admin` / `delivery:settings:update` (ver tests test_delivery_kiosk_runner_permissions).
+PERMISSION_DELIVERY_OPERATE = "delivery:operate"
+PERMISSION_DELIVERY_SIMULATE_ORDER_READY = "delivery:simulate_order_ready"

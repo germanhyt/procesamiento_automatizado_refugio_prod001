@@ -18,7 +18,11 @@ export interface DriverArrival {
   alias_conductor?: string | null;
   restaurant_id?: number | null;
   conductor_dni?: string | null;
+  conductor_nombre_completo?: string | null;
   restaurant_nombre?: string | null;
+  foto_path?: string | null;
+  foto_mime?: string | null;
+  foto_uploaded_at?: string | null;
   estado: DriverStatus;
   matched_order_id?: number | null;
   created_at: string;
@@ -26,6 +30,12 @@ export interface DriverArrival {
   estado_changed_at?: string | null;
   atendido_at?: string | null;
   despachado_at?: string | null;
+}
+
+/** Flags públicos del kiosk (`GET /delivery/kiosk/config`). */
+export interface KioskPublicConfig {
+  enable_driver_dni_lookup: boolean;
+  enable_driver_photo_capture: boolean;
 }
 
 export interface Order {
@@ -38,6 +48,7 @@ export interface Order {
   estado: OrderStatus;
   numero_bolsas?: number | null;
   locked_by_runner_id?: number | null;
+  locked_by_runner_username?: string | null;
   matched_driver_arrival_id?: number | null;
   matched_driver_arrival?: DriverArrival | null;
   created_at: string;

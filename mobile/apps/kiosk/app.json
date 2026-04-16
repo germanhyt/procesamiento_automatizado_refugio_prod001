@@ -35,7 +35,15 @@
       "favicon": "./assets/images/logo-refugio.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "RefuChasky Kiosk necesita acceso a la cámara para registrar la foto del conductor.",
+          "photosPermission": "RefuChasky Kiosk necesita acceso a las fotos.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

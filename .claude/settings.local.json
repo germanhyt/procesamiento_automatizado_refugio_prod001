@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:decolecta.com)",
+      "WebFetch(domain:api.decolecta.com)"
+    ]
+  }
+}

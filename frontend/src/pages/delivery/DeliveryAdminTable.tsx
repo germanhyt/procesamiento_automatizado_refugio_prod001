@@ -115,6 +115,18 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 header: 'Código',
                 cell: (info) => <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>,
             }),
+            columnHelper.display({
+                id: 'restaurant_nombre',
+                header: 'Local',
+                cell: ({ row }) => (
+                    <span
+                        className="text-[10px] text-app-muted truncate max-w-[160px] block"
+                        title={row.original.restaurant_nombre?.trim() || undefined}
+                    >
+                        {row.original.restaurant_nombre?.trim() || '—'}
+                    </span>
+                ),
+            }),
             columnHelper.accessor('plataforma', {
                 header: 'Plataforma',
                 cell: (info) => <span className="text-[10px] font-mono text-app-muted">{info.getValue()}</span>,

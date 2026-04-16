@@ -5,6 +5,7 @@ from app.models.auth import Permission, Role
 # Restaurant: usado en seed_locatarios. DeliveryRunnerPushToken: no se referencia en este archivo;
 # al importar la clase, SQLAlchemy registra su tabla en Base.metadata y create_all() crea delivery_runner_push_tokens.
 from app.models.delivery import (  # noqa: F401
+    DeliveryConfig,
     DeliveryRunnerPushToken,
     Restaurant,
     RestaurantNotificationEmail,
@@ -64,10 +65,32 @@ def rename_legacy_delivery_tables(conn) -> None:
         conn.execute(text(s))
 
 
+def rename_delivery_kiosk_config_to_delivery_config(conn) -> None:
+    """Renombra delivery_kiosk_config → delivery_config (idempotente)."""
+    conn.execute(
+        text(
+            """
+            DO $$ BEGIN
+              IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'delivery_kiosk_config'
+              ) AND NOT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'delivery_config'
+              ) THEN
+                ALTER TABLE delivery_kiosk_config RENAME TO delivery_config;
+              END IF;
+            END $$;
+            """
+        )
+    )
+
+
 def ensure_columns():
     # 1) Migrar nombres de tablas antes de create_all (evita tablas duplicadas vacías)
     with engine.begin() as conn:
         rename_legacy_delivery_tables(conn)
+        rename_delivery_kiosk_config_to_delivery_config(conn)
 
     # 2) Crear tablas si no existen (create_all no altera tablas existentes)
     Base.metadata.create_all(bind=engine)
@@ -91,6 +114,10 @@ def ensure_columns():
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS despachado_at TIMESTAMPTZ NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS restaurant_id INTEGER NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_dni VARCHAR(20) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_nombre_completo VARCHAR(220) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS foto_path VARCHAR(512) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS foto_mime VARCHAR(64) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS foto_uploaded_at TIMESTAMPTZ NULL;",
     ]
     with engine.begin() as conn:
         for s in stmts:
@@ -113,6 +140,17 @@ def ensure_columns():
     except Exception as e:
         print(">>> (aviso) FK restaurant_id en delivery_driver_arrivals:", e)
 
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS delivery_config "
+                    "ADD COLUMN IF NOT EXISTS enable_runner_simulate_order_ready BOOLEAN NOT NULL DEFAULT true;"
+                )
+            )
+    except Exception as e:
+        print(">>> (aviso) delivery_config.enable_runner_simulate_order_ready:", e)
+
 
 def ensure_permissions_and_roles():
     db = SessionLocal()
@@ -121,6 +159,12 @@ def ensure_permissions_and_roles():
             {"name": "Ver Delivery", "codename": "delivery:view", "module": "delivery"},
             {"name": "Operar Delivery", "codename": "delivery:operate", "module": "delivery"},
             {"name": "Administrar Delivery", "codename": "delivery:admin", "module": "delivery"},
+            {"name": "Configurar Kiosk Delivery", "codename": "delivery:settings:update", "module": "delivery"},
+            {
+                "name": "Simular pedido listo (Runner)",
+                "codename": "delivery:simulate_order_ready",
+                "module": "delivery",
+            },
         ]
 
         perms = {}
@@ -139,11 +183,17 @@ def ensure_permissions_and_roles():
         # Admin: asegurar que tenga delivery:admin (y por consecuencia debería poder todo)
         if admin_role:
             existing = {p.codename for p in admin_role.permissions}
-            for code in ["delivery:view", "delivery:operate", "delivery:admin"]:
+            for code in [
+                "delivery:view",
+                "delivery:operate",
+                "delivery:admin",
+                "delivery:settings:update",
+                "delivery:simulate_order_ready",
+            ]:
                 if code not in existing:
                     admin_role.permissions.append(perms[code])
 
-        # Operador: view + operate
+        # Operador: view + operate (simular listo vía flag enable_runner_simulate_order_ready en kiosk config)
         if op_role:
             existing = {p.codename for p in op_role.permissions}
             for code in ["delivery:view", "delivery:operate"]:
@@ -151,6 +201,24 @@ def ensure_permissions_and_roles():
                     op_role.permissions.append(perms[code])
 
         db.commit()
+    finally:
+        db.close()
+
+
+def seed_delivery_config():
+    """Fila singleton id=1 para configuración delivery (kiosk, Runner, etc.); idempotente."""
+    db = SessionLocal()
+    try:
+        row = db.get(DeliveryConfig, 1)
+        if row is None:
+            row = DeliveryConfig(
+                id=1,
+                enable_driver_dni_lookup=False,
+                enable_driver_photo_capture=False,
+                enable_runner_simulate_order_ready=True,
+            )
+            db.add(row)
+            db.commit()
     finally:
         db.close()
 
@@ -206,6 +274,7 @@ def main():
     print(">>> Patching DB: delivery_* tables + columns + permissions/roles")
     ensure_columns()
     ensure_permissions_and_roles()
+    seed_delivery_config()
     seed_locatarios()
     seed_locatario_notification_emails_from_map()
     print(">>> Patch completado.")

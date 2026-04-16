@@ -36,7 +36,7 @@ async function setStoredTheme(theme: KioskThemeMode): Promise<void> {
 }
 
 export function useKioskTheme() {
-  const [theme, setThemeState] = useState<KioskThemeMode>('dark');
+  const [theme, setThemeState] = useState<KioskThemeMode>('light');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export function useKioskTheme() {
     (async () => {
       const stored = await getStoredTheme();
       if (!mounted) return;
-      setThemeState(stored ?? systemTheme());
+      setThemeState(stored ?? 'light');
       setReady(true);
     })();
     return () => {

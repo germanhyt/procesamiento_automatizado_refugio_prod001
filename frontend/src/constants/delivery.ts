@@ -44,6 +44,10 @@ export const DELIVERY_PERMISSIONS = {
     VIEW: 'delivery:view',
     OPERATE: 'delivery:operate',
     ADMIN: 'delivery:admin',
+    /** Cambiar flags de producto en `delivery_config` (kiosk RENIEC/foto, simular listo vía operador). */
+    SETTINGS_UPDATE: 'delivery:settings:update',
+    /** Simular webhook Fidelio "pedido listo" desde la app Runner. */
+    SIMULATE_ORDER_READY: 'delivery:simulate_order_ready',
 } as const;
 
 export function orderStatusBadgeClass(status: string) {

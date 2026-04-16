@@ -13,6 +13,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
         {/* PWA */}
         <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
         <meta name="theme-color" content="#E6F4FE" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

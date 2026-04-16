@@ -4,9 +4,10 @@ from zoneinfo import ZoneInfo
 import logging
 import os
 import re
+import requests
 from typing import Optional, List, Set, Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session, contains_eager, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func as sql_func
@@ -31,6 +32,8 @@ from app.core.delivery_constants import (
     DRIVER_STATUS_EN_MATCH,
     DRIVER_STATUS_ABANDONO,
     DRIVER_STATUS_DESPACHADO,
+    PERMISSION_DELIVERY_OPERATE,
+    PERMISSION_DELIVERY_SIMULATE_ORDER_READY,
 )
 from app.database import get_db, SessionLocal
 from app.api.auth import get_current_user
@@ -68,6 +71,10 @@ from app.schemas.delivery import (
     RunnerPushUnregisterIn,
     RunnerPushRegisterOut,
     RunnerNotificationOut,
+    KioskConfigPublicOut,
+    KioskConfigPatchIn,
+    AdminAppConfigOut,
+    RunnerFeatureFlagsOut,
 )
 
 from app.services.delivery_push import (
@@ -79,6 +86,9 @@ from app.services.delivery_runner_notifications import (
     delete_all_runner_notifications_for_user,
     mark_all_runner_notifications_read,
 )
+from app.services.delivery_decolecta import fetch_reniec_dni_dict, fetch_reniec_full_name_optional
+from app.services.delivery_config import get_delivery_config
+from app.services.delivery_driver_photo import save_kiosk_driver_photo_file
 
 from fuzzywuzzy import fuzz
 
@@ -250,6 +260,24 @@ def _lima_today_range_utc() -> tuple[datetime, datetime]:
     return start_lima.astimezone(timezone.utc), end_lima.astimezone(timezone.utc)
 
 
+def _lima_date_range_utc(date_str: str) -> tuple[datetime, datetime]:
+    """
+    Convierte una fecha YYYY-MM-DD (zona Lima) al rango UTC equivalente [inicio, fin).
+    Lanza HTTPException 422 si el formato no es válido.
+    """
+    lima_tz = ZoneInfo("America/Lima")
+    try:
+        parsed = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Formato de fecha inválido: '{date_str}'. Use YYYY-MM-DD.",
+        )
+    start_lima = parsed.replace(tzinfo=lima_tz)
+    end_lima = datetime.fromtimestamp(start_lima.timestamp() + 86400, tz=lima_tz)
+    return start_lima.astimezone(timezone.utc), end_lima.astimezone(timezone.utc)
+
+
 def _get_state_ts(obj) -> datetime:
     return getattr(obj, "estado_changed_at", None) or getattr(obj, "updated_at", None) or getattr(obj, "created_at")
 
@@ -351,6 +379,7 @@ def _load_order_dict(db: Session, order_id: int) -> Dict[str, Any]:
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
+            joinedload(Order.locked_by_runner),
         )
         .filter(Order.id == order_id)
         .one()
@@ -491,6 +520,57 @@ async def fidelio_order_ready(
     return _load_order_dict(db, order.id)
 
 
+@router.post("/runner/simulate/order-ready", response_model=OrderOut)
+async def runner_simulate_order_ready(
+    payload: FidelioOrderReadyIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Simulación operativa desde app Runner.
+    Reutiliza la misma lógica del webhook Fidelio sin exponer X-API-Key en cliente.
+    Autorización: permiso explícito `delivery:simulate_order_ready`, o bien `delivery:operate`
+    si el flag `enable_runner_simulate_order_ready` está activo en config (misma tabla que kiosk).
+    """
+    cfg = get_delivery_config(db)
+    db.commit()
+    if current_user.is_superuser:
+        pass
+    elif _user_has_permission(current_user, PERMISSION_DELIVERY_SIMULATE_ORDER_READY):
+        pass
+    elif cfg.enable_runner_simulate_order_ready and _user_has_permission(
+        current_user, PERMISSION_DELIVERY_OPERATE
+    ):
+        pass
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para simular pedido listo.",
+        )
+    internal_api_key = (os.getenv(FIDELIO_API_KEY_ENV) or "").strip() or None
+    return await fidelio_order_ready(
+        payload=payload,
+        background_tasks=background_tasks,
+        db=db,
+        x_api_key=internal_api_key,
+    )
+
+
+@router.get("/runner/feature-flags", response_model=RunnerFeatureFlagsOut)
+def runner_feature_flags(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Flags de producto para la app Runner (JWT + delivery:view)."""
+    _require_permission(current_user, "delivery:view")
+    cfg = get_delivery_config(db)
+    db.commit()
+    return RunnerFeatureFlagsOut(
+        enable_runner_simulate_order_ready=bool(cfg.enable_runner_simulate_order_ready),
+    )
+
+
 @router.get("/kiosk/restaurants", response_model=List[RestaurantOut])
 async def kiosk_list_restaurants(db: Session = Depends(get_db)):
     """Listado público de restaurantes activos para selector en Kiosk."""
@@ -501,6 +581,58 @@ async def kiosk_list_restaurants(db: Session = Depends(get_db)):
         .all()
     )
     return rows
+
+
+@router.get("/kiosk/config", response_model=KioskConfigPublicOut)
+def kiosk_public_config(db: Session = Depends(get_db)):
+    """Flags públicos para que el kiosk oculte consulta RENIEC / cámara sin JWT."""
+    cfg = get_delivery_config(db)
+    db.commit()
+    return KioskConfigPublicOut(
+        enable_driver_dni_lookup=bool(cfg.enable_driver_dni_lookup),
+        enable_driver_photo_capture=bool(cfg.enable_driver_photo_capture),
+    )
+
+
+@router.get("/kiosk/dni-lookup", response_model=Dict[str, Any])
+def kiosk_dni_lookup(
+    numero: str = Query(..., min_length=8, max_length=12, description="Número de DNI (8 dígitos)"),
+    db: Session = Depends(get_db),
+):
+    """
+    Proxy público hacia DeColecta/RENIEC para consulta de datos del conductor por DNI.
+    Sin JWT — sólo para uso interno del Kiosk. La API key se mantiene server-side.
+    """
+    cfg = get_delivery_config(db)
+    db.commit()
+    if not cfg.enable_driver_dni_lookup:
+        raise HTTPException(status_code=403, detail="Consulta DNI deshabilitada para este kiosko.")
+    if not re.match(r"^\d{8,12}$", numero.strip()):
+        raise HTTPException(status_code=422, detail="Número de DNI inválido. Se esperan 8 a 12 dígitos.")
+
+    try:
+        d = fetch_reniec_dni_dict(numero.strip())
+    except ValueError as exc:
+        msg = str(exc)
+        if "DECOLECTA_API_KEY" in msg:
+            raise HTTPException(status_code=503, detail="Servicio de consulta DNI no configurado.")
+        if msg == "DNI no encontrado":
+            raise HTTPException(status_code=404, detail="DNI no encontrado en RENIEC.")
+        logger.warning("DeColecta DNI lookup error: %s", msg)
+        raise HTTPException(status_code=502, detail="Respuesta inesperada del servicio de consulta DNI.")
+    except requests.RequestException as exc:
+        logger.error("DeColecta DNI lookup error: %s", exc)
+        raise HTTPException(status_code=502, detail="Error al contactar el servicio de consulta DNI.")
+
+    raw = d.get("_raw")
+    return {
+        "first_name": d["first_name"],
+        "first_last_name": d["first_last_name"],
+        "second_last_name": d["second_last_name"],
+        "full_name": d["full_name"],
+        "document_number": d["document_number"],
+        "_raw": raw,
+    }
 
 
 @router.post("/kiosk/arrivals", response_model=KioskArrivalResult)
@@ -526,6 +658,12 @@ async def kiosk_arrival(
     )
     if not rest:
         raise HTTPException(status_code=400, detail="Restaurante no válido o inactivo")
+
+    delivery_cfg = get_delivery_config(db)
+    db.commit()
+    if delivery_cfg.enable_driver_dni_lookup and not (payload.conductor_dni and str(payload.conductor_dni).strip()):
+        raise HTTPException(status_code=400, detail="DNI del conductor es obligatorio.")
+
     plataforma = payload.plataforma.strip().upper()
     codigo_ingresado = payload.codigo_ingresado.strip().upper()
     codigo_norm = _normalize_code(codigo_ingresado)
@@ -547,13 +685,19 @@ async def kiosk_arrival(
     if prevs:
         db.commit()
 
+    conductor_dni_val = payload.conductor_dni
+    nombre_reniec: Optional[str] = None
+    if delivery_cfg.enable_driver_dni_lookup and conductor_dni_val:
+        nombre_reniec = fetch_reniec_full_name_optional(conductor_dni_val)
+
     arrival = DriverArrival(
         plataforma=plataforma,
         placa=payload.placa.strip().upper(),
         alias_conductor=payload.alias_conductor.strip(),
         codigo_ingresado=codigo_ingresado,
         restaurant_id=rest.id,
-        conductor_dni=payload.conductor_dni,
+        conductor_dni=conductor_dni_val,
+        conductor_nombre_completo=nombre_reniec,
         estado=DRIVER_STATUS_ESPERANDO,
     )
     arrival.estado_changed_at = _utcnow()
@@ -656,6 +800,44 @@ async def kiosk_arrival(
         "matched": True,
         "matched_order": _load_order_dict(db, matched_order.id),
     }
+
+
+@router.post("/kiosk/arrivals/{arrival_id}/photo", response_model=DriverArrivalOut)
+async def kiosk_upload_driver_photo(
+    arrival_id: int,
+    conductor_dni: str = Form(..., description="Debe coincidir con el DNI guardado en el arribo"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Sube la foto del conductor al FileStore (público para el kiosk; valida DNI vs fila)."""
+    cfg = get_delivery_config(db)
+    db.commit()
+    if not cfg.enable_driver_photo_capture:
+        raise HTTPException(status_code=403, detail="Captura de foto deshabilitada para este kiosko.")
+
+    dni_norm = re.sub(r"[\s-]", "", conductor_dni.strip())
+    if not dni_norm.isdigit() or len(dni_norm) < 8 or len(dni_norm) > 12:
+        raise HTTPException(status_code=422, detail="DNI inválido.")
+
+    arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
+    if not arrival:
+        raise HTTPException(status_code=404, detail="Registro de arribo no encontrado.")
+    row_dni = re.sub(r"[\s-]", "", (arrival.conductor_dni or "").strip())
+    if not row_dni or row_dni != dni_norm:
+        raise HTTPException(status_code=400, detail="El DNI no coincide con el registro del conductor.")
+
+    content = await file.read()
+    try:
+        rel, mime = save_kiosk_driver_photo_file(dni_norm, content, content_type=file.content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    arrival.foto_path = rel
+    arrival.foto_mime = mime
+    arrival.foto_uploaded_at = _utcnow()
+    db.commit()
+    db.refresh(arrival)
+    return driver_arrival_orm_to_dict(arrival)
 
 
 @router.post("/push/register", response_model=RunnerPushRegisterOut)
@@ -779,6 +961,7 @@ async def list_active_orders(
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
+            joinedload(Order.locked_by_runner),
         )
         .filter(Order.estado.notin_([ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO]))
         .order_by(Order.id.desc())
@@ -803,6 +986,7 @@ async def get_order_by_id(
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
+            joinedload(Order.locked_by_runner),
         )
         .filter(Order.id == order_id)
         .first()
@@ -874,6 +1058,51 @@ async def kiosk_list_delivered_orders_today(
         .options(
             contains_eager(Order.restaurant),
             joinedload(Order.matched_driver_arrival),
+            joinedload(Order.locked_by_runner),
+        )
+        .filter(
+            Order.estado == ORDER_STATUS_ENTREGADO,
+            delivered_ts.isnot(None),
+            delivered_ts >= start_utc,
+            delivered_ts < end_utc,
+        )
+        .order_by(delivered_ts.desc(), Order.id.desc())
+        .limit(DEFAULT_QUERY_LIMIT)
+        .all()
+    )
+    return _orders_to_dicts(orders)
+
+
+@router.get("/kiosk/orders/delivered", response_model=List[OrderOut])
+async def kiosk_list_delivered_orders_by_date(
+    date: Optional[str] = Query(
+        default=None,
+        description="Fecha Lima en formato YYYY-MM-DD. Si no se indica, devuelve el día actual.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint público para Kiosk/Runner (sin JWT).
+    Retorna pedidos ENTREGADO de la fecha indicada (zona Lima), ordenados por más recientes.
+    Si `date` no se provee o es None, equivale al día actual (igual que /today).
+    """
+    timeouts_res = apply_timeouts(db)
+    if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
+        await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+
+    if date:
+        start_utc, end_utc = _lima_date_range_utc(date)
+    else:
+        start_utc, end_utc = _lima_today_range_utc()
+
+    delivered_ts = sql_func.coalesce(Order.entregado_at, Order.estado_changed_at)
+    orders = (
+        db.query(Order)
+        .join(Restaurant, Order.restaurant_id == Restaurant.id)
+        .options(
+            contains_eager(Order.restaurant),
+            joinedload(Order.matched_driver_arrival),
+            joinedload(Order.locked_by_runner),
         )
         .filter(
             Order.estado == ORDER_STATUS_ENTREGADO,
@@ -1147,6 +1376,7 @@ async def admin_list_orders(
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
+            joinedload(Order.locked_by_runner),
         )
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
@@ -1168,6 +1398,7 @@ async def admin_list_orders_by_status(
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
+            joinedload(Order.locked_by_runner),
         )
         .filter(Order.estado == status.strip().upper())
         .order_by(Order.id.desc())
@@ -1455,3 +1686,41 @@ async def admin_delete_restaurant_notification_email(
     db.delete(row)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/admin/kiosk-config", response_model=AdminAppConfigOut)
+def admin_get_kiosk_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:admin")
+    cfg = get_delivery_config(db)
+    db.commit()
+    return AdminAppConfigOut(
+        enable_driver_dni_lookup=bool(cfg.enable_driver_dni_lookup),
+        enable_driver_photo_capture=bool(cfg.enable_driver_photo_capture),
+        enable_runner_simulate_order_ready=bool(cfg.enable_runner_simulate_order_ready),
+    )
+
+
+@router.patch("/admin/kiosk-config", response_model=AdminAppConfigOut)
+def admin_patch_kiosk_config(
+    payload: KioskConfigPatchIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_permission(current_user, "delivery:settings:update")
+    cfg = get_delivery_config(db)
+    if payload.enable_driver_dni_lookup is not None:
+        cfg.enable_driver_dni_lookup = payload.enable_driver_dni_lookup
+    if payload.enable_driver_photo_capture is not None:
+        cfg.enable_driver_photo_capture = payload.enable_driver_photo_capture
+    if payload.enable_runner_simulate_order_ready is not None:
+        cfg.enable_runner_simulate_order_ready = payload.enable_runner_simulate_order_ready
+    db.commit()
+    db.refresh(cfg)
+    return AdminAppConfigOut(
+        enable_driver_dni_lookup=bool(cfg.enable_driver_dni_lookup),
+        enable_driver_photo_capture=bool(cfg.enable_driver_photo_capture),
+        enable_runner_simulate_order_ready=bool(cfg.enable_runner_simulate_order_ready),
+    )
