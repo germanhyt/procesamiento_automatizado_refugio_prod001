@@ -23,7 +23,7 @@ function getEasProjectId(): string | undefined {
   // EAS Build / dev client: lo más fiable suele ser easConfig (no siempre está en expoConfig.extra en runtime).
   const fromEas = (Constants.easConfig as { projectId?: string } | null)?.projectId?.trim();
   if (fromEas) {
-    return fromEas;
+    return fromEas; 
   }
   const fromConfig = (
     Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined

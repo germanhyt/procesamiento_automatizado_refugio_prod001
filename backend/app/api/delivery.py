@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from sqlalchemy.orm import Session, contains_eager, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func as sql_func
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 
 from app.core.delivery_constants import (
     DEFAULT_QUERY_LIMIT,
@@ -89,6 +89,7 @@ from app.services.delivery_runner_notifications import (
 from app.services.delivery_decolecta import fetch_reniec_dni_dict, fetch_reniec_full_name_optional
 from app.services.delivery_config import get_delivery_config
 from app.services.delivery_driver_photo import save_kiosk_driver_photo_file
+from app.services.file_store_service import get_upload_base
 
 from fuzzywuzzy import fuzz
 
@@ -805,30 +806,42 @@ async def kiosk_arrival(
 @router.post("/kiosk/arrivals/{arrival_id}/photo", response_model=DriverArrivalOut)
 async def kiosk_upload_driver_photo(
     arrival_id: int,
-    conductor_dni: str = Form(..., description="Debe coincidir con el DNI guardado en el arribo"),
+    conductor_dni: str = Form(
+        "",
+        description="Si el arribo tiene DNI, debe coincidir si se envía. Vacío: se usa el DNI del arribo.",
+    ),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Sube la foto del conductor al FileStore (público para el kiosk; valida DNI vs fila)."""
+    """Sube la foto del conductor al FileStore (público para el kiosk; valida DNI vs fila si aplica)."""
     cfg = get_delivery_config(db)
     db.commit()
     if not cfg.enable_driver_photo_capture:
         raise HTTPException(status_code=403, detail="Captura de foto deshabilitada para este kiosko.")
 
-    dni_norm = re.sub(r"[\s-]", "", conductor_dni.strip())
-    if not dni_norm.isdigit() or len(dni_norm) < 8 or len(dni_norm) > 12:
-        raise HTTPException(status_code=422, detail="DNI inválido.")
-
     arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
     if not arrival:
         raise HTTPException(status_code=404, detail="Registro de arribo no encontrado.")
     row_dni = re.sub(r"[\s-]", "", (arrival.conductor_dni or "").strip())
-    if not row_dni or row_dni != dni_norm:
-        raise HTTPException(status_code=400, detail="El DNI no coincide con el registro del conductor.")
+    form_dni = re.sub(r"[\s-]", "", (conductor_dni or "").strip())
+
+    if row_dni:
+        if form_dni:
+            if not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12:
+                raise HTTPException(status_code=400, detail="DNI inválido.")
+            if form_dni != row_dni:
+                raise HTTPException(status_code=400, detail="El DNI no coincide con el registro del conductor.")
+            storage_dni = form_dni
+        else:
+            storage_dni = row_dni
+    else:
+        if form_dni and (not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12):
+            raise HTTPException(status_code=400, detail="DNI inválido.")
+        storage_dni = form_dni if form_dni else "unknown"
 
     content = await file.read()
     try:
-        rel, mime = save_kiosk_driver_photo_file(dni_norm, content, content_type=file.content_type)
+        rel, mime = save_kiosk_driver_photo_file(storage_dni, content, content_type=file.content_type)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1406,6 +1419,40 @@ async def admin_list_orders_by_status(
         .all()
     )
     return _orders_to_dicts(orders)
+
+
+_DRIVER_PHOTO_REL_PREFIX = "delivery/driver_photos/"
+
+
+@router.get("/admin/driver-arrivals/{arrival_id}/photo-file")
+async def admin_driver_arrival_photo_file(
+    arrival_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Sirve el archivo de foto del conductor (kiosk) para el panel admin.
+    Solo `delivery:admin`; ruta acotada bajo delivery/driver_photos/.
+    """
+    _require_permission(current_user, "delivery:admin")
+    arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
+    if not arrival:
+        raise HTTPException(status_code=404, detail="Arribo no encontrado")
+    rel = (arrival.foto_path or "").strip().replace("\\", "/")
+    if not rel or ".." in rel or rel.startswith("/"):
+        raise HTTPException(status_code=404, detail="Sin foto registrada")
+    if not rel.startswith(_DRIVER_PHOTO_REL_PREFIX):
+        raise HTTPException(status_code=400, detail="Ruta de archivo no permitida")
+    base = get_upload_base().resolve()
+    abs_path = (base / rel).resolve()
+    try:
+        abs_path.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Ruta inválida")
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    media = (arrival.foto_mime or "application/octet-stream").split(";")[0].strip()
+    return FileResponse(abs_path, media_type=media, filename=abs_path.name)
 
 
 @router.post("/admin/orders/{order_id}/mark-devolucion", response_model=OrderOut)

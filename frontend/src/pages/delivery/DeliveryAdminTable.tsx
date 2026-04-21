@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     createColumnHelper,
     flexRender,
@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-table';
 import AppSelect from '@/components/ui/AppSelect';
 import type { AdminCancelIn, Order } from '@/services/deliveryService';
+import { deliveryService } from '@/services/deliveryService';
 import { orderStatusBadgeClass } from '@/constants/delivery';
 
 function diffMinutes(from: string | null | undefined, to: string | null | undefined): string {
@@ -82,6 +83,7 @@ export type DeliveryAdminTableProps = {
     confirm: (opts: { title: string; text: string; confirmText: string; confirmColor?: string }) => Promise<boolean>;
     promptText: (opts: { title: string; label: string; placeholder?: string; required?: boolean }) => Promise<string | null>;
     toast: (opts: { icon: 'success' | 'error' | 'warning' | 'info'; title: string; text?: string }) => Promise<void>;
+    authToken: string | null;
 };
 
 const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
@@ -95,8 +97,38 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     confirm,
     promptText,
     toast,
+    authToken,
 }) => {
     const [codigoFilter, setCodigoFilter] = useState('');
+    const [photoViewer, setPhotoViewer] = useState<{ title: string; objectUrl: string } | null>(null);
+    const [photoLoading, setPhotoLoading] = useState(false);
+
+    const closePhotoViewer = useCallback(() => {
+        setPhotoViewer((prev) => {
+            if (prev?.objectUrl) URL.revokeObjectURL(prev.objectUrl);
+            return null;
+        });
+    }, []);
+
+    const openPhotoViewer = useCallback(
+        async (arrivalId: number, title: string) => {
+            if (!authToken) {
+                void toast({ icon: 'warning', title: 'Sesión requerida' });
+                return;
+            }
+            closePhotoViewer();
+            setPhotoLoading(true);
+            try {
+                const objectUrl = await deliveryService.adminGetDriverArrivalPhotoObjectUrl(authToken, arrivalId);
+                setPhotoViewer({ title, objectUrl });
+            } catch {
+                void toast({ icon: 'error', title: 'No se pudo cargar la foto' });
+            } finally {
+                setPhotoLoading(false);
+            }
+        },
+        [authToken, toast, closePhotoViewer]
+    );
 
     const filtered = useMemo(() => {
         const q = codigoFilter.trim().toLowerCase();
@@ -145,6 +177,26 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         {driverLabel(row.original)}
                     </span>
                 ),
+            }),
+            columnHelper.display({
+                id: 'driver_photo',
+                header: 'Foto',
+                cell: ({ row }) => {
+                    const da = row.original.matched_driver_arrival;
+                    const hasPhoto = da?.id != null && Boolean(da.foto_path?.trim());
+                    if (!hasPhoto) {
+                        return <span className="text-app-muted">—</span>;
+                    }
+                    return (
+                        <button
+                            type="button"
+                            onClick={() => void openPhotoViewer(da!.id, row.original.codigo_pedido)}
+                            className="text-[10px] font-black uppercase tracking-widest text-teal-400 hover:underline"
+                        >
+                            Ver
+                        </button>
+                    );
+                },
             }),
             columnHelper.display({
                 id: 'sla_crea_listo',
@@ -288,7 +340,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 },
             }),
         ],
-        [admin, confirm, promptText, toast]
+        [admin, confirm, promptText, toast, openPhotoViewer]
     );
 
     const table = useReactTable({
@@ -401,6 +453,46 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         </div>
                     </div>
                 </>
+            )}
+
+            {(photoViewer || photoLoading) && (
+                <div
+                    className="fixed inset-0 z-100 flex items-center justify-center bg-black/70 p-4"
+                    onClick={closePhotoViewer}
+                    role="presentation"
+                >
+                    <div
+                        className="bg-app-panel border border-app-border rounded-2xl shadow-xl max-w-[95vw] max-h-[90vh] flex flex-col overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Foto del conductor"
+                    >
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-app-border shrink-0">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted truncate">
+                                Foto conductor · {photoViewer?.title ?? '…'}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={closePhotoViewer}
+                                className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-[9px] font-black uppercase tracking-widest text-app-text"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                        <div className="p-4 flex items-center justify-center min-h-[120px] overflow-auto bg-black/40">
+                            {photoLoading ? (
+                                <p className="text-sm text-app-muted">Cargando…</p>
+                            ) : photoViewer?.objectUrl ? (
+                                <img
+                                    src={photoViewer.objectUrl}
+                                    alt="Foto del conductor"
+                                    className="max-w-full max-h-[80vh] w-auto h-auto object-contain"
+                                />
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

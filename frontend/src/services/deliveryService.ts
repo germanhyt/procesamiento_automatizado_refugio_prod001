@@ -229,5 +229,14 @@ export const deliveryService = {
         });
         return res.data;
     },
+
+    /** Foto del conductor (blob autenticado). Revocar con `URL.revokeObjectURL` al cerrar el visor. */
+    async adminGetDriverArrivalPhotoObjectUrl(token: string, arrivalId: number): Promise<string> {
+        const res = await axios.get<Blob>(`${API_URL}/delivery/admin/driver-arrivals/${arrivalId}/photo-file`, {
+            headers: authHeaders(token),
+            responseType: 'blob',
+        });
+        return URL.createObjectURL(res.data);
+    },
 };
 

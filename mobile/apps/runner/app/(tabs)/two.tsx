@@ -245,11 +245,11 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {okMessage ? (
+        {/* {okMessage ? (
           <View style={[styles.resultBanner, { borderColor: p.successBorder, backgroundColor: p.successBg }]}>
             <Text style={[styles.resultBannerText, { color: p.text }]}>{okMessage}</Text>
           </View>
-        ) : null}
+        ) : null} */}
 
         <View style={[styles.card, { backgroundColor: p.cardBg, borderColor: p.cardBorder }]}>
           <TouchableOpacity style={[styles.row, { borderBottomColor: p.border }]} onPress={logout}>

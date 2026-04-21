@@ -38,7 +38,7 @@ function minutesSince(iso: string | null | undefined) {
 }
 
 const DeliveryPanel: React.FC = () => {
-    const { user } = useAuth();
+    const { user, token } = useAuth();
     const { state, attempts } = useDeliveryWS();
     const isWsOpen = state === 'open';
     const polling = isWsOpen ? false : 5000;
@@ -537,6 +537,7 @@ const DeliveryPanel: React.FC = () => {
                     confirm={confirm}
                     promptText={promptText}
                     toast={toast}
+                    authToken={token}
                 />
             )}
 

@@ -1,4 +1,6 @@
-import { http } from './client';
+import { Platform } from 'react-native';
+
+import { getApiBaseUrl, http } from './client';
 import type { DriverArrival, KioskPublicConfig, Order, Restaurant } from './types';
 
 export async function listWaitingDrivers() {
@@ -90,18 +92,42 @@ export async function kioskArrival(payload: {
 }
 
 /**
- * Sube foto del conductor tras el alta (multipart). Requiere el mismo DNI persistido en el arribo.
+ * Sube foto del conductor (multipart). `fetch` evita que axios/RN envíe multipart sin boundary (422).
+ * En web se usa Blob; en nativo, parte `{ uri, name, type }`.
  */
 export async function kioskUploadDriverPhoto(arrivalId: number, conductorDni: string, fileUri: string) {
   const form = new FormData();
   form.append('conductor_dni', conductorDni.replace(/[\s-]/g, ''));
-  const name = fileUri.toLowerCase().endsWith('.png') ? 'photo.png' : 'photo.jpg';
-  const mime = name.endsWith('.png') ? 'image/png' : 'image/jpeg';
-  form.append('file', { uri: fileUri, name, type: mime } as unknown as Blob);
-  const res = await http.post<DriverArrival>(`/delivery/kiosk/arrivals/${arrivalId}/photo`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return res.data;
+  const lower = fileUri.toLowerCase();
+  const name = lower.endsWith('.png')
+    ? 'photo.png'
+    : lower.endsWith('.webp')
+      ? 'photo.webp'
+      : 'photo.jpg';
+  const mime =
+    name.endsWith('.png') ? 'image/png' : name.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+
+  if (Platform.OS === 'web') {
+    const rb = await fetch(fileUri);
+    form.append('file', await rb.blob(), name);
+  } else {
+    form.append('file', { uri: fileUri, name, type: mime } as unknown as Blob);
+  }
+
+  const url = `${getApiBaseUrl()}/api/delivery/kiosk/arrivals/${arrivalId}/photo`;
+  const res = await fetch(url, { method: 'POST', body: form });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === 'string') detail = j.detail;
+      else if (Array.isArray(j?.detail)) detail = j.detail.map((e: unknown) => JSON.stringify(e)).join('; ');
+    } catch {
+      /* vacío */
+    }
+    throw new Error(`Foto conductor ${res.status}: ${detail}`);
+  }
+  return res.json() as Promise<DriverArrival>;
 }
 
 export async function listActiveOrders() {

@@ -67,7 +67,7 @@ const STATUS_CONFIG = {
     dot: '#F59E0B',
   },
   EN_MATCH: {
-    label: 'Coincidencia',
+    label: 'Por despachar',
     borderColor: 'rgba(20,184,166,0.65)',
     bgColorDark: 'rgba(20,184,166,0.13)',
     bgColorLight: 'rgba(20,184,166,0.07)',
@@ -423,13 +423,14 @@ export default function KioskScreen() {
   useEffect(() => {
     if (!enableDriverPhoto || !capturedPhotoUri) return;
     const id = lastArrivalIdRef.current;
-    const dni = lastDniRef.current;
-    if (!id || !dni || photoUploadedRef.current) return;
+    if (!id || photoUploadedRef.current) return;
+    if (enableDriverDni && !lastDniRef.current) return;
     photoUploadedRef.current = true;
-    kioskUploadDriverPhoto(id, dni, capturedPhotoUri).catch(() => {
+    kioskUploadDriverPhoto(id, lastDniRef.current, capturedPhotoUri).catch((err) => {
       photoUploadedRef.current = false;
+      console.warn('[kiosk] Falló subida de foto del conductor', err);
     });
-  }, [capturedPhotoUri, enableDriverPhoto]);
+  }, [capturedPhotoUri, enableDriverPhoto, enableDriverDni]);
 
   const submit = async () => {
     setFieldError(null);
@@ -823,11 +824,11 @@ export default function KioskScreen() {
                   maxLength={KIOSK_PLACA_MAX_LEN}
                 />
 
-                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre / alias *</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre del conductor *</Text>
                 <TextInput
                   value={alias}
                   onChangeText={setAlias}
-                  placeholder="Nombre / alias…"
+                  placeholder="Escribe aquí..."
                   placeholderTextColor={palette.placeholder}
                   style={[
                     styles.input,
@@ -917,9 +918,13 @@ export default function KioskScreen() {
                       <Text style={[styles.confirmNameLoading, { color: palette.muted }]}>Consultando RENIEC…</Text>
                     </View>
                   ) : dniLookupName ? (
-                    <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={2}>{dniLookupName}</Text>
+                    <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={2}>
+                      {dniLookupName}
+                    </Text>
                   ) : (
-                    <Text style={[styles.confirmName, { color: palette.muted }]} numberOfLines={1}>{lastDniRef.current || 'Driver'}</Text>
+                    <Text style={[styles.confirmName, { color: palette.muted }]} numberOfLines={1}>
+                      {lastDniRef.current || 'Driver'}
+                    </Text>
                   )
                 ) : (
                   <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={2}>

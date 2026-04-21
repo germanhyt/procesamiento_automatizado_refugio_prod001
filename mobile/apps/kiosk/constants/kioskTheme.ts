@@ -23,6 +23,8 @@ export interface KioskPalette {
   successBorder: string;
   dangerBg: string;
   dangerBorder: string;
+  warningBg: string;
+  warningBorder: string;
   infoBg: string;
   infoBorder: string;
   themeToggleBg: string;
@@ -53,6 +55,8 @@ export const KIOSK_PALETTE: Record<KioskThemeMode, KioskPalette> = {
     successBorder: 'rgba(16,185,129,0.25)',
     dangerBg: 'rgba(239,68,68,0.08)',
     dangerBorder: 'rgba(239,68,68,0.25)',
+    warningBg: 'rgba(239,68,68,0.08)',
+    warningBorder: 'rgba(239,68,68,0.25)',
     infoBg: 'rgba(59,130,246,0.08)',
     infoBorder: 'rgba(59,130,246,0.25)',
     themeToggleBg: 'rgba(255,255,255,0.06)',
@@ -81,6 +85,8 @@ export const KIOSK_PALETTE: Record<KioskThemeMode, KioskPalette> = {
     successBorder: 'rgba(16,185,129,0.35)',
     dangerBg: 'rgba(239,68,68,0.1)',
     dangerBorder: 'rgba(239,68,68,0.35)',
+    warningBg: 'rgba(239,68,68,0.1)',
+    warningBorder: 'rgba(239,68,68,0.35)',
     infoBg: 'rgba(59,130,246,0.1)',
     infoBorder: 'rgba(59,130,246,0.3)',
     themeToggleBg: '#ffffff',

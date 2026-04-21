@@ -6,6 +6,9 @@
   "types": "src/index.ts",
   "dependencies": {
     "@refugio/constants": "0.0.0"
+  },
+  "peerDependencies": {
+    "react-native": "*"
   }
 }
 
