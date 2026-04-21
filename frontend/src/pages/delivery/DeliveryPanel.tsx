@@ -21,7 +21,7 @@ import {
     ORDER_STATUSES_RUNNER,
     orderStatusBadgeClass,
 } from '@/constants/delivery';
-import type { Order } from '@/services/deliveryService';
+import type { DriverArrival, Order } from '@/services/deliveryService';
 
 function hasPermission(user: any, codename: string): boolean {
     if (!user) return false;
@@ -35,6 +35,15 @@ function minutesSince(iso: string | null | undefined) {
     const ts = Date.parse(iso);
     if (Number.isNaN(ts)) return null;
     return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+
+function formatDriverDocumentSuffix(d: DriverArrival): string {
+    const tipo = (d.conductor_documento_tipo || 'DNI').toUpperCase();
+    if (tipo === 'CE' && d.conductor_carne_extranjeria) {
+        return ` · CE ${d.conductor_carne_extranjeria}`;
+    }
+    if (d.conductor_dni) return ` · DNI ${d.conductor_dni}`;
+    return '';
 }
 
 const DeliveryPanel: React.FC = () => {
@@ -190,7 +199,7 @@ const DeliveryPanel: React.FC = () => {
         return list.map((d) => ({
             value: d.id,
             label: `${d.codigo_ingresado} · ${d.plataforma} · ${d.estado}${d.placa ? ` · ${d.placa}` : ''}${d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''
-                }${d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}`,
+                }${formatDriverDocumentSuffix(d)}`,
         }));
     }, [drivers.data]);
 
@@ -338,7 +347,7 @@ const DeliveryPanel: React.FC = () => {
                                                 {d.placa ? ` · ${d.placa}` : ''}
                                                 {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
                                                 {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
-                                                {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
+                                                {formatDriverDocumentSuffix(d)}
                                             </p>
                                         </div>
                                     ))}
@@ -359,7 +368,7 @@ const DeliveryPanel: React.FC = () => {
                                                 {d.placa ? ` · ${d.placa}` : ''}
                                                 {d.alias_conductor ? ` · ${d.alias_conductor}` : ''}
                                                 {d.restaurant_nombre ? ` · ${d.restaurant_nombre}` : ''}
-                                                {d.conductor_dni ? ` · DNI ${d.conductor_dni}` : ''}
+                                                {formatDriverDocumentSuffix(d)}
                                             </p>
                                         </div>
                                     ))}

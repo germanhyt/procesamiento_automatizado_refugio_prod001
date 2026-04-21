@@ -3,11 +3,10 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useDeliveryWS } from '@refugio/hooks';
 
 import { KIOSK_DRIVER_ALERTS_MAX } from '@/constants/runnerDeliveryRealtime';
+import { useRunnerAlertAudio } from '@/context/RunnerAlertAudioContext';
 import { useRunnerNotificationInbox } from '@/context/RunnerNotificationInboxContext';
 import { parseFidelioListoFromWs, parseNuevoDriverEsperando } from '@/lib/deliveryWsMessages';
 import type { KioskDriverAlert } from '@/types/kioskDriverAlert';
-
-import { useRunnerAlertChime } from './useRunnerAlertChime';
 
 type Params = {
   token: string | null | undefined;
@@ -21,7 +20,7 @@ type Params = {
 export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
   const { addOrderListoFromWs, addDriverWaitingFromWs, syncInboxFromApi } = useRunnerNotificationInbox();
   const lastInboxSyncRef = useRef(0);
-  const { play: playAlertChime } = useRunnerAlertChime();
+  const { playLoopingAlert } = useRunnerAlertAudio();
   const [kioskDriverAlerts, setKioskDriverAlerts] = useState<KioskDriverAlert[]>([]);
   const seenKioskDriverArrivalIdsRef = useRef<Set<number>>(new Set());
 
@@ -46,7 +45,7 @@ export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
 
       const listo = parseFidelioListoFromWs(msg);
       if (listo != null && addOrderListoFromWs(listo.orderId, listo.restaurantNombre)) {
-        playAlertChime();
+        playLoopingAlert();
       }
 
       const driverPayload = parseNuevoDriverEsperando(msg);
@@ -78,7 +77,7 @@ export function useRunnerDashboardRealtime({ token, queryClient }: Params) {
 
       if (!appended) return;
       addDriverWaitingFromWs(driverArrivalId, plat, code, restaurantNombre);
-      playAlertChime();
+      playLoopingAlert();
     },
   });
 

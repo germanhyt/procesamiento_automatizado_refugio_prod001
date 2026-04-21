@@ -5,6 +5,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { RunnerNotificationInboxModal } from '@/components/RunnerNotificationInboxModal';
 import { radius, space } from '@/constants/runnerLayout';
+import { useRunnerAlertAudio } from '@/context/RunnerAlertAudioContext';
 import { useRunnerNotificationInbox } from '@/context/RunnerNotificationInboxContext';
 import { useRunnerTheme } from '@/context/ThemeContext';
 
@@ -21,6 +22,7 @@ export function RunnerNotificationBell({ iconSize, toggleSize }: Props) {
   const { theme, palette: p } = useRunnerTheme();
   const isDark = theme === 'dark';
   const { items, unreadCount, markAllRead, clearAll, syncInboxFromApi } = useRunnerNotificationInbox();
+  const { stopAlertLoop } = useRunnerAlertAudio();
   const [inboxOpen, setInboxOpen] = useState(false);
 
   const ripple = (hex: string) =>
@@ -30,6 +32,7 @@ export function RunnerNotificationBell({ iconSize, toggleSize }: Props) {
     <>
       <Pressable
         onPress={() => {
+          stopAlertLoop();
           markAllRead();
           setInboxOpen(true);
           void syncInboxFromApi();

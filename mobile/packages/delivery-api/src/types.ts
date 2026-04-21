@@ -17,7 +17,9 @@ export interface DriverArrival {
   placa?: string | null;
   alias_conductor?: string | null;
   restaurant_id?: number | null;
+  conductor_documento_tipo?: string | null;
   conductor_dni?: string | null;
+  conductor_carne_extranjeria?: string | null;
   conductor_nombre_completo?: string | null;
   restaurant_nombre?: string | null;
   foto_path?: string | null;

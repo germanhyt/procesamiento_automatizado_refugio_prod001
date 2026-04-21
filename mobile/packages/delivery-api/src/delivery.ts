@@ -82,7 +82,9 @@ export async function kioskArrival(payload: {
   codigo_ingresado: string;
   placa: string;
   alias_conductor: string;
+  conductor_documento_tipo?: string | null;
   conductor_dni?: string | null;
+  conductor_carne_extranjeria?: string | null;
 }) {
   const res = await http.post<{ driver_arrival: DriverArrival; matched: boolean; matched_order?: Order | null }>(
     '/delivery/kiosk/arrivals',
@@ -95,9 +97,17 @@ export async function kioskArrival(payload: {
  * Sube foto del conductor (multipart). `fetch` evita que axios/RN envíe multipart sin boundary (422).
  * En web se usa Blob; en nativo, parte `{ uri, name, type }`.
  */
-export async function kioskUploadDriverPhoto(arrivalId: number, conductorDni: string, fileUri: string) {
+export async function kioskUploadDriverPhoto(
+  arrivalId: number,
+  doc: { conductorDni?: string; conductorCarneExtranjeria?: string },
+  fileUri: string,
+) {
   const form = new FormData();
-  form.append('conductor_dni', conductorDni.replace(/[\s-]/g, ''));
+  form.append('conductor_dni', (doc.conductorDni ?? '').replace(/[\s-]/g, ''));
+  form.append(
+    'conductor_carne_extranjeria',
+    (doc.conductorCarneExtranjeria ?? '').replace(/[\s-]/g, '').toUpperCase(),
+  );
   const lower = fileUri.toLowerCase();
   const name = lower.endsWith('.png')
     ? 'photo.png'

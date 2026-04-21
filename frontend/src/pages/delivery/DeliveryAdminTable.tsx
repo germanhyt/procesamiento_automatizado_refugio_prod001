@@ -8,7 +8,7 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import AppSelect from '@/components/ui/AppSelect';
-import type { AdminCancelIn, Order } from '@/services/deliveryService';
+import type { AdminCancelIn, DriverArrival, Order } from '@/services/deliveryService';
 import { deliveryService } from '@/services/deliveryService';
 import { orderStatusBadgeClass } from '@/constants/delivery';
 
@@ -33,6 +33,21 @@ function driverLabel(o: Order): string {
     if (!da) return '—';
     const parts = [da.placa?.trim(), da.alias_conductor?.trim()].filter(Boolean);
     return parts.length ? parts.join(' · ') : '—';
+}
+
+function driverDetailFields(da: DriverArrival) {
+    const nombre = da.conductor_nombre_completo?.trim() || da.alias_conductor?.trim() || '—';
+    const placa = da.placa?.trim() || '—';
+    const tipo = (da.conductor_documento_tipo || 'DNI').toUpperCase();
+    let documento = '—';
+    if (tipo === 'CE' && da.conductor_carne_extranjeria?.trim()) {
+        documento = `Carné de extranjería · ${da.conductor_carne_extranjeria.trim()}`;
+    } else if (da.conductor_dni?.trim()) {
+        documento = `DNI · ${da.conductor_dni.trim()}`;
+    } else if (tipo === 'CE') {
+        documento = 'Carné de extranjería (sin número registrado)';
+    }
+    return { nombre, placa, documento };
 }
 
 /** Hasta entrega desde el instante más temprano entre alta del pedido y llegada al kiosk; incluye espera del driver antes del LISTO (early bird). Sin driver matcheado equivale a crea→entrega. */
@@ -102,6 +117,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     const [codigoFilter, setCodigoFilter] = useState('');
     const [photoViewer, setPhotoViewer] = useState<{ title: string; objectUrl: string } | null>(null);
     const [photoLoading, setPhotoLoading] = useState(false);
+    const [driverDetailsForOrder, setDriverDetailsForOrder] = useState<Order | null>(null);
 
     const closePhotoViewer = useCallback(() => {
         setPhotoViewer((prev) => {
@@ -172,11 +188,28 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
             columnHelper.display({
                 id: 'driver_label',
                 header: 'Driver',
-                cell: ({ row }) => (
-                    <span className="text-[10px] text-app-muted truncate max-w-[120px] block" title={driverLabel(row.original)}>
-                        {driverLabel(row.original)}
-                    </span>
-                ),
+                cell: ({ row }) => {
+                    const o = row.original;
+                    const da = o.matched_driver_arrival;
+                    const label = driverLabel(o);
+                    if (!da) {
+                        return (
+                            <span className="text-[10px] text-app-muted truncate max-w-[120px] block" title={label}>
+                                {label}
+                            </span>
+                        );
+                    }
+                    return (
+                        <button
+                            type="button"
+                            onClick={() => setDriverDetailsForOrder(o)}
+                            className="text-left text-[10px] text-teal-400 hover:underline truncate max-w-[120px] block w-full font-medium"
+                            title={`Ver datos del conductor · ${label}`}
+                        >
+                            {label}
+                        </button>
+                    );
+                },
             }),
             columnHelper.display({
                 id: 'driver_photo',
@@ -355,6 +388,9 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
         },
     });
 
+    const driverDetailsDa = driverDetailsForOrder?.matched_driver_arrival;
+    const driverDetailsFields = driverDetailsDa ? driverDetailFields(driverDetailsDa) : null;
+
     return (
         <div className="bg-app-card border border-app-border rounded-3xl p-5 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between flex-wrap">
@@ -453,6 +489,55 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         </div>
                     </div>
                 </>
+            )}
+
+            {driverDetailsForOrder && driverDetailsDa && driverDetailsFields && (
+                <div
+                    className="fixed inset-0 z-100 flex items-center justify-center bg-black/70 p-4"
+                    onClick={() => setDriverDetailsForOrder(null)}
+                    role="presentation"
+                >
+                    <div
+                        className="bg-app-panel border border-app-border rounded-2xl shadow-xl max-w-md w-full flex flex-col overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Datos del conductor"
+                    >
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-app-border shrink-0">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted truncate">
+                                Conductor · {driverDetailsForOrder.codigo_pedido}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setDriverDetailsForOrder(null)}
+                                className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-[9px] font-black uppercase tracking-widest text-app-text shrink-0"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+
+
+                        <div className="p-4 space-y-3 text-sm text-app-text">
+                            <div>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">Nombre</p>
+                                <p className="font-semibold wrap-break-word">{driverDetailsFields.nombre}</p>
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">Placa</p>
+                                <p className="font-mono wrap-break-word">{driverDetailsFields.placa}</p>
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">Documento</p>
+                                <p className="font-mono wrap-break-word">{driverDetailsFields.documento}</p>
+                            </div>
+                            {/* <div className="pt-1 text-[10px] text-app-muted">
+                                Código ingresado en kiosk:{' '}
+                                <span className="font-mono text-app-text">{driverDetailsDa.codigo_ingresado}</span>
+                            </div> */}
+                        </div>
+                    </div>
+                </div>
             )}
 
             {(photoViewer || photoLoading) && (

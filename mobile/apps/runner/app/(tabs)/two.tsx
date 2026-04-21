@@ -24,7 +24,7 @@ import { DELIVERY_PERMISSIONS } from '@refugio/constants';
 import { useAuth } from '@/context/AuthContext';
 import { useRunnerTheme } from '@/context/ThemeContext';
 
-const PLATFORM_OPTIONS = ['RAPPI', 'PEDIDOSYA'] as const;
+const PLATFORM_OPTIONS = ['RAPPI', 'PEDIDOSYA','DIDI','OTROS'] as const;
 type PlatformOption = (typeof PLATFORM_OPTIONS)[number];
 
 const DELIVERED_PAGE_SIZE = 10;

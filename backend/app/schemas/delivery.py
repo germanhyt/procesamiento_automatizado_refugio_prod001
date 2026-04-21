@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 
 
 def order_orm_to_dict(order: Any) -> Dict[str, Any]:
@@ -100,7 +100,9 @@ class DriverArrivalBase(BaseModel):
     alias_conductor: Optional[str] = None
     estado: str
     restaurant_id: Optional[int] = None
+    conductor_documento_tipo: Optional[str] = None
     conductor_dni: Optional[str] = None
+    conductor_carne_extranjeria: Optional[str] = None
     conductor_nombre_completo: Optional[str] = None
 
 
@@ -158,14 +160,82 @@ class FidelioOrderReadyIn(BaseModel):
 
 
 class KioskArrivalIn(BaseModel):
-    """Registro kiosk: restaurante, plataforma, código, placa y alias obligatorios; DNI según flag en servidor."""
+    """Registro kiosk: restaurante, plataforma, código, placa y alias obligatorios; documento según flag en servidor."""
 
     restaurant_id: int
     plataforma: str
     codigo_ingresado: str
     placa: str
     alias_conductor: str
-    conductor_dni: Optional[str] = None
+    conductor_documento_tipo: Optional[str] = Field(
+        None,
+        alias="conductorDocumentoTipo",
+    )
+    conductor_dni: Optional[str] = Field(None, alias="conductorDni")
+    conductor_carne_extranjeria: Optional[str] = Field(
+        None,
+        alias="conductorCarneExtranjeria",
+    )
+
+    class Config:
+        allow_population_by_field_name = True
+
+    @root_validator(pre=True)
+    def _documento_tipo_y_campos_excluyentes(cls, values):
+        if not isinstance(values, dict):
+            return values
+
+        def _pick(*keys: str):
+            for k in keys:
+                if k in values and values[k] is not None:
+                    return values[k]
+            return None
+
+        # pre=True ve el dict crudo: unificar a snake_case (camelCase solo en algunos clientes/proxies).
+        vt = _pick("conductor_documento_tipo", "conductorDocumentoTipo")
+        if vt is not None:
+            values["conductor_documento_tipo"] = vt
+        vdni = _pick("conductor_dni", "conductorDni")
+        if vdni is not None:
+            values["conductor_dni"] = vdni
+        vce = _pick("conductor_carne_extranjeria", "conductorCarneExtranjeria")
+        if vce is not None:
+            values["conductor_carne_extranjeria"] = vce
+        values.pop("conductorDocumentoTipo", None)
+        values.pop("conductorDni", None)
+        values.pop("conductorCarneExtranjeria", None)
+
+        raw_tipo = values.get("conductor_documento_tipo")
+        dni_pre = re.sub(r"[\s-]", "", str(values.get("conductor_dni") or "").strip())
+        ce_pre = re.sub(r"[\s-]", "", str(values.get("conductor_carne_extranjeria") or "").strip().upper())
+        dni_ok = bool(dni_pre.isdigit() and 8 <= len(dni_pre) <= 12)
+        ce_ok = bool(ce_pre and re.match(r"^[A-Z0-9]{4,20}$", ce_pre))
+
+        if raw_tipo is None or (isinstance(raw_tipo, str) and not str(raw_tipo).strip()):
+            # Sin tipo explícito: inferir por campos (p. ej. body parcial o cliente que no envía el flag).
+            if ce_ok and not dni_ok:
+                tipo = "CE"
+            elif dni_ok and not ce_ok:
+                tipo = "DNI"
+            elif dni_ok and ce_ok:
+                tipo = "DNI"
+            else:
+                tipo = "DNI"
+        else:
+            tipo = str(raw_tipo).strip().upper()
+        if tipo not in ("DNI", "CE"):
+            raise ValueError("tipo de documento: use DNI o CE")
+        # Coherencia: no borrar carné si el flag vino mal pero solo hay CE válido (y viceversa).
+        if tipo == "DNI" and ce_ok and not dni_ok:
+            tipo = "CE"
+        elif tipo == "CE" and dni_ok and not ce_ok:
+            tipo = "DNI"
+        values["conductor_documento_tipo"] = tipo
+        if tipo == "CE":
+            values["conductor_dni"] = None
+        else:
+            values["conductor_carne_extranjeria"] = None
+        return values
 
     @validator("restaurant_id")
     def _restaurant_id_ok(cls, v):
@@ -194,6 +264,17 @@ class KioskArrivalIn(BaseModel):
             return None
         if not s.isdigit() or len(s) < 8 or len(s) > 12:
             raise ValueError("DNI: entre 8 y 12 dígitos")
+        return s
+
+    @validator("conductor_carne_extranjeria", pre=True)
+    def _ce_normalize(cls, v):
+        if v is None:
+            return None
+        s = re.sub(r"[\s-]", "", str(v).strip().upper())
+        if not s:
+            return None
+        if not re.match(r"^[A-Z0-9]{4,20}$", s):
+            raise ValueError("Carné extranjería: 4 a 20 caracteres alfanuméricos")
         return s
 
 

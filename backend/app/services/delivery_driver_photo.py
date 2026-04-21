@@ -21,13 +21,14 @@ _ALLOWED_EXT = {
 }
 
 
-def _safe_dni(dni: str) -> str:
-    s = re.sub(r"\D", "", (dni or "").strip())[:12]
+def _safe_filename_stem(stem: str) -> str:
+    """Nombre de archivo seguro a partir de DNI, CE u otro identificador ya normalizado."""
+    s = re.sub(r"[^A-Za-z0-9]", "", (stem or "").strip())[:40]
     return s or "unknown"
 
 
 def save_kiosk_driver_photo_file(
-    conductor_dni: str,
+    storage_stem: str,
     content: bytes,
     *,
     content_type: str | None,
@@ -49,7 +50,7 @@ def save_kiosk_driver_photo_file(
 
     h = hashlib.sha256(content).hexdigest()[:8]
     date_s = datetime.now(ZONA_LIMA).strftime("%Y%m%d")
-    fname = f"{_safe_dni(conductor_dni)}_{date_s}_{h}{ext}"
+    fname = f"{_safe_filename_stem(storage_stem)}_{date_s}_{h}{ext}"
     rel = str(_REL_SUBDIR / fname).replace("\\", "/")
     (dest_dir / fname).write_bytes(content)
     return rel, ct

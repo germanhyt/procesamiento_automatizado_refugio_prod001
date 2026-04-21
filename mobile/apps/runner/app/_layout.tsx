@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ThemeProvider as AppThemeProvider, useRunnerTheme } from '@/context/ThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { RunnerAlertAudioProvider } from '@/context/RunnerAlertAudioContext';
 import { RunnerNotificationInboxProvider } from '@/context/RunnerNotificationInboxContext';
 import { useRunnerPushRegistration } from '@/hooks/useRunnerPushRegistration';
 import { useRunnerPushInboxCapture } from '@/hooks/useRunnerPushInboxCapture';
@@ -47,7 +48,9 @@ export default function RootLayout() {
         <AppThemeProvider>
           <AuthProvider>
             <RunnerNotificationInboxProvider>
-              <RootLayoutNav />
+              <RunnerAlertAudioProvider>
+                <RootLayoutNav />
+              </RunnerAlertAudioProvider>
             </RunnerNotificationInboxProvider>
           </AuthProvider>
         </AppThemeProvider>

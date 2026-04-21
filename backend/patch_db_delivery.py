@@ -114,6 +114,8 @@ def ensure_columns():
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS despachado_at TIMESTAMPTZ NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS restaurant_id INTEGER NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_dni VARCHAR(20) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_documento_tipo VARCHAR(8) NULL;",
+        "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_carne_extranjeria VARCHAR(32) NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS conductor_nombre_completo VARCHAR(220) NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS foto_path VARCHAR(512) NULL;",
         "ALTER TABLE IF EXISTS delivery_driver_arrivals ADD COLUMN IF NOT EXISTS foto_mime VARCHAR(64) NULL;",

@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -16,10 +17,16 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
+  Easing,
   FadeIn,
   FadeInDown,
   Layout,
   ZoomIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,12 +41,17 @@ import {
 } from '@refugio/delivery-api';
 import { DRIVER_STATUS } from '@refugio/constants';
 import {
+  KIOSK_CE_MAX_LEN,
+  KIOSK_CE_MIN_LEN,
   KIOSK_CODE_MAX_LEN,
+  KIOSK_CONTENT_FONT_SCALE,
   KIOSK_DNI_MAX_LEN,
   KIOSK_DNI_MIN_LEN,
+  KIOSK_DOCUMENTO_TIPOS,
   KIOSK_DRIVER_POLLING_MS,
   KIOSK_PLATFORM_OPTIONS,
   KIOSK_PLACA_MAX_LEN,
+  type KioskDocumentoTipo,
   type KioskPlatform,
 } from '@/constants/kiosk';
 import { cardShadow, modalCardShadow, motion, radius, space, topBarShadow } from '@/constants/kioskLayout';
@@ -47,11 +59,8 @@ import { useKioskTheme } from '@/components/useKioskTheme';
 import type { KioskPalette } from '@/constants/kioskTheme';
 
 const QUEUE_GRID_GAP = 8;
-/**
- * ~Mitad de 380px menos gap: con flexWrap, si el contenedor no alcanza para 2×basis+gap, queda 1 columna; si alcanza, 2+.
- * Sin JS de anchos ni onLayout en la cola (menos trabajo por frame).
- */
-const QUEUE_CELL_FLEX_BASIS = Math.ceil((320 - QUEUE_GRID_GAP) / 2);
+/** Ancho mínimo por tarjeta para 2 columnas (web móvil + nativo). */
+const QUEUE_CARD_MIN_WIDTH = 80;
 const QUEUE_MAX_ITEMS = 30;
 const MODAL_SUCCESS_CLOSE_MS = 1400;
 /** Altura máxima de la lista del dropdown (evita pantalla completa; `mode="auto"` aplica maxHeight en el modal). */
@@ -71,7 +80,8 @@ const STATUS_CONFIG = {
     borderColor: 'rgba(20,184,166,0.65)',
     bgColorDark: 'rgba(20,184,166,0.13)',
     bgColorLight: 'rgba(20,184,166,0.07)',
-    dot: '#14B8A6',
+    // verde
+    dot: '#16a34a',
   },
   DESPACHADO: {
     label: 'Despachado',
@@ -133,13 +143,30 @@ const legendStyles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12, marginTop: 4, paddingHorizontal: 2 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dot: { width: 9, height: 9, borderRadius: 5 },
-  lbl: { fontSize: 11, fontWeight: '700' },
+  lbl: { fontSize: 13, fontWeight: '700' },
 });
+
+/** Colores sólidos pie de tarjeta (estado), inspirados en bloque “Listo” de cocina. */
+const QUEUE_CARD_FOOTER = {
+  ESPERANDO: '#d97706',
+  EN_MATCH: '#16a34a',
+  DESPACHADO: '#64748b',
+  ABANDONO: '#dc2626',
+} as const;
+
+function queueFooterColor(estado: string): string {
+  const e = estado.toUpperCase();
+  if (e === 'EN_MATCH') return QUEUE_CARD_FOOTER.EN_MATCH;
+  if (e === 'DESPACHADO') return QUEUE_CARD_FOOTER.DESPACHADO;
+  if (e === 'ABANDONO') return QUEUE_CARD_FOOTER.ABANDONO;
+  return QUEUE_CARD_FOOTER.ESPERANDO;
+}
 
 function DriverQueueGrid({
   drivers,
   palette,
   isDark,
+  contentWidth,
 }: {
   drivers: Array<{
     id: number;
@@ -148,11 +175,19 @@ function DriverQueueGrid({
     codigo_ingresado: string;
     alias_conductor?: string | null;
     restaurant_nombre?: string | null;
+    created_at: string;
   }>;
   palette: KioskPalette;
   isDark: boolean;
+  /** Ancho de la banda que envuelve el bloque (coincide con el contenedor scroll). */
+  contentWidth: number;
 }) {
   const themeMode = isDark ? 'dark' : 'light';
+  const bandW = Math.max(0, contentWidth);
+  /** Área útil de la grilla: el bloque tiene padding horizontal (ver `styles.queueBlock`). */
+  const gridInnerW = Math.max(0, bandW - 2 * space.lg);
+  const pairMin = QUEUE_CARD_MIN_WIDTH * 2 + QUEUE_GRID_GAP;
+  const useTwoColumns = gridInnerW >= pairMin;
 
   return (
     <Animated.View
@@ -177,35 +212,61 @@ function DriverQueueGrid({
         <View style={styles.gridWrap}>
           {drivers.map((d, index) => {
             const cfg = getStatusCfg(d.estado);
-            const cardBg = isDark ? cfg.bgColorDark : cfg.bgColorLight;
+            const footerHex = queueFooterColor(d.estado);
+            const headerBg = isDark ? '#0a0f1a' : '#0f172a';
+            const bodyBg = isDark ? '#1a2332' : '#ffffff';
+            const bodyMainColor = isDark ? palette.text : '#0f172a';
+            const bodyMuted = isDark ? palette.muted : '#64748b';
+            const subline = [d.alias_conductor?.trim(), d.plataforma].filter(Boolean).join(' · ') || d.plataforma;
+            // const bodyLeft = [d.restaurant_nombre?.trim(), cfg.label].filter(Boolean).join(' · ') || cfg.label;
+            const bodyLeft = d.restaurant_nombre?.trim() || cfg.label;
+
             return (
               <Animated.View
                 key={d.id}
-                entering={FadeIn.delay(Math.min(index * 48, 280)).duration(motion.normal)}
-                style={styles.driverCardCell}
+                entering={
+                  FadeIn.delay(Math.min(index * 48, 280)).duration(motion.normal)
+                }
+                style={[
+                  styles.driverCardCell,
+                  useTwoColumns
+                    ? {
+                      flexGrow: 1,
+                      flexShrink: 1,
+                      flexBasis: 0,
+                      minWidth: QUEUE_CARD_MIN_WIDTH,
+                    }
+                    : { width: '100%' as const, flexGrow: 0, flexShrink: 0 },
+                ]}
               >
                 <View
                   style={[
-                    styles.driverCard,
-                    { backgroundColor: cardBg, borderColor: cfg.borderColor },
+                    styles.driverCardShell,
+                    cardShadow(themeMode),
+                    { borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' },
                   ]}
                 >
-                  <Text style={[styles.driverCode, { color: palette.text }]} numberOfLines={1}>
-                    {d.codigo_ingresado}
-                  </Text>
-                  <Text style={[styles.driverPlatform, { color: palette.muted }]} numberOfLines={1}>
-                    {d.plataforma}
-                  </Text>
-                  {d.alias_conductor ? (
-                    <Text style={[styles.driverName, { color: palette.text }]} numberOfLines={1}>
-                      {d.alias_conductor}
+                  <View style={[styles.driverCardHeader, { backgroundColor: headerBg }]}>
+                    <Text style={styles.driverCardCode} numberOfLines={1}>
+                      №{d.codigo_ingresado}
                     </Text>
-                  ) : null}
-                  {d.restaurant_nombre ? (
-                    <Text style={[styles.driverLocal, { color: palette.muted }]} numberOfLines={1}>
-                      {d.restaurant_nombre}
+                    <Text style={styles.driverCardSubline} numberOfLines={2}>
+                      {subline}
                     </Text>
-                  ) : null}
+                  </View>
+                  <View style={[styles.driverCardBody, { backgroundColor: bodyBg }]}>
+                    <View style={styles.driverCardBodyRow}>
+                      <Text style={[styles.driverCardBodyMain, { color: bodyMainColor }]} numberOfLines={2}>
+                        {bodyLeft}
+                      </Text>
+                      <Text style={[styles.driverCardBodyTime, { color: bodyMuted }]}>
+                        {formatTime(d.created_at)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.driverCardFooter, { backgroundColor: footerHex }]}>
+                    <Text style={styles.driverCardFooterText}>{cfg.label.toUpperCase()}</Text>
+                  </View>
                 </View>
               </Animated.View>
             );
@@ -224,8 +285,15 @@ export default function KioskScreen() {
   const isCompactHeader = windowWidth < 380;
   const contentPadH = windowWidth < 360 ? space.lg : space.xl;
   const logoSize = isCompactHeader ? 40 : 50;
-  const titleFontSize = isCompactHeader ? 16 : 20;
-  const subtitleFontSize = isCompactHeader ? 12 : 14;
+  const titleFontSize = Math.round((isCompactHeader ? 16 : 20) * KIOSK_CONTENT_FONT_SCALE);
+  const subtitleFontSize = Math.round((isCompactHeader ? 12 : 14) * KIOSK_CONTENT_FONT_SCALE);
+  const queueContentWidthFallback = Math.max(0, windowWidth - 2 * contentPadH);
+
+  const [queueBandWidth, setQueueBandWidth] = useState(0);
+  const onQueueBandLayout = useCallback((e: LayoutChangeEvent) => {
+    const w = Math.floor(e.nativeEvent.layout.width);
+    setQueueBandWidth((prev) => (w > 0 && w !== prev ? w : prev));
+  }, []);
 
   const [registerModalVisible, setRegisterModalVisible] = useState(false);
   const [modalAnimKey, setModalAnimKey] = useState(0);
@@ -235,6 +303,8 @@ export default function KioskScreen() {
   const [alias, setAlias] = useState('');
   const [restaurantId, setRestaurantId] = useState<number | null>(null);
   const [dni, setDni] = useState('');
+  const [documentoTipo, setDocumentoTipo] = useState<KioskDocumentoTipo>('DNI');
+  const [carneExtranjeria, setCarneExtranjeria] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err' | 'info'; msg: string } | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -247,7 +317,11 @@ export default function KioskScreen() {
   const [dniLookupLoading, setDniLookupLoading] = useState(false);
   const [lastArrivalMatched, setLastArrivalMatched] = useState(false);
   const [lastMatchedCode, setLastMatchedCode] = useState<string | null>(null);
-  const lastDniRef = useRef<string>('');
+  const lastPhotoDocRef = useRef<{ tipo: KioskDocumentoTipo; dni: string; ce: string }>({
+    tipo: 'DNI',
+    dni: '',
+    ce: '',
+  });
   const lastArrivalIdRef = useRef<number | null>(null);
   const lastAliasRef = useRef('');
   const photoUploadedRef = useRef(false);
@@ -260,6 +334,27 @@ export default function KioskScreen() {
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Pre-fetch DNI: stores the last fetched DNI to avoid duplicate requests
   const prefetchedDniRef = useRef<string>('');
+
+  const registerBtnPulse = useSharedValue(1);
+  const registerBtnPulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: registerBtnPulse.value }],
+  }));
+
+  useEffect(() => {
+    const ease = Easing.inOut(Easing.sin);
+    if (registerModalVisible) {
+      registerBtnPulse.value = withTiming(1, { duration: 200, easing: ease });
+      return;
+    }
+    registerBtnPulse.value = withRepeat(
+      withSequence(
+        withTiming(1.02, { duration: 900, easing: ease }),
+        withTiming(0.95, { duration: 900, easing: ease }),
+      ),
+      -1,
+      false,
+    );
+  }, [registerModalVisible, registerBtnPulse]);
 
   const qc = useQueryClient();
 
@@ -279,23 +374,31 @@ export default function KioskScreen() {
   const enableDriverPhoto = kioskConfigQuery.data?.enable_driver_photo_capture ?? false;
 
   const dniDigits = useMemo(() => dni.replace(/[\s-]/g, ''), [dni]);
-  const dniFieldOk = useMemo(() => {
+  const ceNorm = useMemo(() => carneExtranjeria.replace(/[\s-]/g, '').toUpperCase(), [carneExtranjeria]);
+  const docFieldsOk = useMemo(() => {
     if (!enableDriverDni) return true;
+    if (documentoTipo === 'DNI') {
+      return (
+        dniDigits.length >= KIOSK_DNI_MIN_LEN &&
+        dniDigits.length <= KIOSK_DNI_MAX_LEN &&
+        /^\d+$/.test(dniDigits)
+      );
+    }
     return (
-      dniDigits.length >= KIOSK_DNI_MIN_LEN &&
-      dniDigits.length <= KIOSK_DNI_MAX_LEN &&
-      /^\d+$/.test(dniDigits)
+      ceNorm.length >= KIOSK_CE_MIN_LEN &&
+      ceNorm.length <= KIOSK_CE_MAX_LEN &&
+      /^[A-Z0-9]+$/.test(ceNorm)
     );
-  }, [enableDriverDni, dniDigits]);
+  }, [enableDriverDni, documentoTipo, dniDigits, ceNorm]);
   const canSubmit = useMemo(
     () =>
       restaurantId != null &&
       codigo.trim().length > 0 &&
       placa.trim().length > 0 &&
       alias.trim().length > 0 &&
-      dniFieldOk &&
+      docFieldsOk &&
       !isSubmitting,
-    [restaurantId, codigo, placa, alias, dniFieldOk, isSubmitting],
+    [restaurantId, codigo, placa, alias, docFieldsOk, isSubmitting],
   );
 
   const restaurantOptions = useMemo(
@@ -318,7 +421,9 @@ export default function KioskScreen() {
       codigo_ingresado: string;
       placa: string;
       alias_conductor: string;
+      conductor_documento_tipo?: string | null;
       conductor_dni?: string | null;
+      conductor_carne_extranjeria?: string | null;
     }) => kioskArrival(payload),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['delivery', 'drivers', 'waiting'] });
@@ -338,6 +443,8 @@ export default function KioskScreen() {
     setAlias('');
     setRestaurantId(null);
     setDni('');
+    setDocumentoTipo('DNI');
+    setCarneExtranjeria('');
     setFeedback(null);
     setFieldError(null);
     setRegistrationStep('form');
@@ -346,7 +453,7 @@ export default function KioskScreen() {
     setDniLookupLoading(false);
     setLastArrivalMatched(false);
     setLastMatchedCode(null);
-    lastDniRef.current = '';
+    lastPhotoDocRef.current = { tipo: 'DNI', dni: '', ce: '' };
     lastArrivalIdRef.current = null;
     lastAliasRef.current = '';
     photoUploadedRef.current = false;
@@ -373,10 +480,23 @@ export default function KioskScreen() {
     };
   }, [clearSuccessTimer]);
 
+  useEffect(() => {
+    setFieldError(null);
+    if (documentoTipo !== 'DNI') {
+      setDniLookupName(null);
+      setDniLookupLoading(false);
+      prefetchedDniRef.current = '';
+      setDni('');
+    } else {
+      setCarneExtranjeria('');
+    }
+  }, [documentoTipo]);
+
   // ── Pre-fetch DNI while user is still on the form ──
   useEffect(() => {
     if (
       !enableDriverDni ||
+      documentoTipo !== 'DNI' ||
       registrationStep !== 'form' ||
       dniDigits.length < KIOSK_DNI_MIN_LEN ||
       dniDigits.length > KIOSK_DNI_MAX_LEN ||
@@ -390,7 +510,7 @@ export default function KioskScreen() {
       .then((res) => setDniLookupName(res.full_name ?? null))
       .catch(() => setDniLookupName(null))
       .finally(() => setDniLookupLoading(false));
-  }, [dniDigits, registrationStep, enableDriverDni]);
+  }, [dniDigits, registrationStep, enableDriverDni, documentoTipo]);
 
   // ── Auto-capture countdown ──
   const startCameraCountdown = useCallback(() => {
@@ -424,12 +544,15 @@ export default function KioskScreen() {
     if (!enableDriverPhoto || !capturedPhotoUri) return;
     const id = lastArrivalIdRef.current;
     if (!id || photoUploadedRef.current) return;
-    if (enableDriverDni && !lastDniRef.current) return;
+    const { dni: docDni, ce: docCe } = lastPhotoDocRef.current;
+    if (enableDriverDni && !docDni && !docCe) return;
     photoUploadedRef.current = true;
-    kioskUploadDriverPhoto(id, lastDniRef.current, capturedPhotoUri).catch((err) => {
-      photoUploadedRef.current = false;
-      console.warn('[kiosk] Falló subida de foto del conductor', err);
-    });
+    kioskUploadDriverPhoto(id, { conductorDni: docDni, conductorCarneExtranjeria: docCe }, capturedPhotoUri).catch(
+      (err) => {
+        photoUploadedRef.current = false;
+        console.warn('[kiosk] Falló subida de foto del conductor', err);
+      },
+    );
   }, [capturedPhotoUri, enableDriverPhoto, enableDriverDni]);
 
   const submit = async () => {
@@ -439,11 +562,26 @@ export default function KioskScreen() {
     if (!alias.trim()) { setFieldError('Ingresa el nombre o alias del conductor.'); return; }
     if (restaurantId == null) { setFieldError('Selecciona el restaurante.'); return; }
     let dniNorm = '';
+    let ceSubmit = '';
     if (enableDriverDni) {
-      dniNorm = dni.replace(/[\s-]/g, '');
-      if (!/^\d+$/.test(dniNorm) || dniNorm.length < KIOSK_DNI_MIN_LEN || dniNorm.length > KIOSK_DNI_MAX_LEN) {
-        setFieldError(`DNI: ${KIOSK_DNI_MIN_LEN} a ${KIOSK_DNI_MAX_LEN} dígitos.`);
-        return;
+      if (documentoTipo === 'DNI') {
+        dniNorm = dni.replace(/[\s-]/g, '');
+        if (!/^\d+$/.test(dniNorm) || dniNorm.length < KIOSK_DNI_MIN_LEN || dniNorm.length > KIOSK_DNI_MAX_LEN) {
+          setFieldError(`DNI: ${KIOSK_DNI_MIN_LEN} a ${KIOSK_DNI_MAX_LEN} dígitos.`);
+          return;
+        }
+      } else {
+        ceSubmit = ceNorm;
+        if (
+          ceSubmit.length < KIOSK_CE_MIN_LEN ||
+          ceSubmit.length > KIOSK_CE_MAX_LEN ||
+          !/^[A-Z0-9]+$/.test(ceSubmit)
+        ) {
+          setFieldError(
+            `Carné extranjería: ${KIOSK_CE_MIN_LEN} a ${KIOSK_CE_MAX_LEN} caracteres alfanuméricos.`,
+          );
+          return;
+        }
       }
     }
     if (!canSubmit) return;
@@ -453,6 +591,7 @@ export default function KioskScreen() {
     // If name wasn't pre-fetched yet, start it now (non-blocking)
     if (
       enableDriverDni &&
+      documentoTipo === 'DNI' &&
       dniNorm &&
       !dniLookupName &&
       prefetchedDniRef.current !== dniNorm
@@ -467,24 +606,42 @@ export default function KioskScreen() {
 
     try {
       lastAliasRef.current = alias.trim();
+      const documentoPayload = !enableDriverDni
+        ? {}
+        : documentoTipo === 'DNI'
+          ? {
+            conductor_documento_tipo: 'DNI' as const,
+            conductor_dni: dniNorm,
+            conductor_carne_extranjeria: null as string | null,
+          }
+          : {
+            conductor_documento_tipo: 'CE' as const,
+            conductor_dni: null as string | null,
+            conductor_carne_extranjeria: ceSubmit,
+          };
+
       const data = await arrivalMutation.mutateAsync({
         restaurant_id: restaurantId!,
         plataforma,
         codigo_ingresado: codigo.trim(),
         placa: placa.trim().toUpperCase(),
         alias_conductor: alias.trim(),
-        ...(enableDriverDni && dniNorm ? { conductor_dni: dniNorm } : {}),
+        ...documentoPayload,
       });
 
       setLastArrivalMatched(data?.matched ?? false);
       setLastMatchedCode(data?.matched_order?.codigo_pedido ?? null);
-      lastDniRef.current = enableDriverDni ? dniNorm : '';
+      lastPhotoDocRef.current = enableDriverDni
+        ? documentoTipo === 'DNI'
+          ? { tipo: 'DNI', dni: dniNorm, ce: '' }
+          : { tipo: 'CE', dni: '', ce: ceSubmit }
+        : { tipo: 'DNI', dni: '', ce: '' };
       lastArrivalIdRef.current = data.driver_arrival.id;
       photoUploadedRef.current = false;
       const serverName = data.driver_arrival.conductor_nombre_completo?.trim();
       if (serverName) setDniLookupName(serverName);
 
-      setCodigo(''); setPlaca(''); setAlias(''); setDni('');
+      setCodigo(''); setPlaca(''); setAlias(''); setDni(''); setCarneExtranjeria('');
       setFieldError(null);
 
       // Request camera permission and go directly to confirm (with embedded camera)
@@ -624,24 +781,28 @@ export default function KioskScreen() {
       </Animated.View>
 
       <View style={[styles.main, { paddingHorizontal: contentPadH, paddingTop: space.lg, paddingBottom: space.lg }]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.openModalBtn,
-              styles.openModalBtnFull,
-              { backgroundColor: palette.accent },
-              pressed && styles.pressedPrimary,
-            ]}
-            onPress={openRegisterModal}
-            android_ripple={ripple('rgba(0,0,0,0.2)')}
-          >
-            <Text style={[styles.openModalBtnText, { color: palette.accentText }]}>{registerBtnLabel}</Text>
-          </Pressable>
+        <View style={styles.registerBtnRow}>
+          <Animated.View style={[registerBtnPulseStyle, styles.registerBtnPulseWrap]}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.openModalBtn,
+                styles.openModalBtnFull,
+                { backgroundColor: palette.accent },
+                pressed && styles.pressedPrimary,
+              ]}
+              onPress={openRegisterModal}
+              android_ripple={ripple('rgba(0,0,0,0.2)')}
+              accessibilityRole="button"
+              accessibilityLabel={registerBtnLabel}
+            >
+              <Text style={[styles.openModalBtnText, { color: palette.accentText }]}>{registerBtnLabel}</Text>
+            </Pressable>
+          </Animated.View>
         </View>
 
         <ScrollView
           style={styles.queueScroll}
-          contentContainerStyle={styles.queueScrollContent}
+          contentContainerStyle={[styles.queueScrollContent, styles.queueScrollContentWidth]}
           showsVerticalScrollIndicator
         >
           {driversQuery.isLoading ? (
@@ -650,7 +811,14 @@ export default function KioskScreen() {
             <Text style={[styles.queueHint, { color: palette.error }]}>Error cargando drivers.</Text>
           ) : (
             <View style={styles.queueSections}>
-              <DriverQueueGrid drivers={queueDrivers} palette={palette} isDark={isDark} />
+              <View style={styles.queueMeasureBand} onLayout={onQueueBandLayout}>
+                <DriverQueueGrid
+                  drivers={queueDrivers}
+                  palette={palette}
+                  isDark={isDark}
+                  contentWidth={queueBandWidth > 0 ? queueBandWidth : queueContentWidthFallback}
+                />
+              </View>
             </View>
           )}
         </ScrollView>
@@ -772,23 +940,7 @@ export default function KioskScreen() {
                   )}
                 />
 
-                {enableDriverDni ? (
-                  <>
-                    <Text style={[styles.fieldLabel, { color: palette.muted }]}>DNI conductor *</Text>
-                    <TextInput
-                      value={dni}
-                      onChangeText={(t) => setDni(t.replace(/[^\d\s-]/g, ''))}
-                      placeholder="DNI…"
-                      placeholderTextColor={palette.placeholder}
-                      style={[
-                        styles.input,
-                        { color: palette.inputText, backgroundColor: palette.inputBg, borderColor: palette.inputBorder },
-                      ]}
-                      keyboardType="number-pad"
-                      maxLength={KIOSK_DNI_MAX_LEN + 2}
-                    />
-                  </>
-                ) : null}
+
 
                 <Text style={[styles.fieldLabel, { color: palette.muted }]}>Código de pedido *</Text>
                 <TextInput
@@ -823,6 +975,87 @@ export default function KioskScreen() {
                   autoCorrect={false}
                   maxLength={KIOSK_PLACA_MAX_LEN}
                 />
+
+                {enableDriverDni ? (
+                  <>
+                    <Text style={[styles.fieldLabel, { color: palette.muted }]}>Documento del conductor *</Text>
+                    <View style={styles.docTipoRow}>
+                      {KIOSK_DOCUMENTO_TIPOS.map((t) => {
+                        const active = documentoTipo === t;
+                        return (
+                          <Pressable
+                            key={t}
+                            onPress={() => {
+                              if (t !== documentoTipo) setDocumentoTipo(t);
+                            }}
+                            style={({ pressed }) => [
+                              styles.docTipoChip,
+                              {
+                                backgroundColor: active ? palette.accent : palette.inputBg,
+                                borderColor: active ? palette.accent : palette.inputBorder,
+                              },
+                              pressed && !active && styles.pressedSubtle,
+                            ]}
+                            android_ripple={ripple('rgba(0,0,0,0.08)')}
+                          >
+                            <Text
+                              style={[
+                                styles.docTipoChipText,
+                                { color: active ? palette.accentText : palette.text },
+                              ]}
+                            >
+                              {t === 'DNI' ? 'DNI' : 'Carné extranjería'}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    {documentoTipo === 'DNI' ? (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: palette.muted }]}>Número DNI *</Text>
+                        <TextInput
+                          value={dni}
+                          onChangeText={(txt) => setDni(txt.replace(/[^\d\s-]/g, ''))}
+                          placeholder="DNI…"
+                          placeholderTextColor={palette.placeholder}
+                          style={[
+                            styles.input,
+                            {
+                              color: palette.inputText,
+                              backgroundColor: palette.inputBg,
+                              borderColor: palette.inputBorder,
+                            },
+                          ]}
+                          keyboardType="number-pad"
+                          maxLength={KIOSK_DNI_MAX_LEN + 2}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: palette.muted }]}>Número carné *</Text>
+                        <TextInput
+                          value={carneExtranjeria}
+                          onChangeText={(txt) =>
+                            setCarneExtranjeria(txt.replace(/[^a-zA-Z0-9\s-]/g, '').toUpperCase())
+                          }
+                          placeholder="Carné de extranjería…"
+                          placeholderTextColor={palette.placeholder}
+                          style={[
+                            styles.input,
+                            {
+                              color: palette.inputText,
+                              backgroundColor: palette.inputBg,
+                              borderColor: palette.inputBorder,
+                            },
+                          ]}
+                          autoCapitalize="characters"
+                          autoCorrect={false}
+                          maxLength={KIOSK_CE_MAX_LEN + 2}
+                        />
+                      </>
+                    )}
+                  </>
+                ) : null}
 
                 <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre del conductor *</Text>
                 <TextInput
@@ -904,15 +1137,19 @@ export default function KioskScreen() {
                     </View>
                   ) : (
                     <View style={[styles.driverPhotoPlaceholder, { backgroundColor: palette.cardBg, borderColor: palette.border }]}>
-                      <Ionicons name="camera-off-outline" size={42} color={palette.muted} />
+                      <Ionicons name="videocam-off-outline" size={42} color={palette.muted} />
                       <Text style={[styles.noPermText, { color: palette.muted }]}>Sin acceso a cámara</Text>
                     </View>
                   )
                 ) : null}
 
-                {/* Nombre RENIEC o alias (modo básico) */}
+                {/* Nombre RENIEC (DNI), carné (CE) o alias (modo básico) */}
                 {enableDriverDni ? (
-                  dniLookupLoading ? (
+                  lastPhotoDocRef.current.tipo === 'CE' ? (
+                    <Text style={[styles.confirmName, { color: palette.text }]} numberOfLines={1}>
+                      Carné {lastPhotoDocRef.current.ce}
+                    </Text>
+                  ) : dniLookupLoading ? (
                     <View style={styles.confirmNameLoadingRow}>
                       <Ionicons name="hourglass-outline" size={14} color={palette.muted} />
                       <Text style={[styles.confirmNameLoading, { color: palette.muted }]}>Consultando RENIEC…</Text>
@@ -923,7 +1160,7 @@ export default function KioskScreen() {
                     </Text>
                   ) : (
                     <Text style={[styles.confirmName, { color: palette.muted }]} numberOfLines={1}>
-                      {lastDniRef.current || 'Driver'}
+                      {lastPhotoDocRef.current.dni || 'Driver'}
                     </Text>
                   )
                 ) : (
@@ -1036,22 +1273,45 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
   },
+  registerBtnRow: {
+    width: '100%',
+    marginBottom: space.md,
+  },
+  registerBtnPulseWrap: {
+    width: '100%',
+  },
   openModalBtn: {
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
+    marginTop: space.md,
+    borderRadius: radius.xl,
+    paddingHorizontal: space.xxl + 4,
+    paddingVertical: space.xl + 2,
+    minHeight: 68,
+    width: '100%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+      },
+      android: { elevation: 4 },
+      web: {
+        boxShadow: '0 4px 14px rgba(0,0,0,0.12)',
+      },
+    }),
   },
   openModalBtnFull: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: space.md + 2,
   },
-  openModalBtnText: { fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
+  openModalBtnText: { fontSize: 20, fontWeight: '900', letterSpacing: 2.4 },
   pressedSubtle: { opacity: 0.88 },
   pressedPrimary: { opacity: 0.94, transform: [{ scale: 0.98 }] },
   main: { flex: 1, minHeight: 0 },
   queueScroll: { flex: 1 },
   queueScrollContent: { paddingBottom: space.xxl, flexGrow: 1 },
+  /** En web, sin esto el contenido del ScrollView suele medir solo el ancho intrínseco y la grilla hace wrap a 1 columna. */
+  queueScrollContentWidth: { width: '100%' },
   title: { fontWeight: '900', letterSpacing: 0.8 },
   subtitle: { marginTop: space.xs, fontWeight: '600' },
   queueHeader: {
@@ -1060,7 +1320,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: space.xs,
   },
-  queueSections: { gap: space.md + 2, marginTop: space.sm + 2 },
+  queueSections: { gap: space.md + 1, marginTop: space.sm + 1 },
+  queueMeasureBand: { width: '100%' },
   deliveredBlock: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
@@ -1122,8 +1383,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  queueTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 0.8 },
-  queueHint: { marginTop: space.sm, fontSize: 12, lineHeight: 18 },
+  queueTitle: { fontSize: 16, fontWeight: '900', letterSpacing: 0.8 },
+  queueHint: { marginTop: space.sm, fontSize: 14, lineHeight: 21 },
   queueBlock: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
@@ -1136,29 +1397,80 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: space.xs,
   },
-  queueBlockTitle: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6 },
-  queueBlockCount: { fontSize: 11, fontWeight: '700' },
-  queueEmpty: { fontSize: 13, fontWeight: '600', marginTop: space.sm },
-  gridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: QUEUE_GRID_GAP, marginTop: space.xs },
-  /** Responsive solo con flex: 1 col si el ancho no alcanza para 2×QUEUE_CELL_FLEX_BASIS + gap */
-  driverCardCell: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: QUEUE_CELL_FLEX_BASIS,
-    minWidth: 0,
-    maxWidth: '100%',
+  queueBlockTitle: { fontSize: 16, fontWeight: '900', letterSpacing: 0.6 },
+  queueBlockCount: { fontSize: 13, fontWeight: '700' },
+  queueEmpty: { fontSize: 15, fontWeight: '600', marginTop: space.sm },
+  gridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: QUEUE_GRID_GAP,
+    marginTop: space.xs,
+    alignContent: 'flex-start',
+    width: '100%',
+    alignSelf: 'stretch',
   },
-  driverCard: {
-    paddingVertical: space.md,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
+  driverCardCell: {
+    minWidth: 0,
+
+  },
+  driverCardShell: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
-  driverCode: { fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
-  driverPlatform: { fontSize: 11, fontWeight: '700', marginTop: 3, opacity: 0.8 },
-  driverName: { fontSize: 13, fontWeight: '800', marginTop: 5 },
-  driverLocal: { fontSize: 11, fontWeight: '700', marginTop: 2, opacity: 0.7 },
+  driverCardHeader: {
+    paddingVertical: space.md + 2,
+    paddingHorizontal: space.md + 2,
+  },
+  driverCardCode: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  driverCardSubline: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: space.xs + 2,
+    lineHeight: 20,
+  },
+  driverCardBody: {
+    paddingVertical: space.md + 2,
+    paddingHorizontal: space.md + 2,
+  },
+  driverCardBodyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: space.sm,
+    minHeight: 40
+  },
+  driverCardBodyMain: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 22,
+    minWidth: 0,
+  },
+  driverCardBodyTime: {
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 0,
+    paddingTop: 1,
+  },
+  driverCardFooter: {
+    paddingVertical: space.md,
+    paddingHorizontal: space.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverCardFooterText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
   modalRoot: { flex: 1, justifyContent: 'center', padding: space.xl },
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: {
@@ -1180,10 +1492,19 @@ const styles = StyleSheet.create({
     gap: space.sm + 2,
     rowGap: space.sm,
   },
-  modalTitle: { fontSize: 16, fontWeight: '900', flex: 1, minWidth: 120 },
-  modalCloseText: { fontSize: 13, fontWeight: '700' },
+  modalTitle: { fontSize: 17, fontWeight: '900', flex: 1, minWidth: 120 },
+  modalCloseText: { fontSize: 14, fontWeight: '700' },
   modalBody: { paddingHorizontal: space.lg + 2, paddingTop: space.xs, paddingBottom: space.xxl },
-  fieldLabel: { fontSize: 11, fontWeight: '800', marginBottom: space.xs + 2, marginTop: space.sm + 2 },
+  fieldLabel: { fontSize: 12, fontWeight: '800', marginBottom: space.xs + 2, marginTop: space.sm + 2 },
+  docTipoRow: { flexDirection: 'row', gap: space.sm, marginBottom: space.xs },
+  docTipoChip: {
+    flex: 1,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+  },
+  docTipoChipText: { fontSize: 13, fontWeight: '800' },
   platformRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm + 2, marginBottom: space.xs },
   platformBtn: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1191,7 +1512,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm + 2,
     paddingHorizontal: space.md,
   },
-  platformText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  platformText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.8 },
   dropdown: {
     height: 52,
     borderRadius: 18,
@@ -1199,8 +1520,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 2,
   },
-  dropdownPlaceholder: { fontSize: 15, fontWeight: '600' },
-  dropdownSelected: { fontSize: 16, fontWeight: '700' },
+  dropdownPlaceholder: { fontSize: 16, fontWeight: '600' },
+  dropdownSelected: { fontSize: 17, fontWeight: '700' },
   /** Un solo borde: la librería aplica inputSearchStyle al View y al TextInput → doble marco si usamos inputSearchStyle con border. */
   dropdownSearchOuter: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1218,7 +1539,7 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     paddingHorizontal: 0,
     borderWidth: 0,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
   },
   dropdownListContainer: {
@@ -1230,11 +1551,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: space.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.6,
   },
-  fieldError: { marginTop: space.xs + 2, fontSize: 12, fontWeight: '600' },
+  fieldError: { marginTop: space.xs + 2, fontSize: 13, fontWeight: '600' },
   submitBtn: {
     marginTop: space.md + 2,
     height: 52,
@@ -1244,9 +1565,9 @@ const styles = StyleSheet.create({
     padding: 10
   },
   submitBtnDisabled: { opacity: 0.5 },
-  submitText: { fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  submitText: { fontSize: 13, fontWeight: '900', letterSpacing: 2 },
   feedback: { marginTop: space.md + 2, padding: space.md + 2, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
-  feedbackText: { fontSize: 12, fontWeight: '700', lineHeight: 18 },
+  feedbackText: { fontSize: 13, fontWeight: '700', lineHeight: 20 },
 
   // ── Step 2: Confirm + Camera ──
   cameraContainer: {

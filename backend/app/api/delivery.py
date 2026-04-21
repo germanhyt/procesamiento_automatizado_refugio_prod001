@@ -32,6 +32,8 @@ from app.core.delivery_constants import (
     DRIVER_STATUS_EN_MATCH,
     DRIVER_STATUS_ABANDONO,
     DRIVER_STATUS_DESPACHADO,
+    DRIVER_DOCUMENTO_TIPO_DNI,
+    DRIVER_DOCUMENTO_TIPO_CE,
     PERMISSION_DELIVERY_OPERATE,
     PERMISSION_DELIVERY_SIMULATE_ORDER_READY,
 )
@@ -636,6 +638,29 @@ def kiosk_dni_lookup(
     }
 
 
+def _kiosk_resolve_documento_eff(
+    payload: KioskArrivalIn,
+) -> tuple[str, Optional[str], Optional[str]]:
+    """
+    Tipo y valores finales (DNI/CE) tras validar el body.
+    Refuerza coherencia si el flag y los números no coinciden.
+    """
+    dni = re.sub(r"[\s-]", "", str(payload.conductor_dni or "").strip())
+    ce = re.sub(r"[\s-]", "", str(payload.conductor_carne_extranjeria or "").strip().upper())
+    dni_ok = bool(dni.isdigit() and 8 <= len(dni) <= 12)
+    ce_ok = bool(ce and re.match(r"^[A-Z0-9]{4,20}$", ce))
+    t = (payload.conductor_documento_tipo or DRIVER_DOCUMENTO_TIPO_DNI).strip().upper()
+    if t not in (DRIVER_DOCUMENTO_TIPO_DNI, DRIVER_DOCUMENTO_TIPO_CE):
+        t = DRIVER_DOCUMENTO_TIPO_DNI
+    if t == DRIVER_DOCUMENTO_TIPO_DNI and ce_ok and not dni_ok:
+        t = DRIVER_DOCUMENTO_TIPO_CE
+    elif t == DRIVER_DOCUMENTO_TIPO_CE and dni_ok and not ce_ok:
+        t = DRIVER_DOCUMENTO_TIPO_DNI
+    if t == DRIVER_DOCUMENTO_TIPO_CE:
+        return t, None, payload.conductor_carne_extranjeria
+    return t, payload.conductor_dni, None
+
+
 @router.post("/kiosk/arrivals", response_model=KioskArrivalResult)
 async def kiosk_arrival(
     payload: KioskArrivalIn,
@@ -662,8 +687,17 @@ async def kiosk_arrival(
 
     delivery_cfg = get_delivery_config(db)
     db.commit()
-    if delivery_cfg.enable_driver_dni_lookup and not (payload.conductor_dni and str(payload.conductor_dni).strip()):
-        raise HTTPException(status_code=400, detail="DNI del conductor es obligatorio.")
+    doc_tipo, conductor_dni_val, ce_val = _kiosk_resolve_documento_eff(payload)
+    if delivery_cfg.enable_driver_dni_lookup:
+        if doc_tipo == DRIVER_DOCUMENTO_TIPO_DNI:
+            if not (conductor_dni_val and str(conductor_dni_val).strip()):
+                raise HTTPException(status_code=400, detail="DNI del conductor es obligatorio.")
+        else:
+            if not (ce_val and str(ce_val).strip()):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Carné de extranjería del conductor es obligatorio.",
+                )
 
     plataforma = payload.plataforma.strip().upper()
     codigo_ingresado = payload.codigo_ingresado.strip().upper()
@@ -686,9 +720,8 @@ async def kiosk_arrival(
     if prevs:
         db.commit()
 
-    conductor_dni_val = payload.conductor_dni
     nombre_reniec: Optional[str] = None
-    if delivery_cfg.enable_driver_dni_lookup and conductor_dni_val:
+    if doc_tipo == DRIVER_DOCUMENTO_TIPO_DNI and conductor_dni_val:
         nombre_reniec = fetch_reniec_full_name_optional(conductor_dni_val)
 
     arrival = DriverArrival(
@@ -697,7 +730,9 @@ async def kiosk_arrival(
         alias_conductor=payload.alias_conductor.strip(),
         codigo_ingresado=codigo_ingresado,
         restaurant_id=rest.id,
+        conductor_documento_tipo=doc_tipo,
         conductor_dni=conductor_dni_val,
+        conductor_carne_extranjeria=ce_val,
         conductor_nombre_completo=nombre_reniec,
         estado=DRIVER_STATUS_ESPERANDO,
     )
@@ -808,12 +843,16 @@ async def kiosk_upload_driver_photo(
     arrival_id: int,
     conductor_dni: str = Form(
         "",
-        description="Si el arribo tiene DNI, debe coincidir si se envía. Vacío: se usa el DNI del arribo.",
+        description="Si el arribo es DNI, debe coincidir si se envía. Vacío: se usa el documento del arribo.",
+    ),
+    conductor_carne_extranjeria: str = Form(
+        "",
+        description="Si el arribo es CE, debe coincidir si se envía. Vacío: se usa el CE del arribo.",
     ),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Sube la foto del conductor al FileStore (público para el kiosk; valida DNI vs fila si aplica)."""
+    """Sube la foto del conductor al FileStore (público para el kiosk; valida documento vs fila)."""
     cfg = get_delivery_config(db)
     db.commit()
     if not cfg.enable_driver_photo_capture:
@@ -822,26 +861,51 @@ async def kiosk_upload_driver_photo(
     arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
     if not arrival:
         raise HTTPException(status_code=404, detail="Registro de arribo no encontrado.")
-    row_dni = re.sub(r"[\s-]", "", (arrival.conductor_dni or "").strip())
-    form_dni = re.sub(r"[\s-]", "", (conductor_dni or "").strip())
 
-    if row_dni:
-        if form_dni:
-            if not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12:
-                raise HTTPException(status_code=400, detail="DNI inválido.")
-            if form_dni != row_dni:
-                raise HTTPException(status_code=400, detail="El DNI no coincide con el registro del conductor.")
-            storage_dni = form_dni
+    row_tipo = (arrival.conductor_documento_tipo or DRIVER_DOCUMENTO_TIPO_DNI).upper()
+    if row_tipo not in (DRIVER_DOCUMENTO_TIPO_DNI, DRIVER_DOCUMENTO_TIPO_CE):
+        row_tipo = DRIVER_DOCUMENTO_TIPO_DNI
+
+    row_dni = re.sub(r"[\s-]", "", (arrival.conductor_dni or "").strip())
+    row_ce = re.sub(r"[\s-]", "", (arrival.conductor_carne_extranjeria or "").strip().upper())
+    form_dni = re.sub(r"[\s-]", "", (conductor_dni or "").strip())
+    form_ce = re.sub(r"[\s-]", "", (conductor_carne_extranjeria or "").strip().upper())
+
+    if row_tipo == DRIVER_DOCUMENTO_TIPO_CE:
+        if row_ce:
+            if form_ce:
+                if not re.match(r"^[A-Z0-9]{4,20}$", form_ce):
+                    raise HTTPException(status_code=400, detail="Carné de extranjería inválido.")
+                if form_ce != row_ce:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="El carné de extranjería no coincide con el registro del conductor.",
+                    )
+                storage_stem = form_ce
+            else:
+                storage_stem = row_ce
         else:
-            storage_dni = row_dni
+            if form_ce and not re.match(r"^[A-Z0-9]{4,20}$", form_ce):
+                raise HTTPException(status_code=400, detail="Carné de extranjería inválido.")
+            storage_stem = form_ce if form_ce else "unknown"
     else:
-        if form_dni and (not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12):
-            raise HTTPException(status_code=400, detail="DNI inválido.")
-        storage_dni = form_dni if form_dni else "unknown"
+        if row_dni:
+            if form_dni:
+                if not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12:
+                    raise HTTPException(status_code=400, detail="DNI inválido.")
+                if form_dni != row_dni:
+                    raise HTTPException(status_code=400, detail="El DNI no coincide con el registro del conductor.")
+                storage_stem = form_dni
+            else:
+                storage_stem = row_dni
+        else:
+            if form_dni and (not form_dni.isdigit() or len(form_dni) < 8 or len(form_dni) > 12):
+                raise HTTPException(status_code=400, detail="DNI inválido.")
+            storage_stem = form_dni if form_dni else "unknown"
 
     content = await file.read()
     try:
-        rel, mime = save_kiosk_driver_photo_file(storage_dni, content, content_type=file.content_type)
+        rel, mime = save_kiosk_driver_photo_file(storage_stem, content, content_type=file.content_type)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
