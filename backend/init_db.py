@@ -2,6 +2,7 @@ from app.database import SessionLocal, engine, Base
 from app.models.auth import User, Role, Permission
 from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryConfig  # noqa: F401
 from app.models.comercial import ComercialReserva, ComercialEvento  # noqa: F401 — registra tablas en metadata
+from app.models.documentos_gcb import DocumentoGcb  # noqa: F401 — registra tablas en metadata
 from app.core.security import get_password_hash
 import sys
 
@@ -21,6 +22,8 @@ def init():
         {"name": "Configurador Sistema", "codename": "system:config", "module": "core"},
         {"name": "Ver Comercial", "codename": "comercial:view", "module": "comercial"},
         {"name": "Gestionar Comercial", "codename": "comercial:manage", "module": "comercial"},
+        {"name": "Ver Documentos GCB", "codename": "documentos_gcb:view", "module": "documentos_gcb"},
+        {"name": "Gestionar Documentos GCB", "codename": "documentos_gcb:manage", "module": "documentos_gcb"},
     ]
     
     perms = []

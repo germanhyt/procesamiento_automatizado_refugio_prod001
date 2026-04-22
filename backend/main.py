@@ -4,7 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
-from app.api import procesamiento, auth, users_roles, powerbi, file_store, delivery, comercial, notificaciones
+from app.api import (
+    procesamiento,
+    auth,
+    users_roles,
+    powerbi,
+    file_store,
+    delivery,
+    comercial,
+    notificaciones,
+    documentos_gcb,
+)
 
 # Configuración de logs para ver errores reales
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +54,7 @@ app.include_router(file_store.router, prefix="/api")
 app.include_router(delivery.router, prefix="/api")
 app.include_router(comercial.router, prefix="/api")
 app.include_router(notificaciones.router, prefix="/api")
+app.include_router(documentos_gcb.router, prefix="/api")
 
 @app.get("/")
 async def root():

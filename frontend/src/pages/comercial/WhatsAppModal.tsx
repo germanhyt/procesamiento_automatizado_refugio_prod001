@@ -49,8 +49,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
             <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="relative z-10 w-full max-w-lg rounded-2xl border p-6 shadow-2xl"
-                style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
+                className="relative z-10 w-full max-w-lg rounded-2xl border border-app-border bg-app-modal-solid p-6 shadow-2xl"
             >
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -73,8 +72,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
 
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-muted block mb-2">Mensaje</label>
                 <textarea
-                    className="w-full min-h-[160px] rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-teal-500/40 mb-6"
-                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
+                    className="w-full min-h-[160px] rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus:ring-2 focus:ring-teal-500/40 mb-6"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                 />

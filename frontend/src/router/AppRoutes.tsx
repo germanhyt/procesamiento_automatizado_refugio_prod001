@@ -11,6 +11,7 @@ import UserManagement from '@/pages/UserManagement';
 import FuentesDatos from '@/pages/FuentesDatos';
 import DeliveryPanel from '@/pages/delivery/DeliveryPanel';
 import ComercialPanel from '@/pages/comercial/ComercialPanel';
+import DocumentosGcbPage from '@/pages/documentos/DocumentosGcbPage';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -56,6 +57,9 @@ const AppRoutes: React.FC = () => {
                     </Route>
                     <Route element={<PrivateRoute permission="comercial:view" />}>
                         <Route path="comercial" element={<ComercialPanel />} />
+                    </Route>
+                    <Route element={<PrivateRoute permission="documentos_gcb:view" />}>
+                        <Route path="documentos-gcb" element={<DocumentosGcbPage />} />
                     </Route>
                 </Route>
             </Route>

@@ -231,8 +231,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                     <CalendarClock size={18} className="text-teal-500 shrink-0" />
                     <input
                         placeholder="Buscar nombre o celular…"
-                        className="rounded-xl border px-4 py-2 text-sm min-w-[200px]"
-                        style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
+                        className="rounded-xl border border-app-border bg-app-input px-4 py-2 text-sm text-app-text placeholder:text-app-muted min-w-[200px]"
                         value={buscarInput}
                         onChange={(e) => setBuscarInput(e.target.value)}
                         autoComplete="off"
@@ -270,15 +269,9 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                 )}
             </div>
 
-            <div
-                className="rounded-2xl border overflow-x-auto relative"
-                style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-panel)' }}
-            >
+            <div className="overflow-x-auto rounded-2xl border border-app-border relative">
                 {isFetching && !isLoading && (
-                    <div
-                        className="absolute top-2 right-3 z-10 flex items-center gap-2 rounded-lg px-2 py-1 text-[9px] font-mono uppercase tracking-wider text-app-muted"
-                        style={{ backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-border)' }}
-                    >
+                    <div className="absolute top-2 right-3 z-10 flex items-center gap-2 rounded-lg border border-app-border bg-app-input px-2 py-1 text-[9px] font-mono uppercase tracking-wider text-app-muted">
                         <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
                         Actualizando…
                     </div>
@@ -291,12 +284,16 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                         <div className="w-10 h-10 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin" />
                     </div>
                 ) : (
-                    <table className="w-full text-sm">
+                    <table className="w-full text-left text-xs">
                         <thead>
                             {table.getHeaderGroups().map((hg) => (
-                                <tr key={hg.id} className="border-b text-left text-[10px] font-black uppercase tracking-widest text-app-muted" style={{ borderColor: 'var(--app-border)' }}>
+                                <tr key={hg.id} className="border-b border-app-border bg-app-input/40">
                                     {hg.headers.map((h) => (
-                                        <th key={h.id} className="px-4 py-3" style={{ width: h.getSize() }}>
+                                        <th
+                                            key={h.id}
+                                            className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted whitespace-nowrap"
+                                            style={{ width: h.getSize() }}
+                                        >
                                             {flexRender(h.column.columnDef.header, h.getContext())}
                                         </th>
                                     ))}
@@ -305,9 +302,9 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                         </thead>
                         <tbody>
                             {table.getRowModel().rows.map((r) => (
-                                <tr key={r.original.id} className="border-b border-white/5 hover:bg-app-card-hover/40">
+                                <tr key={r.original.id} className="border-b border-app-border/80 hover:bg-app-input/20">
                                     {r.getVisibleCells().map((c) => (
-                                        <td key={c.id} className="px-4 py-3 align-middle">
+                                        <td key={c.id} className="px-3 py-2 align-middle text-app-text">
                                             {flexRender(c.column.columnDef.cell, c.getContext())}
                                         </td>
                                     ))}
@@ -316,8 +313,8 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                         </tbody>
                     </table>
                 )}
-                <div className="flex items-center justify-between px-4 py-3 border-t text-[10px]" style={{ borderColor: 'var(--app-border)' }}>
-                    <span className="text-app-muted font-mono">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-3 border-t border-app-border text-[10px] text-app-muted font-mono">
+                    <span>
                         {data?.total ?? rows.length} registros (pág. {table.getState().pagination.pageIndex + 1} /{' '}
                         {table.getPageCount() || 1})
                     </span>
@@ -326,8 +323,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                             type="button"
                             disabled={!table.getCanPreviousPage()}
                             onClick={() => table.previousPage()}
-                            className="px-3 py-1 rounded-lg border disabled:opacity-30"
-                            style={{ borderColor: 'var(--app-border)' }}
+                            className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >
                             Anterior
                         </button>
@@ -335,8 +331,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                             type="button"
                             disabled={!table.getCanNextPage()}
                             onClick={() => table.nextPage()}
-                            className="px-3 py-1 rounded-lg border disabled:opacity-30"
-                            style={{ borderColor: 'var(--app-border)' }}
+                            className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >
                             Siguiente
                         </button>

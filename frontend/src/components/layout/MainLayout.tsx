@@ -15,6 +15,7 @@ import {
     User as UserIcon,
     Truck,
     Briefcase,
+    FileText,
     Sun,
     Moon,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ const MENU_ITEMS_CONFIG: MenuItemConfig[] = [
     { id: 'dashboard', path: '', label: 'Procesam. Automático', icon: <Zap size={18} />, permission: 'dashboard:view', disabled: true },
     { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view' },
     { id: 'comercial', path: '/comercial', label: 'Comercial', icon: <Briefcase size={18} />, permission: 'comercial:view' },
+    { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view' },
 ];
 
 

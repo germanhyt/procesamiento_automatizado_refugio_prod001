@@ -74,7 +74,7 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                 onClick={() => setOpen((o) => !o)}
                 className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left min-h-[42px] transition-colors ${active ? 'border-teal-500/50 bg-teal-500/5' : ''
                     } hover:border-teal-500/40`}
-                style={{ borderColor: active ? undefined : 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
+                style={{ borderColor: active ? undefined : 'var(--app-border)', backgroundColor: 'var(--app-input-bg)' }}
             >
                 <CalendarRange size={16} className="text-teal-500 shrink-0" aria-hidden />
                 <span className="flex flex-col min-w-0">
@@ -98,7 +98,7 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                 <div
                     className="absolute left-0 top-full z-140 mt-2 w-[min(100vw-2rem,320px)] rounded-2xl border p-4 shadow-2xl"
                     style={{
-                        backgroundColor: 'var(--app-panel)',
+                        backgroundColor: 'var(--app-modal-solid)',
                         borderColor: 'var(--app-border)',
                         boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
                     }}
@@ -145,8 +145,7 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                         <button
                             type="button"
                             onClick={() => setOpen(false)}
-                            className="rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-wide"
-                            style={{ borderColor: 'var(--app-border)' }}
+                            className="rounded-lg border border-app-border bg-app-input px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-app-text"
                         >
                             Cerrar
                         </button>

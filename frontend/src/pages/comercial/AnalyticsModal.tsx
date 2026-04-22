@@ -65,7 +65,7 @@ function AnalyticsTooltipPortal({ tip }: { tip: TooltipPayload | null }) {
                 left: Math.min(tip.x + pad, vw - 216),
                 top: tip.y + pad,
                 zIndex: 200_000,
-                backgroundColor: 'var(--app-panel)',
+                backgroundColor: 'var(--app-modal-solid)',
                 borderColor: 'var(--app-border)',
                 color: 'var(--app-text)',
             }}
@@ -231,8 +231,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
             <motion.div
                 initial={{ opacity: 0, scale: 0.97 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="relative z-10 w-full max-w-2xl rounded-2xl border p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
-                style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
+                className="relative z-10 w-full max-w-2xl rounded-2xl border border-app-border bg-app-modal-solid p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
             >
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">

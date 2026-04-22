@@ -30,6 +30,8 @@
   --app-accent-muted-bg-hover: rgba(45, 212, 191, 0.25);
   --app-muted: #a1a1aa;
   --app-icon-bg: #27272a;
+  /* Superficie modal: mismo criterio que tarjetas Delivery, opaca (sin alpha) */
+  --app-modal-solid: #242426;
   color: var(--app-text);
   background-color: var(--app-bg);
 
@@ -58,6 +60,7 @@ html[data-theme="light"] {
   --app-muted: #52525b;
   --app-icon-bg: #e4e4e7;
   --color-refugio-muted: #52525b;
+  --app-modal-solid: #ffffff;
 }
 
 body {
@@ -77,6 +80,7 @@ body {
 /* Utilidades tema-aware para cards, inputs, accent */
 .bg-app-bg { background-color: var(--app-bg); }
 .bg-app-panel { background-color: var(--app-panel); }
+.bg-app-modal-solid { background-color: var(--app-modal-solid); }
 .bg-app-card { background-color: var(--app-card); }
 .bg-app-input { background-color: var(--app-input-bg); }
 .bg-app-icon { background-color: var(--app-icon-bg); }
@@ -121,6 +125,28 @@ html[data-theme="dark"] .pendiente-dia-chip--ok {
 html[data-theme="dark"] .pendiente-dia-chip--falta {
   background-color: rgba(244, 63, 94, 0.32);
   color: #fecdd3;
+}
+
+/* Documentos GCB — badges de estado (default = :root oscuro; claro vía data-theme) */
+.doc-gcb-estado--activo {
+  background-color: rgba(16, 185, 129, 0.22);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+html[data-theme="light"] .doc-gcb-estado--activo {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.doc-gcb-estado--inactivo {
+  background-color: rgba(161, 161, 170, 0.15);
+  color: #e4e4e7;
+  border: 1px solid rgba(161, 161, 170, 0.35);
+}
+html[data-theme="light"] .doc-gcb-estado--inactivo {
+  background-color: rgba(82, 82, 91, 0.14);
+  color: #3f3f46;
+  border-color: rgba(82, 82, 91, 0.3);
 }
 
 /* SweetAlert2: por encima de modales full-screen (p. ej. LegacyFlow z-[10050]) y portales de react-select */

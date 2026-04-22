@@ -13,6 +13,8 @@ services:
     volumes:
       - ./config:/app/config
       - ./uploads:/app/uploads
+      - ./backend/scripts:/app/scripts
+      - ./documentacionrefugio_mirror:/documentacionrefugio_mirror
     networks:
       - app_shared_network
 

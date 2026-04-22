@@ -19,7 +19,7 @@ export type CrudModalProps = {
 };
 
 const inputClass =
-    'w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-teal-500/40 transition-colors';
+    'w-full rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus:ring-2 focus:ring-teal-500/40 transition-colors';
 const labelClass = 'text-[10px] font-black uppercase tracking-widest text-app-muted block mb-2';
 
 const CrudModal: React.FC<CrudModalProps> = ({
@@ -136,8 +136,7 @@ const CrudModal: React.FC<CrudModalProps> = ({
             <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="relative z-10 w-full max-w-lg rounded-2xl border p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
-                style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
+                className="relative z-10 w-full max-w-lg rounded-2xl border border-app-border bg-app-modal-solid p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
             >
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-black uppercase tracking-tight">{title}</h2>
@@ -157,7 +156,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Nombres</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={rNombres}
                                     onChange={(ev) => setRNombres(ev.target.value)}
                                     required
@@ -167,7 +165,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Celular</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={rCel}
                                     onChange={(ev) => setRCel(ev.target.value)}
                                     required
@@ -179,7 +176,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                     type="number"
                                     min={1}
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={rPersonas}
                                     onChange={(ev) => setRPersonas(parseInt(ev.target.value, 10) || 1)}
                                     required
@@ -190,7 +186,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                     <label className={labelClass}>Fecha (DD/MM/YYYY)</label>
                                     <input
                                         className={inputClass}
-                                        style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                         value={rFecha}
                                         onChange={(ev) => setRFecha(ev.target.value)}
                                         placeholder="15/04/2026"
@@ -201,7 +196,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                     <label className={labelClass}>Hora</label>
                                     <input
                                         className={inputClass}
-                                        style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                         value={rHora}
                                         onChange={(ev) => setRHora(ev.target.value)}
                                         placeholder="20:00"
@@ -213,7 +207,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Estado</label>
                                 <select
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={rEstado}
                                     onChange={(ev) => setREstado(ev.target.value as ComercialEstado)}
                                 >
@@ -231,7 +224,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Nombres</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eNombres}
                                     onChange={(ev) => setENombres(ev.target.value)}
                                     required
@@ -241,7 +233,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Razón social (opcional)</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eRazon}
                                     onChange={(ev) => setERazon(ev.target.value)}
                                 />
@@ -250,7 +241,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Celular</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eCel}
                                     onChange={(ev) => setECel(ev.target.value)}
                                     required
@@ -260,7 +250,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Tipo de evento</label>
                                 <select
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eTipo}
                                     onChange={(ev) => setETipo(ev.target.value)}
                                 >
@@ -277,7 +266,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                     type="number"
                                     min={1}
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={ePersonas}
                                     onChange={(ev) => setEPersonas(parseInt(ev.target.value, 10) || 1)}
                                     required
@@ -287,7 +275,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Fecha tentativa (DD/MM/YYYY)</label>
                                 <input
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eFecha}
                                     onChange={(ev) => setEFecha(ev.target.value)}
                                     required
@@ -297,7 +284,6 @@ const CrudModal: React.FC<CrudModalProps> = ({
                                 <label className={labelClass}>Estado</label>
                                 <select
                                     className={inputClass}
-                                    style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
                                     value={eEstado}
                                     onChange={(ev) => setEEstado(ev.target.value as ComercialEstado)}
                                 >
