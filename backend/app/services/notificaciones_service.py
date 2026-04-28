@@ -27,6 +27,8 @@ from app.services.file_store_service import (
 
 logger = logging.getLogger(__name__)
 
+MODOS_PERIODO_NOTIFICACIONES = frozenset({"ultima_semana", "semana_actual", "rango_libre", "ultimos_dias"})
+
 _MAX_ROWS_SCAN = 200
 _MAX_COLS_SCAN = 30
 _MAX_ROWS_FECHA_COL = 3000

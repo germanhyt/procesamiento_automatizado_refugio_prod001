@@ -1,12 +1,17 @@
+import logging
 import os
 import re
 import sys
+import tempfile
 import unicodedata
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from app.services.file_store_service import get_upload_base
+
+logger = logging.getLogger(__name__)
 
 FILE_STORE_DOCUMENTOS_GCB = "documentos_gcb"
 DOCUMENTOS_GCB_ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"})
@@ -132,6 +137,104 @@ def save_document_file(
 
 def resolve_absolute_path(relative_path: str) -> Path:
     return (_resolved_upload_base() / relative_path.replace("\\", "/")).resolve()
+
+
+def path_is_readable_document(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    ext = path.suffix.lower()
+    return ext in DOCUMENTOS_GCB_ALLOWED_EXTENSIONS
+
+
+def _pick_file_in_doc_folder(folder: Path, preferred_name: Optional[str]) -> Optional[Path]:
+    if not folder.is_dir():
+        return None
+    files = [p for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")]
+    if not files:
+        return None
+    if preferred_name:
+        for p in files:
+            if p.name == preferred_name:
+                return p
+        pl = preferred_name.lower()
+        for p in files:
+            if p.name.lower() == pl:
+                return p
+    if len(files) == 1:
+        return files[0]
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
+def resolve_existing_document_file_path(
+    *,
+    documento_id: int,
+    coleccion: str,
+    categoria: str,
+    archivo_ruta: str,
+    archivo_nombre_actual: Optional[str],
+) -> Optional[Path]:
+    """Resuelve el archivo físico aunque `archivo_ruta` en BD no coincida con la carpeta real (migraciones, slugs distintos)."""
+    upload_base = _resolved_upload_base()
+
+    try:
+        if archivo_ruta:
+            p = resolve_absolute_path(archivo_ruta)
+            if path_is_readable_document(p):
+                return p
+    except (OSError, ValueError):
+        logger.debug("No se pudo usar archivo_ruta para doc %s", documento_id, exc_info=True)
+
+    folder = _document_folder(coleccion, categoria, documento_id)
+    picked = _pick_file_in_doc_folder(folder, archivo_nombre_actual)
+    if picked and path_is_readable_document(picked):
+        return picked
+
+    root = upload_base / FILE_STORE_DOCUMENTOS_GCB
+    if root.is_dir():
+        for doc_dir in root.glob(f"**/doc_{documento_id}"):
+            if doc_dir.is_dir():
+                picked = _pick_file_in_doc_folder(doc_dir, archivo_nombre_actual)
+                if picked and path_is_readable_document(picked):
+                    return picked
+    return None
+
+
+def create_documents_zip_tempfile(rows_in_order: list) -> tuple[str, int]:
+    """
+    Crea un ZIP temporal con los archivos resueltos para cada fila (orden preservado).
+    Entradas en el ZIP: `{codigo_slug}_{id}{ext}` (plano, sin carpetas).
+    Devuelve (ruta_temporal, cantidad_agregada). El llamador debe borrar el archivo.
+    """
+    fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    added = 0
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for row in rows_in_order:
+                path = resolve_existing_document_file_path(
+                    documento_id=row.id,
+                    coleccion=row.coleccion,
+                    categoria=row.categoria,
+                    archivo_ruta=row.archivo_ruta,
+                    archivo_nombre_actual=row.archivo_nombre_actual,
+                )
+                if not path:
+                    continue
+                ext = path.suffix.lower()
+                if not ext and row.extension:
+                    e = (row.extension or "").strip().lower()
+                    ext = e if e.startswith(".") else f".{e}"
+                stem = slugify_component(row.codigo, f"doc-{row.id}")
+                arcname = f"{stem}_{row.id}{ext}"
+                zf.write(path, arcname=arcname)
+                added += 1
+        return tmp_path, added
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def delete_physical_file(relative_path: str) -> None:

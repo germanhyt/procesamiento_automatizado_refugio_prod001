@@ -25,6 +25,10 @@ export interface NotificacionesEnvioConfig {
     schedule_enabled: boolean;
     schedule_hour: number;
     schedule_minute: number;
+    schedule_modo: ModoPendientesNotificaciones;
+    schedule_dias: number | null;
+    schedule_fecha_inicio: string | null;
+    schedule_fecha_fin: string | null;
     timezone: string;
     n8n_webhook_url: string | null;
     n8n_webhook_secret_configured: boolean;
@@ -34,6 +38,10 @@ export interface NotificacionesEnvioConfigPatch {
     schedule_enabled?: boolean;
     schedule_hour?: number;
     schedule_minute?: number;
+    schedule_modo?: ModoPendientesNotificaciones;
+    schedule_dias?: number | null;
+    schedule_fecha_inicio?: string | null;
+    schedule_fecha_fin?: string | null;
     n8n_webhook_url?: string;
     /** Omitir = no cambiar; cadena vacía = borrar secreto guardado */
     n8n_webhook_secret?: string;

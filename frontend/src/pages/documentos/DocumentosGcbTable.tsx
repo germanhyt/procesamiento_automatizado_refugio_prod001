@@ -6,8 +6,9 @@ import {
     getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
+    type RowSelectionState,
 } from '@tanstack/react-table';
-import { Eye, FilePenLine, FileUp, ShieldOff } from 'lucide-react';
+import { Download, Eye, FilePenLine, FileUp, FolderDown, ShieldOff } from 'lucide-react';
 
 import type { DocumentoGcb } from '@/services/documentosGcbService';
 import { formatDocumentSize } from '@/utils/documentosGcbUtils';
@@ -18,7 +19,10 @@ export type DocumentosGcbTableProps = {
     rows: DocumentoGcb[];
     isLoading: boolean;
     canManage: boolean;
+    bulkDownloadBusy?: boolean;
     onView: (doc: DocumentoGcb) => void;
+    onDownload: (doc: DocumentoGcb) => void;
+    onDownloadMany: (docs: DocumentoGcb[]) => Promise<void>;
     onEdit: (doc: DocumentoGcb) => void;
     onReplace: (doc: DocumentoGcb) => void;
     onDeactivate: (doc: DocumentoGcb) => void;
@@ -28,15 +32,53 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
     rows,
     isLoading,
     canManage,
+    bulkDownloadBusy = false,
     onView,
+    onDownload,
+    onDownloadMany,
     onEdit,
     onReplace,
     onDeactivate,
 }) => {
     const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 15 });
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+
+    const selectedDocs = useMemo(
+        () => rows.filter((r) => rowSelection[String(r.id)]),
+        [rows, rowSelection]
+    );
+    const selectedCount = selectedDocs.length;
 
     const columns = useMemo(
         () => [
+            columnHelper.display({
+                id: 'select',
+                header: ({ table }) => (
+                    <input
+                        type="checkbox"
+                        aria-label="Seleccionar filas de esta página"
+                        checked={table.getIsAllPageRowsSelected()}
+                        ref={(el) => {
+                            if (el) {
+                                el.indeterminate =
+                                    table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected();
+                            }
+                        }}
+                        onChange={table.getToggleAllPageRowsSelectedHandler()}
+                        className="size-4 shrink-0 rounded border-app-border bg-app-input accent-(--app-accent)"
+                    />
+                ),
+                cell: ({ row }) => (
+                    <input
+                        type="checkbox"
+                        aria-label={`Seleccionar ${row.original.codigo}`}
+                        checked={row.getIsSelected()}
+                        disabled={!row.getCanSelect()}
+                        onChange={row.getToggleSelectedHandler()}
+                        className="size-4 shrink-0 rounded border-app-border bg-app-input accent-(--app-accent)"
+                    />
+                ),
+            }),
             columnHelper.accessor('codigo', {
                 header: 'Código',
                 cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
@@ -89,45 +131,58 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
             }),
             columnHelper.display({
                 id: 'acciones',
-                header: 'Acciones',
+                header: '',
                 cell: ({ row }) => {
                     const doc = row.original;
                     return (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex items-center justify-end gap-1 flex-wrap">
                             <button
                                 type="button"
+                                title="Ver"
+                                aria-label="Ver"
                                 onClick={() => onView(doc)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-app-border px-2 py-1 text-[10px] font-black uppercase tracking-wider hover:bg-app-card-hover"
+                                className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted hover:text-teal-400"
                             >
-                                <Eye size={13} />
-                                Ver
+                                <Eye size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                title="Descargar"
+                                aria-label="Descargar"
+                                onClick={() => onDownload(doc)}
+                                className="p-2 rounded-lg hover:bg-app-card-hover text-teal-400"
+                            >
+                                <Download size={16} />
                             </button>
                             {canManage && (
                                 <>
                                     <button
                                         type="button"
+                                        title="Editar"
+                                        aria-label="Editar"
                                         onClick={() => onEdit(doc)}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-app-border px-2 py-1 text-[10px] font-black uppercase tracking-wider hover:bg-app-card-hover"
+                                        className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted"
                                     >
-                                        <FilePenLine size={13} />
-                                        Editar
+                                        <FilePenLine size={16} />
                                     </button>
                                     <button
                                         type="button"
+                                        title="Reemplazar archivo"
+                                        aria-label="Reemplazar archivo"
                                         onClick={() => onReplace(doc)}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-app-border px-2 py-1 text-[10px] font-black uppercase tracking-wider hover:bg-app-card-hover"
+                                        className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted"
                                     >
-                                        <FileUp size={13} />
-                                        Reemplazar
+                                        <FileUp size={16} />
                                     </button>
                                     {doc.activo && (
                                         <button
                                             type="button"
+                                            title="Desactivar"
+                                            aria-label="Desactivar"
                                             onClick={() => onDeactivate(doc)}
-                                            className="inline-flex items-center gap-1 rounded-lg border border-app-border px-2 py-1 text-[10px] font-black uppercase tracking-wider text-red-500 hover:bg-red-500/10"
+                                            className="p-2 rounded-lg hover:bg-red-500/10 text-red-400"
                                         >
-                                            <ShieldOff size={13} />
-                                            Desactivar
+                                            <ShieldOff size={16} />
                                         </button>
                                     )}
                                 </>
@@ -137,14 +192,17 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                 },
             }),
         ],
-        [canManage, onDeactivate, onEdit, onReplace, onView]
+        [canManage, onDeactivate, onDownload, onEdit, onReplace, onView]
     );
 
     const table = useReactTable({
         data: rows,
         columns,
-        state: { pagination },
+        getRowId: (row) => String(row.id),
+        state: { pagination, rowSelection },
         onPaginationChange: setPagination,
+        onRowSelectionChange: setRowSelection,
+        enableRowSelection: true,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
@@ -153,7 +211,33 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
     return (
         <div className="space-y-4">
             <div>
-                <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted mb-3">Documentos</h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+                    <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted">Documentos</h2>
+                    {rows.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 justify-end">
+                            <button
+                                type="button"
+                                disabled={bulkDownloadBusy || selectedCount === 0}
+                                onClick={() => onDownloadMany(selectedDocs)}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-teal-500 hover:bg-app-card-hover hover:text-teal-400 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                            >
+                                <Download size={14} />
+                                ZIP selección
+                                {selectedCount > 0 ? ` (${selectedCount})` : ''}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={bulkDownloadBusy}
+                                onClick={() => onDownloadMany(rows)}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                            >
+                                <FolderDown size={14} />
+                                ZIP todo
+                                <span className="text-app-muted font-mono normal-case">({rows.length})</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <div className="overflow-x-auto rounded-2xl border border-app-border">
                     <table className="min-w-full text-left text-xs">
                         <thead>

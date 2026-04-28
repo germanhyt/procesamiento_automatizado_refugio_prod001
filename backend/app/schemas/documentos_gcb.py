@@ -44,3 +44,7 @@ class PaginatedDocumentosGcb(BaseModel):
 class ActionResponse(BaseModel):
     ok: bool
     detail: str
+
+
+class DocumentosGcbZipRequest(BaseModel):
+    ids: List[int] = Field(..., min_items=1, max_items=500)

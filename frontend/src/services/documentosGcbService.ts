@@ -116,4 +116,50 @@ export const documentosGcbService = {
         });
         return URL.createObjectURL(res.data);
     },
+
+    async downloadFile(token: string, id: number, filename: string): Promise<void> {
+        const res = await axios.get<Blob>(`${API_URL}/documentos-gcb/${id}/file`, {
+            headers: authHeaders(token),
+            responseType: 'blob',
+        });
+        const safeName = (filename || `documento-${id}`).replace(/[/\\?%*:|"<>]/g, '_');
+        const url = URL.createObjectURL(res.data);
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = safeName;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    },
+
+    /** Descarga varios documentos en un único ZIP (POST /documentos-gcb/download-zip). */
+    async downloadZip(token: string, ids: number[]): Promise<void> {
+        const res = await axios.post<Blob>(
+            `${API_URL}/documentos-gcb/download-zip`,
+            { ids },
+            {
+                headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+                responseType: 'blob',
+            }
+        );
+        const ts = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+        const safeName = `documentos-gcb_${ts}.zip`.replace(/[/\\?%*:|"<>]/g, '_');
+        const url = URL.createObjectURL(res.data);
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = safeName;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    },
 };

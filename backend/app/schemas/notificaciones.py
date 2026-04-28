@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from datetime import date
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -56,6 +57,22 @@ class NotificacionesEnvioConfigOut(BaseModel):
     schedule_enabled: bool
     schedule_hour: int
     schedule_minute: int
+    schedule_modo: str = Field(
+        default="ultima_semana",
+        description="ultima_semana | semana_actual | rango_libre | ultimos_dias",
+    )
+    schedule_dias: Optional[int] = Field(
+        default=None,
+        description="Solo ultimos_dias; por defecto en evaluación 7 si es null",
+    )
+    schedule_fecha_inicio: Optional[str] = Field(
+        default=None,
+        description="rango_libre, ISO YYYY-MM-DD",
+    )
+    schedule_fecha_fin: Optional[str] = Field(
+        default=None,
+        description="rango_libre, ISO YYYY-MM-DD",
+    )
     timezone: str = "America/Lima"
     n8n_webhook_url: Optional[str] = None
     n8n_webhook_secret_configured: bool = False
@@ -69,6 +86,13 @@ class NotificacionesEnvioConfigUpdate(BaseModel):
     schedule_enabled: Optional[bool] = None
     schedule_hour: Optional[int] = Field(None, ge=0, le=23)
     schedule_minute: Optional[int] = Field(None, ge=0, le=59)
+    schedule_modo: Optional[str] = Field(
+        default=None,
+        description="ultima_semana | semana_actual | rango_libre | ultimos_dias",
+    )
+    schedule_dias: Optional[int] = Field(None, ge=1, le=366)
+    schedule_fecha_inicio: Optional[date] = None
+    schedule_fecha_fin: Optional[date] = None
     n8n_webhook_url: Optional[str] = Field(
         default=None,
         description="URL del Webhook n8n; cadena vacía borra el valor guardado",

@@ -31,13 +31,14 @@ from app.services.file_store_service import ZONA_LIMA
 from app.services.notificaciones_contactos import attach_emails_notificacion
 from app.services.notificaciones_n8n import ejecutar_envio_n8n_desde_evaluacion
 from app.services.notificaciones_service import (
+    MODOS_PERIODO_NOTIFICACIONES,
     evaluar_locatarios_pendientes_periodo,
     lista_dias_periodo_iso,
     resolver_periodo_notificaciones,
 )
 from app.services.notificaciones_scheduler import refresh_notificaciones_cron_job
 
-_MODOS_PENDIENTES = frozenset({"ultima_semana", "semana_actual", "rango_libre", "ultimos_dias"})
+_MODOS_PENDIENTES = MODOS_PERIODO_NOTIFICACIONES
 
 NOTIFICACIONES_API_KEY_ENV = "NOTIFICACIONES_API_KEY"
 
@@ -83,10 +84,19 @@ async def _require_notificaciones_access(
 def _envio_config_to_out(row: NotificacionesEnvioConfig) -> NotificacionesEnvioConfigOut:
     url = (row.n8n_webhook_url or "").strip() or None
     sec = (row.n8n_webhook_secret or "").strip()
+    sm = (getattr(row, "schedule_modo", None) or "ultima_semana").strip().lower()
+    if sm not in MODOS_PERIODO_NOTIFICACIONES:
+        sm = "ultima_semana"
+    fi = getattr(row, "schedule_fecha_inicio", None)
+    ff = getattr(row, "schedule_fecha_fin", None)
     return NotificacionesEnvioConfigOut(
         schedule_enabled=row.schedule_enabled,
         schedule_hour=row.schedule_hour,
         schedule_minute=row.schedule_minute,
+        schedule_modo=sm,
+        schedule_dias=getattr(row, "schedule_dias", None),
+        schedule_fecha_inicio=fi.isoformat() if fi else None,
+        schedule_fecha_fin=ff.isoformat() if ff else None,
         timezone="America/Lima",
         n8n_webhook_url=url,
         n8n_webhook_secret_configured=bool(sec),
@@ -104,6 +114,10 @@ async def get_envio_config(
             schedule_enabled=False,
             schedule_hour=9,
             schedule_minute=0,
+            schedule_modo="ultima_semana",
+            schedule_dias=None,
+            schedule_fecha_inicio=None,
+            schedule_fecha_fin=None,
             timezone="America/Lima",
             n8n_webhook_url=None,
             n8n_webhook_secret_configured=False,
@@ -126,6 +140,7 @@ async def patch_envio_config(
             schedule_enabled=False,
             schedule_hour=9,
             schedule_minute=0,
+            schedule_modo="ultima_semana",
         )
         db.add(row)
         db.flush()
@@ -136,6 +151,26 @@ async def patch_envio_config(
         row.schedule_hour = int(data["schedule_hour"])
     if "schedule_minute" in data:
         row.schedule_minute = int(data["schedule_minute"])
+    if "schedule_modo" in data and data["schedule_modo"] is not None:
+        sm = str(data["schedule_modo"]).strip().lower()
+        if sm not in MODOS_PERIODO_NOTIFICACIONES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"schedule_modo inválido. Use: {', '.join(sorted(MODOS_PERIODO_NOTIFICACIONES))}",
+            )
+        row.schedule_modo = sm
+    if "schedule_dias" in data:
+        row.schedule_dias = data["schedule_dias"]
+    if "schedule_fecha_inicio" in data:
+        row.schedule_fecha_inicio = data["schedule_fecha_inicio"]
+    if "schedule_fecha_fin" in data:
+        row.schedule_fecha_fin = data["schedule_fecha_fin"]
+    m = (row.schedule_modo or "ultima_semana").strip().lower()
+    if m == "rango_libre" and (row.schedule_fecha_inicio is None or row.schedule_fecha_fin is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="schedule_modo rango_libre requiere schedule_fecha_inicio y schedule_fecha_fin",
+        )
     if "n8n_webhook_url" in data:
         u = data["n8n_webhook_url"]
         row.n8n_webhook_url = (u.strip() if isinstance(u, str) else None) or None

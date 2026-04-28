@@ -16,18 +16,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import Animated, {
-  Easing,
-  FadeIn,
-  FadeInDown,
-  Layout,
-  ZoomIn,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, Layout, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dropdown } from 'react-native-element-dropdown';
@@ -55,6 +44,7 @@ import {
   type KioskPlatform,
 } from '@/constants/kiosk';
 import { cardShadow, modalCardShadow, motion, radius, space, topBarShadow } from '@/constants/kioskLayout';
+import { RegisterCtaPointingHand } from '@/components/RegisterCtaPointingHand';
 import { useKioskTheme } from '@/components/useKioskTheme';
 import type { KioskPalette } from '@/constants/kioskTheme';
 
@@ -334,27 +324,6 @@ export default function KioskScreen() {
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Pre-fetch DNI: stores the last fetched DNI to avoid duplicate requests
   const prefetchedDniRef = useRef<string>('');
-
-  const registerBtnPulse = useSharedValue(1);
-  const registerBtnPulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: registerBtnPulse.value }],
-  }));
-
-  useEffect(() => {
-    const ease = Easing.inOut(Easing.sin);
-    if (registerModalVisible) {
-      registerBtnPulse.value = withTiming(1, { duration: 200, easing: ease });
-      return;
-    }
-    registerBtnPulse.value = withRepeat(
-      withSequence(
-        withTiming(1.02, { duration: 900, easing: ease }),
-        withTiming(0.95, { duration: 900, easing: ease }),
-      ),
-      -1,
-      false,
-    );
-  }, [registerModalVisible, registerBtnPulse]);
 
   const qc = useQueryClient();
 
@@ -782,22 +751,23 @@ export default function KioskScreen() {
 
       <View style={[styles.main, { paddingHorizontal: contentPadH, paddingTop: space.lg, paddingBottom: space.lg }]}>
         <View style={styles.registerBtnRow}>
-          <Animated.View style={[registerBtnPulseStyle, styles.registerBtnPulseWrap]}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.openModalBtn,
-                styles.openModalBtnFull,
-                { backgroundColor: palette.accent },
-                pressed && styles.pressedPrimary,
-              ]}
-              onPress={openRegisterModal}
-              android_ripple={ripple('rgba(0,0,0,0.2)')}
-              accessibilityRole="button"
-              accessibilityLabel={registerBtnLabel}
-            >
+          <Pressable
+            style={({ pressed }) => [
+              styles.openModalBtn,
+              styles.openModalBtnFull,
+              { backgroundColor: palette.accent },
+              pressed && styles.pressedPrimary,
+            ]}
+            onPress={openRegisterModal}
+            android_ripple={ripple('rgba(0,0,0,0.2)')}
+            accessibilityRole="button"
+            accessibilityLabel={registerBtnLabel}
+          >
+            <View style={styles.registerCtaRow}>
               <Text style={[styles.openModalBtnText, { color: palette.accentText }]}>{registerBtnLabel}</Text>
-            </Pressable>
-          </Animated.View>
+              <RegisterCtaPointingHand color={palette.accentText} paused={registerModalVisible} />
+            </View>
+          </Pressable>
         </View>
 
         <ScrollView
@@ -1277,8 +1247,11 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: space.md,
   },
-  registerBtnPulseWrap: {
-    width: '100%',
+  registerCtaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.md,
   },
   openModalBtn: {
     marginTop: space.md,

@@ -24,6 +24,10 @@ def ensure_notificaciones_envio_n8n_columns() -> None:
     stmts = (
         "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS n8n_webhook_url TEXT",
         "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS n8n_webhook_secret VARCHAR(512)",
+        "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS schedule_modo VARCHAR(32) NOT NULL DEFAULT 'ultima_semana'",
+        "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS schedule_dias INTEGER",
+        "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS schedule_fecha_inicio DATE",
+        "ALTER TABLE notificaciones_envio_config ADD COLUMN IF NOT EXISTS schedule_fecha_fin DATE",
     )
     try:
         with engine.begin() as conn:
@@ -61,6 +65,7 @@ def ensure_notificaciones_envio_table() -> None:
                     schedule_enabled=False,
                     schedule_hour=9,
                     schedule_minute=0,
+                    schedule_modo="ultima_semana",
                 )
             )
             db.commit()
@@ -76,23 +81,36 @@ def _tick_programado() -> None:
     from app.database import SessionLocal
     from app.models.notificaciones_config import NotificacionesEnvioConfig
     from app.services import notificaciones_n8n as n8n
-    from app.services.notificaciones_service import resolver_periodo_notificaciones
+    from app.services.notificaciones_service import (
+        MODOS_PERIODO_NOTIFICACIONES,
+        resolver_periodo_notificaciones,
+    )
 
     db = SessionLocal()
     try:
         cfg = db.get(NotificacionesEnvioConfig, 1)
         if not cfg or not cfg.schedule_enabled:
             return
-        pi, pf, etiqueta, rodante = resolver_periodo_notificaciones(
-            "ultima_semana",
-            dias=None,
-            fecha_inicio=None,
-            fecha_fin=None,
-        )
+        m = (cfg.schedule_modo or "ultima_semana").strip().lower()
+        if m not in MODOS_PERIODO_NOTIFICACIONES:
+            m = "ultima_semana"
+        dias = cfg.schedule_dias if m == "ultimos_dias" else None
+        fi = cfg.schedule_fecha_inicio if m == "rango_libre" else None
+        ff = cfg.schedule_fecha_fin if m == "rango_libre" else None
+        try:
+            pi, pf, etiqueta, rodante = resolver_periodo_notificaciones(
+                m,
+                dias=dias,
+                fecha_inicio=fi,
+                fecha_fin=ff,
+            )
+        except ValueError as exc:
+            logger.warning("[notificaciones] periodo de envío programado inválido (%s): %s", m, exc)
+            return
         out = n8n.ejecutar_envio_n8n_desde_evaluacion(
             db,
             trigger="schedule",
-            modo="ultima_semana",
+            modo=m,
             periodo_inicio=pi,
             periodo_fin=pf,
             etiqueta=etiqueta,

@@ -19,6 +19,7 @@ def ensure_table_and_seed() -> None:
                 schedule_enabled=False,
                 schedule_hour=9,
                 schedule_minute=0,
+                schedule_modo="ultima_semana",
             )
             db.add(row)
             db.commit()

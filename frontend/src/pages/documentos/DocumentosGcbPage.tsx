@@ -34,6 +34,7 @@ const DocumentosGcbPage: React.FC = () => {
     const [viewerMime, setViewerMime] = useState('');
     const [viewerUrl, setViewerUrl] = useState('');
     const [viewerLoading, setViewerLoading] = useState(false);
+    const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
 
     const docsQuery = useDocumentosGcbList({ q, coleccion, categoria, soloActivos });
     const { create, update, replaceFile, deactivate, invalidate } = useDocumentosGcbMutations();
@@ -72,8 +73,30 @@ const DocumentosGcbPage: React.FC = () => {
         'w-full rounded-xl bg-app-input border border-app-border px-3 py-2 text-sm text-app-text placeholder:text-app-muted';
 
     const showError = (error: unknown) => {
+        const ax = error as { response?: { data?: unknown } };
+        const data = ax.response?.data;
+        if (data instanceof Blob) {
+            void (async () => {
+                try {
+                    const text = await data.text();
+                    let detail = text;
+                    try {
+                        const j = JSON.parse(text) as { detail?: unknown };
+                        if (j && typeof j === 'object' && j.detail != null) {
+                            detail = String(j.detail);
+                        }
+                    } catch {
+                        /* usar texto bruto */
+                    }
+                    window.alert(detail || 'Error');
+                } catch {
+                    window.alert('Error inesperado');
+                }
+            })();
+            return;
+        }
         const detail =
-            (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            (data as { detail?: string } | undefined)?.detail ||
             (error as Error).message ||
             'Error inesperado';
         window.alert(detail);
@@ -86,6 +109,29 @@ const DocumentosGcbPage: React.FC = () => {
         setViewerMime('');
         setViewerUrl('');
         setViewerLoading(false);
+    };
+
+    const handleDownload = async (doc: DocumentoGcb) => {
+        try {
+            await documentosGcbService.downloadFile(t, doc.id, doc.archivo_nombre_actual);
+        } catch (error) {
+            showError(error);
+        }
+    };
+
+    const handleDownloadMany = async (list: DocumentoGcb[]) => {
+        if (!list.length) return;
+        setBulkDownloadBusy(true);
+        try {
+            await documentosGcbService.downloadZip(
+                t,
+                list.map((d) => d.id)
+            );
+        } catch (error) {
+            showError(error);
+        } finally {
+            setBulkDownloadBusy(false);
+        }
     };
 
     const handleViewFile = async (doc: DocumentoGcb) => {
@@ -212,7 +258,10 @@ const DocumentosGcbPage: React.FC = () => {
                 rows={docs}
                 isLoading={docsQuery.isLoading}
                 canManage={canManage}
+                bulkDownloadBusy={bulkDownloadBusy}
                 onView={handleViewFile}
+                onDownload={handleDownload}
+                onDownloadMany={handleDownloadMany}
                 onEdit={(doc) => setEditDoc(doc)}
                 onReplace={(doc) => setReplaceDoc(doc)}
                 onDeactivate={handleDeactivate}

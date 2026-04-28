@@ -64,7 +64,19 @@ RESERVAS_TSV = r"""28/12/2025	German	901139973	60	28/12/2025	22:00:00	Pendiente
 1/04/2026	Milagros Rodríguez	944120619	15	1/04/2026	12:30PM	Pendiente
 1/04/2026	Jorge Cuellar Ramos	964312730	18	1/04/2026	19:00:00	Pendiente
 1/04/2026	Vida Del Carmen Cisneros López	999499859	20	24/04/2026	19:00:00	Pendiente
-4/04/2026	Brenda	969787881	5	4/03/2026	19:00:00	Pendiente"""
+4/04/2026	Brenda	969787881	5	4/03/2026	19:00:00	Pendiente
+13/04/2026	Cinthya Chávez Ramírez	968263964	20	30/04/2026	20:00:00	Pendiente
+14/04/2026	Alexandra Castillo Asencio	942039468	4	18/04/2026	20:00:00	Pendiente
+16/04/2026	Jasmin Zarate Vela	994544436	8	17/04/2026	21:00:00	Pendiente
+16/04/2026	Karla Montero Mena	952537226	20	17/04/2026	20:00:00	Pendiente
+23/04/2026	Carmen Rios	951748540	20	24/04/2026	20:00:00	Pendiente
+24/04/2026	Nadia Zafra Sarmiento	961581751	8	24/04/2026	19:00:00	Pendiente
+24/04/2026	Miguel Acevedo	949328398	20	29/04/2026	18:00:00	Pendiente
+24/04/2026	Samara Macedo	916481840	10	24/04/2026	19:30:00	Pendiente
+24/04/2026	STEPHANIE ALEXANDRA GUEVARA ZUNIGA	919067927	15	24/07/2026	18:30:00	Pendiente
+24/04/2026	STEPHANIE ALEXANDRA GUEVARA ZUNIGA	919067927	15	24/04/2026	18:30:00	Pendiente
+25/04/2026	Manuel Macedo Lazo	996649466	2	25/04/2026	21:30:00	Pendiente
+27/04/2026	Emilio Giurfa	941311218	13	30/04/2026	7:30:00	Pendiente"""
 
 EVENTOS_TSV = r"""15/01/2026	Leilah Ocampo	GRUPO CORDILLERA BLANCA	949358033	Corporativo	90	18/03/2026	Pendiente
 11/02/2026	Bruno Martin Sánchez Avendaño	N/A	939836530	Fiestas Infantiles	35	14/05/2025	Pendiente
@@ -88,7 +100,13 @@ EVENTOS_TSV = r"""15/01/2026	Leilah Ocampo	GRUPO CORDILLERA BLANCA	949358033	Cor
 16/03/2026	Nicole Rebeca Arquinigo Bazan	N/A	993793659	Social	20	20/03/2026	Pendiente
 16/03/2026	Nicole Rebeca Arquinigo Bazan		993793659	Social	20	20/03/2026	Pendiente
 26/03/2026	Mauricio Maradiegue	American Express Concierge	958733820	Social	15	27/03/2026	Pendiente
-30/03/2026	Dejhanira Muhlig	N/A	987412436	Fiestas Infantiles	80-90	16/05/2026	Pendiente"""
+30/03/2026	Dejhanira Muhlig	N/A	987412436	Fiestas Infantiles	80-90	16/05/2026	Pendiente
+14/04/2026	Alice Norindr		900912523	Fiestas Infantiles	70	16/05/2026	Pendiente
+15/04/2026	Vania Stephanie Agüero Bautista		992813794	Fiestas Infantiles	60	5/12/2026	Pendiente
+16/04/2026	Andrea Carruitero		993651660	Fiestas Infantiles	100	18/07/2026	Pendiente
+16/04/2026	Paola Sánchez		962112381	Fiestas Infantiles	30	23/05/2026	Pendiente
+16/04/2026	prueba4		987654321	Social	16	16/04/2026	Pendiente
+25/04/2026	María Fernanda		949202787	Fiestas Infantiles	50	20/06/2026	Pendiente"""
 
 
 def _parse_ddmmyyyy(s: str) -> datetime:

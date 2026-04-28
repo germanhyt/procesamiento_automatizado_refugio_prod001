@@ -1,9 +1,12 @@
+import os
 import re
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.api.auth import get_current_user
 from app.database import get_db
@@ -13,11 +16,13 @@ from app.schemas.documentos_gcb import (
     ActionResponse,
     DocumentoGcbOut,
     DocumentoGcbUpdate,
+    DocumentosGcbZipRequest,
     PaginatedDocumentosGcb,
 )
 from app.services.documentos_gcb_service import (
+    create_documents_zip_tempfile,
     delete_physical_file,
-    resolve_absolute_path,
+    resolve_existing_document_file_path,
     save_document_file,
 )
 
@@ -110,6 +115,49 @@ def list_documentos(
         total=total,
         skip=skip,
         limit=limit,
+    )
+
+
+def _unlink_temp_zip(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+@router.post("/download-zip")
+def download_documentos_zip(
+    body: DocumentosGcbZipRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_view(current_user)
+    ids = list(dict.fromkeys(body.ids))
+    rows_db = db.query(DocumentoGcb).filter(DocumentoGcb.id.in_(ids)).all()
+    by_id = {r.id: r for r in rows_db}
+    missing_ids = [i for i in ids if i not in by_id]
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Documentos no encontrados: {missing_ids[:20]}{'…' if len(missing_ids) > 20 else ''}",
+        )
+    ordered = [by_id[i] for i in ids]
+
+    tmp_path, added = create_documents_zip_tempfile(ordered)
+    if added == 0:
+        _unlink_temp_zip(tmp_path)
+        raise HTTPException(
+            status_code=404,
+            detail="Ningún archivo disponible en storage para los documentos solicitados",
+        )
+
+    fname = f"documentos-gcb_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    return FileResponse(
+        tmp_path,
+        media_type="application/zip",
+        filename=fname,
+        background=BackgroundTask(_unlink_temp_zip, tmp_path),
     )
 
 
@@ -302,8 +350,14 @@ def get_document_file(
 ):
     _require_view(current_user)
     row = _get_or_404(db, documento_id)
-    abs_path = resolve_absolute_path(row.archivo_ruta)
-    if not abs_path.is_file():
+    abs_path = resolve_existing_document_file_path(
+        documento_id=row.id,
+        coleccion=row.coleccion,
+        categoria=row.categoria,
+        archivo_ruta=row.archivo_ruta,
+        archivo_nombre_actual=row.archivo_nombre_actual,
+    )
+    if not abs_path:
         raise HTTPException(status_code=404, detail="Archivo no encontrado en storage")
 
     return FileResponse(

@@ -66,3 +66,35 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+# docker exec -it postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "COPY (SELECT 1) TO STDOUT;"
+
+# -- comercial_reservas (reservas con hora)
+# INSERT INTO comercial_reservas (
+#   fecha_creacion, nombres, celular, cantidad_personas, fecha_reserva, hora_reserva, estado
+# ) VALUES
+#   ((to_date('13/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Cinthya Chávez Ramírez', '968263964', 20, '30/04/2026', '20:00:00', 'pendiente'),
+#   ((to_date('14/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Alexandra Castillo Asencio', '942039468', 4, '18/04/2026', '20:00:00', 'pendiente'),
+#   ((to_date('16/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Jasmin Zarate Vela', '994544436', 8, '17/04/2026', '21:00:00', 'pendiente'),
+#   ((to_date('16/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Karla Montero Mena', '952537226', 20, '17/04/2026', '20:00:00', 'pendiente'),
+#   ((to_date('23/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Carmen Rios', '951748540', 20, '24/04/2026', '20:00:00', 'pendiente'),
+#   ((to_date('24/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Nadia Zafra Sarmiento', '961581751', 8, '24/04/2026', '19:00:00', 'pendiente'),
+#   ((to_date('24/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Miguel Acevedo', '949328398', 20, '29/04/2026', '18:00:00', 'pendiente'),
+#   ((to_date('24/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Samara Macedo', '916481840', 10, '24/04/2026', '19:30:00', 'pendiente'),
+#   ((to_date('24/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'STEPHANIE ALEXANDRA GUEVARA ZUNIGA', '919067927', 15, '24/07/2026', '18:30:00', 'pendiente'),
+#   ((to_date('24/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'STEPHANIE ALEXANDRA GUEVARA ZUNIGA', '919067927', 15, '24/04/2026', '18:30:00', 'pendiente'),
+#   ((to_date('25/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Manuel Macedo Lazo', '996649466', 2, '25/04/2026', '21:30:00', 'pendiente'),
+#   ((to_date('27/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Emilio Giurfa', '941311218', 13, '30/04/2026', '7:30:00', 'pendiente');
+
+# -- comercial_eventos (eventos con tipo y fecha tentativa; razón social vacía → NULL)
+# INSERT INTO comercial_eventos (
+#   fecha_creacion, nombres, razon_social, celular, tipo_evento, cantidad_personas, fecha_tentativa, estado
+# ) VALUES
+#   ((to_date('14/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Alice Norindr', NULL, '900912523', 'Fiestas Infantiles', 70, '16/05/2026', 'pendiente'),
+#   ((to_date('15/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Vania Stephanie Agüero Bautista', NULL, '992813794', 'Fiestas Infantiles', 60, '5/12/2026', 'pendiente'),
+#   ((to_date('16/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Andrea Carruitero', NULL, '993651660', 'Fiestas Infantiles', 100, '18/07/2026', 'pendiente'),
+#   ((to_date('16/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'Paola Sánchez', NULL, '962112381', 'Fiestas Infantiles', 30, '23/05/2026', 'pendiente'),
+#   ((to_date('16/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'prueba4', NULL, '987654321', 'Social', 16, '16/04/2026', 'pendiente'),
+#   ((to_date('25/04/2026','DD/MM/YYYY')::timestamp AT TIME ZONE 'America/Lima'), 'María Fernanda', NULL, '949202787', 'Fiestas Infantiles', 50, '20/06/2026', 'pendiente');

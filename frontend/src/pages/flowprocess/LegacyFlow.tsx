@@ -146,6 +146,10 @@ const LegacyFlow: React.FC = () => {
     const [pendientesErr, setPendientesErr] = useState<string | null>(null);
     const [scheduleEnabled, setScheduleEnabled] = useState(false);
     const [scheduleHHMM, setScheduleHHMM] = useState('09:00');
+    const [scheduleModo, setScheduleModo] = useState<ModoPendientesNotificaciones>('ultima_semana');
+    const [scheduleDias, setScheduleDias] = useState(7);
+    const [scheduleFechaIni, setScheduleFechaIni] = useState('');
+    const [scheduleFechaFin, setScheduleFechaFin] = useState('');
     const [n8nWebhookUrl, setN8nWebhookUrl] = useState('');
     const [n8nWebhookSecret, setN8nWebhookSecret] = useState('');
     const [n8nSecretTouched, setN8nSecretTouched] = useState(false);
@@ -184,6 +188,10 @@ const LegacyFlow: React.FC = () => {
                 setScheduleHHMM(
                     `${String(cfg.schedule_hour).padStart(2, '0')}:${String(cfg.schedule_minute).padStart(2, '0')}`,
                 );
+                setScheduleModo(cfg.schedule_modo ?? 'ultima_semana');
+                setScheduleDias(cfg.schedule_dias ?? 7);
+                setScheduleFechaIni(cfg.schedule_fecha_inicio ?? '');
+                setScheduleFechaFin(cfg.schedule_fecha_fin ?? '');
                 setN8nWebhookUrl(cfg.n8n_webhook_url ?? '');
                 setN8nSecretConfigured(cfg.n8n_webhook_secret_configured);
                 setN8nWebhookSecret('');
@@ -767,18 +775,36 @@ const LegacyFlow: React.FC = () => {
             });
             return;
         }
+        if (scheduleModo === 'rango_libre' && (!scheduleFechaIni.trim() || !scheduleFechaFin.trim())) {
+            await Swal.fire({
+                title: 'Rango incompleto',
+                text: 'El envío programado en rango libre requiere fecha inicio y fin.',
+                icon: 'warning',
+                background: '#111',
+                color: '#fff',
+            });
+            return;
+        }
         setEnvioSaveBusy(true);
         try {
             const body: NotificacionesEnvioConfigPatch = {
                 schedule_enabled: scheduleEnabled,
                 schedule_hour,
                 schedule_minute,
+                schedule_modo: scheduleModo,
+                schedule_dias: scheduleModo === 'ultimos_dias' ? scheduleDias : null,
+                schedule_fecha_inicio: scheduleModo === 'rango_libre' ? scheduleFechaIni.trim() : null,
+                schedule_fecha_fin: scheduleModo === 'rango_libre' ? scheduleFechaFin.trim() : null,
                 n8n_webhook_url: n8nWebhookUrl.trim(),
             };
             if (n8nSecretTouched) {
                 body.n8n_webhook_secret = n8nWebhookSecret.trim();
             }
             const saved = await patchNotificacionesEnvioConfig(token, body);
+            setScheduleModo(saved.schedule_modo ?? 'ultima_semana');
+            setScheduleDias(saved.schedule_dias ?? 7);
+            setScheduleFechaIni(saved.schedule_fecha_inicio ?? '');
+            setScheduleFechaFin(saved.schedule_fecha_fin ?? '');
             setN8nWebhookUrl(saved.n8n_webhook_url ?? '');
             setN8nSecretConfigured(saved.n8n_webhook_secret_configured);
             setN8nWebhookSecret('');
@@ -1673,9 +1699,76 @@ const LegacyFlow: React.FC = () => {
                             </div>
                             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 min-h-0">
                                 <p className="text-[10px] text-app-muted leading-relaxed">
-                                    El servidor dispara el Webhook a la hora indicada con periodo{' '}
-                                    <strong className="text-app-text">última semana completa</strong>. URL y secreto se guardan en base de datos.
+                                    A la hora programada (America/Lima) el servidor evalúa pendientes y hace POST al Webhook con el{' '}
+                                    <strong className="text-app-text">periodo configurado abajo</strong> (misma lógica que “Pendientes por día”). URL y
+                                    secreto se guardan en base de datos.
                                 </p>
+                                <div>
+                                    <p className="text-[9px] font-black text-app-muted uppercase tracking-wide mb-2">Periodo del envío programado</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                                        {(
+                                            [
+                                                ['ultima_semana', 'Última semana completa (recomendado)'],
+                                                ['semana_actual', 'Semana en curso (lun–dom)'],
+                                                ['ultimos_dias', 'Últimos N días naturales'],
+                                                ['rango_libre', 'Rango libre (desde / hasta)'],
+                                            ] as const
+                                        ).map(([value, label]) => (
+                                            <label key={value} className="flex items-start gap-2 text-[10px] text-app-muted cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="scheduleEnvioModo"
+                                                    checked={scheduleModo === value}
+                                                    onChange={() => setScheduleModo(value)}
+                                                    className="accent-teal-500 mt-0.5"
+                                                />
+                                                <span>{label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    {scheduleModo === 'ultimos_dias' && (
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 max-w-sm mt-3">
+                                            <label className="text-[9px] font-black text-app-muted uppercase whitespace-nowrap">Cantidad de días</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={366}
+                                                value={scheduleDias}
+                                                onChange={(e) =>
+                                                    setScheduleDias(Math.max(1, Math.min(366, Number(e.target.value) || 7)))
+                                                }
+                                                className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                            />
+                                        </div>
+                                    )}
+                                    {scheduleModo === 'rango_libre' && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg mt-3">
+                                            <div>
+                                                <label className="text-[9px] font-black text-app-muted uppercase">Desde</label>
+                                                <input
+                                                    type="date"
+                                                    value={scheduleFechaIni}
+                                                    onChange={(e) => setScheduleFechaIni(e.target.value)}
+                                                    className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[9px] font-black text-app-muted uppercase">Hasta</label>
+                                                <input
+                                                    type="date"
+                                                    value={scheduleFechaFin}
+                                                    onChange={(e) => setScheduleFechaFin(e.target.value)}
+                                                    className="w-full bg-app-input border border-app-border rounded-xl p-2 text-[10px] text-app-text"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                    {scheduleModo === 'rango_libre' ? (
+                                        <p className="text-[9px] text-app-muted mt-2 leading-relaxed">
+                                            El rango es fijo hasta que lo cambie y guarde de nuevo; no se desplaza solo con el calendario.
+                                        </p>
+                                    ) : null}
+                                </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[9px] font-black text-app-muted uppercase block">
                                         URL Webhook n8n (POST)
