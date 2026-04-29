@@ -128,7 +128,7 @@ const DocumentosGcbEditModal: React.FC<DocumentosGcbEditModalProps> = ({ doc, on
                         <button
                             type="submit"
                             disabled={updateMutation.isPending}
-                            className="rounded-xl bg-teal-500 text-black px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+                            className="rounded-xl bg-app-accent text-black px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-app-accent-strong disabled:opacity-60"
                         >
                             {updateMutation.isPending ? 'Guardando...' : 'Guardar cambios'}
                         </button>

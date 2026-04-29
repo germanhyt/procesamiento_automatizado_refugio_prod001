@@ -69,7 +69,7 @@ const Login: React.FC = () => {
                 className="w-full max-w-[90%] sm:max-w-md p-6 sm:p-10 backdrop-blur-3xl rounded-[30px] sm:rounded-[40px] shadow-2xl z-10 border border-app-border bg-app-surface"
             >
                 <div className="flex flex-col items-center mb-10">
-                    {/* <div className="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-500/20 mb-6"> */}
+                    {/* <div className="w-16 h-16 bg-app-accent-muted-bg rounded-2xl flex items-center justify-center text-app-accent border border-app-accent-muted mb-6"> */}
                     <div className="relative shrink-0 my-2">
                         <div className="absolute inset-0 rounded-full blur-2xl [background:var(--app-accent)] opacity-30"></div>
                         <img src={logo} alt="Refugio Logo" className="w-14 h-14 rounded-full border-2 border-app-accent-muted object-cover relative shadow-lg" />
@@ -122,7 +122,7 @@ const Login: React.FC = () => {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-teal-500 hover:bg-teal-400 text-black py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+                        className="w-full bg-app-accent hover:bg-app-accent-strong text-black py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
                     >
                         {isLoading ? (
                             <RefreshCcw className="animate-spin" size={16} />

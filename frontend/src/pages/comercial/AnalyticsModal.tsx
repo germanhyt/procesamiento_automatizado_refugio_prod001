@@ -12,9 +12,9 @@ type AnalyticsModalProps = {
     loading: boolean;
 };
 
-const teal = '#14b8a6';
-const amber = '#f59e0b';
-const slate = '#64748b';
+const accent = 'var(--app-commercial-accent)';
+const warning = 'var(--app-warning)';
+const mutedBar = 'var(--app-text-secondary)';
 
 const MESES_ES = [
     'enero',
@@ -70,7 +70,7 @@ function AnalyticsTooltipPortal({ tip }: { tip: TooltipPayload | null }) {
                 color: 'var(--app-text)',
             }}
         >
-            <div className="text-[10px] font-black uppercase tracking-wide text-teal-400 leading-tight">{tip.title}</div>
+            <div className="text-[10px] font-black uppercase tracking-wide text-app-commercial leading-tight">{tip.title}</div>
             {tip.lines.map((line, i) => (
                 <div key={i} className="text-[11px] text-app-muted mt-1 font-mono tabular-nums">
                     {line}
@@ -119,12 +119,12 @@ function LineTrend({ points }: { points: { label: string; count: number }[] }) {
             <AnalyticsTooltipPortal tip={tip} />
             <svg
                 viewBox={`0 0 ${w} ${h}`}
-                className="w-full max-w-md h-32 text-teal-400"
+                className="w-full max-w-md h-32 text-app-commercial"
                 onMouseLeave={hideTip}
                 role="img"
                 aria-label="Tendencia de registros por mes"
             >
-                <polyline fill="none" stroke={teal} strokeWidth="2" points={poly} pointerEvents="none" />
+                <polyline fill="none" stroke={accent} strokeWidth="2" points={poly} pointerEvents="none" />
                 {points.map((p, i) => {
                     const cx = pad + i * step;
                     const cy = h - pad - (p.count / max) * (h - pad * 2);
@@ -142,7 +142,7 @@ function LineTrend({ points }: { points: { label: string; count: number }[] }) {
                                 onMouseEnter={(e) => showTip(e, p)}
                                 onMouseMove={moveTip}
                             />
-                            <circle cx={cx} cy={cy} r="4" fill={teal} pointerEvents="none" className="drop-shadow-sm" />
+                            <circle cx={cx} cy={cy} r="4" fill={accent} pointerEvents="none" className="drop-shadow-sm" />
                         </g>
                     );
                 })}
@@ -195,7 +195,7 @@ function HorizBars({
                                 className="h-full rounded-full transition-all pointer-events-none"
                                 style={{
                                     width: `${(it.count / max) * 100}%`,
-                                    backgroundColor: it.color ?? teal,
+                                    backgroundColor: it.color ?? accent,
                                 }}
                             />
                         </div>
@@ -225,7 +225,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
     const monthPoints = data ? mapMonthPoints(data.by_month) : [];
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
             <AnalyticsTooltipPortal tip={avgTipoTip} />
             <button type="button" className="absolute inset-0 bg-black/70" aria-label="Cerrar" onClick={onClose} />
             <motion.div
@@ -235,7 +235,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
             >
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400">
+                        <div className="p-2 rounded-xl bg-app-commercial-muted-bg text-app-commercial">
                             <BarChart3 size={22} />
                         </div>
                         <div>
@@ -250,7 +250,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
 
                 {loading && (
                     <div className="flex justify-center py-16">
-                        <div className="w-10 h-10 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin" />
+                        <div className="w-10 h-10 border-4 border-app-commercial-muted border-t-app-commercial rounded-full animate-spin" />
                     </div>
                 )}
 
@@ -279,7 +279,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
                                     items={data.by_estado.map((e) => ({
                                         label: formatearEstado(e.estado),
                                         count: e.count,
-                                        color: e.estado === 'atendido' ? teal : amber,
+                                        color: e.estado === 'atendido' ? accent : warning,
                                     }))}
                                     valueLabel="Registros"
                                 />
@@ -288,7 +288,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted mb-2">
                                     Promedio personas
                                 </h3>
-                                <p className="text-4xl font-black text-teal-400 tabular-nums">{data.avg_personas.toFixed(1)}</p>
+                                <p className="text-4xl font-black text-app-commercial tabular-nums">{data.avg_personas.toFixed(1)}</p>
                                 <p className="text-[10px] text-app-muted mt-1">Total registros: {data.total}</p>
                             </div>
                         </div>
@@ -302,7 +302,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
                                     items={data.by_personas_rango.map((r) => ({
                                         label: `${r.rango} pers.`,
                                         count: r.count,
-                                        color: slate,
+                                        color: mutedBar,
                                     }))}
                                     valueLabel="Reservas"
                                 />
@@ -355,7 +355,7 @@ const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ open, onClose, kind, da
                                                 onMouseLeave={() => setAvgTipoTip(null)}
                                             >
                                                 <span className="text-app-muted">{t.tipo_evento}</span>
-                                                <span className="font-mono text-teal-400">{t.avg_personas.toFixed(1)}</span>
+                                                <span className="font-mono text-app-commercial">{t.avg_personas.toFixed(1)}</span>
                                             </div>
                                         ))}
                                     </div>

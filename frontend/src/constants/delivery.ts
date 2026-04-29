@@ -53,13 +53,13 @@ export const DELIVERY_PERMISSIONS = {
 export function orderStatusBadgeClass(status: string) {
     const base = 'px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest';
     const map: Record<string, string> = {
-        [ORDER_STATUS.LISTO]: 'bg-emerald-500/5 text-emerald-500 border-emerald-500/10',
-        [ORDER_STATUS.PENDIENTE_RECOJO]: 'bg-amber-500/5 text-amber-400 border-amber-500/10',
+        [ORDER_STATUS.LISTO]: 'bg-app-success-muted text-app-success border-app-accent-muted',
+        [ORDER_STATUS.PENDIENTE_RECOJO]: 'bg-app-warning-muted text-app-warning border-app-warning',
         [ORDER_STATUS.PROCESO_ENTREGA]: 'bg-blue-500/5 text-blue-400 border-blue-500/10',
-        [ORDER_STATUS.LISTO_PARA_ENTREGAR]: 'bg-teal-500/5 text-teal-400 border-teal-500/10',
+        [ORDER_STATUS.LISTO_PARA_ENTREGAR]: 'bg-app-accent-muted-bg text-app-accent border-app-accent-muted',
         [ORDER_STATUS.ENTREGADO]: 'bg-zinc-500/5 text-zinc-300 border-zinc-500/10',
         [ORDER_STATUS.DEVOLUCION]: 'bg-orange-500/5 text-orange-300 border-orange-500/10',
-        [ORDER_STATUS.CANCELADO]: 'bg-red-500/5 text-red-400 border-red-500/10',
+        [ORDER_STATUS.CANCELADO]: 'bg-app-danger-muted text-app-danger border-app-danger',
     };
     return `${base} ${map[status] ?? 'bg-white/5 text-zinc-300 border-white/10'}`;
 }

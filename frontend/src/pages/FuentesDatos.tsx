@@ -142,17 +142,17 @@ const FuentesDatos: React.FC = () => {
             >
                 <Link
                     to="/"
-                    className="flex items-center gap-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                    className="flex items-center gap-3 rounded-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)"
                 >
-                    <img src={logo} alt="Refugio" className="w-10 h-10 rounded-full border-2 border-teal-500/50 object-cover" />
+                    <img src={logo} alt="Refugio" className="w-10 h-10 rounded-full border-2 object-cover" style={{ borderColor: 'var(--app-accent-muted)' }} />
                     <div>
                         <h1 className="text-sm font-black uppercase tracking-tighter text-app-text">Refugio Data</h1>
-                        <p className="text-[9px] text-teal-500 font-mono tracking-widest">Fuentes de datos</p>
+                        <p className="text-[9px] text-app-accent font-mono tracking-widest">Fuentes de datos</p>
                     </div>
                 </Link>
                 <Link
                     to="/login"
-                    className="text-[10px] font-black uppercase tracking-widest text-refugio-muted hover:text-teal-500 transition-colors"
+                    className="text-[10px] font-black uppercase tracking-widest text-refugio-muted hover:text-app-accent transition-colors"
                 >
                     Acceso al sistema
                 </Link>
@@ -164,7 +164,7 @@ const FuentesDatos: React.FC = () => {
                         {loadingSemana ? (
                             <Loader2 size={18} className="animate-spin" />
                         ) : (
-                            <Calendar size={18} className="text-teal-500 shrink-0" />
+                            <Calendar size={18} className="text-app-accent shrink-0" />
                         )}
                         <span className="text-[10px] font-black uppercase tracking-widest">
                             {semana
@@ -187,14 +187,14 @@ const FuentesDatos: React.FC = () => {
 
                     <div
                         {...getRootProps({
-                            className: `border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-4 transition-all outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 ${
-                                isDragActive ? 'border-teal-500/50 bg-teal-500/5' : 'border-white/10 hover:border-white/20'
+                            className: `border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-4 transition-all outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted) ${
+                                isDragActive ? 'border-app-accent-muted bg-app-accent-muted-bg' : 'border-white/10 hover:border-app-accent-muted'
                             } ${uploading ? 'opacity-60 pointer-events-none' : ''} ${!locatario && !uploading ? 'opacity-80' : ''}`,
                         })}
                     >
                         <input {...getInputProps({ accept: '.xlsx,.xls,.csv' })} />
                         {uploading ? (
-                            <Loader2 size={40} className="text-teal-500 animate-spin" />
+                            <Loader2 size={40} className="text-app-accent animate-spin" />
                         ) : (
                             <Upload size={40} className="text-refugio-muted" />
                         )}
@@ -206,12 +206,12 @@ const FuentesDatos: React.FC = () => {
                                   : 'Arrastra uno o varios .xlsx, .xls o .csv'}
                         </span>
                         {!locatario && (
-                            <span className="text-[9px] text-amber-500/90 font-mono uppercase tracking-wide">
+                            <span className="text-[9px] text-app-warning font-mono uppercase tracking-wide">
                                 Selecciona locatario para activar la zona de carga
                             </span>
                         )}
                         {fileRejections.length > 0 && (
-                            <span className="text-[9px] text-rose-400 text-center max-w-md">
+                            <span className="text-[9px] text-app-danger text-center max-w-md">
                                 Algunos archivos no son válidos (.xlsx, .xls o .csv).
                             </span>
                         )}
@@ -219,7 +219,7 @@ const FuentesDatos: React.FC = () => {
                             type="button"
                             onClick={() => open()}
                             disabled={dropzoneDisabled}
-                            className="inline-block bg-teal-500 text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                            className="inline-block bg-app-accent text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-app-accent-strong transition-colors disabled:opacity-40 disabled:pointer-events-none"
                         >
                             Seleccionar archivos
                         </button>
@@ -238,7 +238,7 @@ const FuentesDatos: React.FC = () => {
                             <ul className="space-y-6">
                                 {porLocatario.map((grupo) => (
                                     <li key={grupo.locatario}>
-                                        <p className="text-[9px] font-black text-teal-500 uppercase tracking-widest mb-2">
+                                        <p className="text-[9px] font-black text-app-accent uppercase tracking-widest mb-2">
                                             {grupo.locatario}
                                         </p>
                                         {grupo.pendientes?.length ? (
@@ -254,7 +254,7 @@ const FuentesDatos: React.FC = () => {
                                                             nombre.toLowerCase().endsWith('.xls') ? (
                                                                 <FileSpreadsheet size={14} className="text-emerald-500 shrink-0" />
                                                             ) : (
-                                                                <FileText size={14} className="text-teal-500 shrink-0" />
+                                                                <FileText size={14} className="text-app-accent shrink-0" />
                                                             )}
                                                             {nombre}
                                                         </li>
@@ -273,7 +273,7 @@ const FuentesDatos: React.FC = () => {
                                                             key={`c-${nombre}`}
                                                             className="flex items-center gap-2 text-sm text-app-text opacity-90"
                                                         >
-                                                            <FileText size={14} className="text-amber-500/90 shrink-0" />
+                                                            <FileText size={14} className="text-app-warning shrink-0" />
                                                             {nombre}
                                                         </li>
                                                     ))}

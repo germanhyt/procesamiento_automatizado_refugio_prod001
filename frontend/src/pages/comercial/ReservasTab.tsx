@@ -154,7 +154,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                                 <button
                                     type="button"
                                     title="Alternar estado"
-                                    className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted hover:text-teal-400"
+                                    className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted hover:text-app-commercial"
                                     onClick={() =>
                                         patchEstadoMut.mutate({
                                             id: row.original.id,
@@ -167,7 +167,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                                 <button
                                     type="button"
                                     title="WhatsApp"
-                                    className="p-2 rounded-lg hover:bg-app-card-hover text-teal-400"
+                                    className="p-2 rounded-lg hover:bg-app-card-hover text-app-commercial"
                                     onClick={() => {
                                         setWaRow(row.original);
                                         setWaOpen(true);
@@ -190,15 +190,15 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                                 <button
                                     type="button"
                                     title="Eliminar"
-                                    className="p-2 rounded-lg hover:bg-red-500/10 text-red-400"
+                                    className="p-2 rounded-lg hover:bg-app-danger-muted text-app-danger"
                                     onClick={async () => {
                                         const ok = await Swal.fire({
                                             title: '¿Eliminar reserva?',
                                             icon: 'warning',
                                             showCancelButton: true,
-                                            confirmButtonColor: '#ef4444',
-                                            background: '#0a0a0a',
-                                            color: '#fff',
+                                            confirmButtonColor: 'var(--app-danger)',
+                                            background: 'var(--app-panel)',
+                                            color: 'var(--app-text)',
                                         });
                                         if (ok.isConfirmed) deleteMut.mutate(row.original.id);
                                     }}
@@ -228,7 +228,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
         <div className="space-y-4">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-end lg:justify-between">
                 <div className="flex flex-wrap gap-2 items-center">
-                    <CalendarClock size={18} className="text-teal-500 shrink-0" />
+                    <CalendarClock size={18} className="text-app-commercial shrink-0" />
                     <input
                         placeholder="Buscar nombre o celular…"
                         className="rounded-xl border border-app-border bg-app-input px-4 py-2 text-sm text-app-text placeholder:text-app-muted min-w-[200px]"
@@ -262,7 +262,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                             setCrudMode('create');
                             setCrudOpen(true);
                         }}
-                        className="inline-flex items-center gap-2 rounded-xl bg-teal-500 text-black px-5 py-2.5 text-[10px] font-black uppercase tracking-widest"
+                        className="inline-flex items-center gap-2 rounded-xl bg-app-commercial text-white px-5 py-2.5 text-[10px] font-black uppercase tracking-widest hover:bg-app-commercial-strong"
                     >
                         <Plus size={16} /> Nueva reserva
                     </button>
@@ -272,16 +272,16 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
             <div className="overflow-x-auto rounded-2xl border border-app-border relative">
                 {isFetching && !isLoading && (
                     <div className="absolute top-2 right-3 z-10 flex items-center gap-2 rounded-lg border border-app-border bg-app-input px-2 py-1 text-[9px] font-mono uppercase tracking-wider text-app-muted">
-                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
+                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-app-commercial-muted border-t-app-commercial" />
                         Actualizando…
                     </div>
                 )}
                 {isError && (
-                    <p className="p-6 text-red-400 text-sm">Error cargando reservas. ¿Permiso comercial:view?</p>
+                    <p className="p-6 text-app-danger text-sm">Error cargando reservas. ¿Permiso comercial:view?</p>
                 )}
                 {isLoading ? (
                     <div className="flex justify-center py-20">
-                        <div className="w-10 h-10 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin" />
+                        <div className="w-10 h-10 border-4 border-app-commercial-muted border-t-app-commercial rounded-full animate-spin" />
                     </div>
                 ) : (
                     <table className="w-full text-left text-xs">
@@ -291,7 +291,7 @@ const ReservasTab: React.FC<ReservasTabProps> = ({ token, canManage }) => {
                                     {hg.headers.map((h) => (
                                         <th
                                             key={h.id}
-                                            className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted whitespace-nowrap"
+                                            className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head whitespace-nowrap"
                                             style={{ width: h.getSize() }}
                                         >
                                             {flexRender(h.column.columnDef.header, h.getContext())}

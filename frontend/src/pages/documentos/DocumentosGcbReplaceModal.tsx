@@ -84,7 +84,7 @@ const DocumentosGcbReplaceModal: React.FC<DocumentosGcbReplaceModalProps> = ({
                         <button
                             type="submit"
                             disabled={replaceMutation.isPending}
-                            className="rounded-xl bg-teal-500 text-black px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+                            className="rounded-xl bg-app-accent text-black px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-app-accent-strong disabled:opacity-60"
                         >
                             {replaceMutation.isPending ? 'Reemplazando...' : 'Reemplazar archivo'}
                         </button>

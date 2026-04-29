@@ -203,7 +203,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         <button
                             type="button"
                             onClick={() => setDriverDetailsForOrder(o)}
-                            className="text-left text-[10px] text-teal-400 hover:underline truncate max-w-[120px] block w-full font-medium"
+                            className="text-left text-[10px] text-app-delivery hover:underline truncate max-w-[120px] block w-full font-medium"
                             title={`Ver datos del conductor · ${label}`}
                         >
                             {label}
@@ -224,7 +224,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         <button
                             type="button"
                             onClick={() => void openPhotoViewer(da!.id, row.original.codigo_pedido)}
-                            className="text-[10px] font-black uppercase tracking-widest text-teal-400 hover:underline"
+                            className="text-[10px] font-black uppercase tracking-widest text-app-delivery hover:underline"
                         >
                             Ver
                         </button>
@@ -301,7 +301,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                     });
                                 }}
                                 disabled={admin.markDevolucion.isPending}
-                                className="px-2 py-1 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                className="px-2 py-1 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                             >
                                 Devol.
                             </button>
@@ -337,7 +337,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                     );
                                 }}
                                 disabled={admin.cancel.isPending}
-                                className="px-2 py-1 rounded-lg bg-red-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                className="px-2 py-1 rounded-lg bg-app-danger text-white text-[9px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
                             >
                                 Cancel.
                             </button>
@@ -364,7 +364,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                     );
                                 }}
                                 disabled={admin.unlock.isPending}
-                                className="px-2 py-1 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                className="px-2 py-1 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
                             >
                                 Unlock (Desbloquear)
                             </button> */}
@@ -425,7 +425,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
             {isLoading ? (
                 <p className="text-sm text-app-muted">Cargando…</p>
             ) : isError ? (
-                <p className="text-sm text-red-400">Error cargando órdenes.</p>
+                <p className="text-sm text-app-danger">Error cargando órdenes.</p>
             ) : filtered.length === 0 ? (
                 <p className="text-sm text-app-muted">Sin registros que coincidan con los filtros.</p>
             ) : (
@@ -438,7 +438,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                         {hg.headers.map((h) => (
                                             <th
                                                 key={h.id}
-                                                className={`px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted whitespace-nowrap ${h.column.id === 'acciones' ? 'text-center' : ''
+                                                className={`px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head whitespace-nowrap ${h.column.id === 'acciones' ? 'text-center' : ''
                                                     }`}
                                             >
                                                 {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}

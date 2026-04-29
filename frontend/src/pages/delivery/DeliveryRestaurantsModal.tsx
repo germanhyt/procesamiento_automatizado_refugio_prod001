@@ -162,7 +162,7 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                                 type="button"
                                 onClick={() => setDraft({ mode: 'create' })}
                                 disabled={!!draft}
-                                className="px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/40 text-[9px] font-black uppercase tracking-widest disabled:opacity-40"
+                                className="px-3 py-1.5 rounded-xl bg-app-delivery-muted-bg text-app-delivery border border-app-delivery-muted text-[9px] font-black uppercase tracking-widest disabled:opacity-40"
                             >
                                 Nuevo
                             </button>
@@ -235,7 +235,7 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                                         type="button"
                                         onClick={() => void saveDraft()}
                                         disabled={mut.createRestaurant.isPending || mut.updateRestaurant.isPending}
-                                        className="px-4 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                        className="px-4 py-2 rounded-xl bg-app-delivery text-white text-[10px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                                     >
                                         Guardar
                                     </button>
@@ -246,11 +246,11 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                         {listQ.isLoading ? (
                             <p className="text-sm text-app-muted">Cargando…</p>
                         ) : listQ.isError ? (
-                            <p className="text-sm text-red-400">Error al cargar restaurantes.</p>
+                            <p className="text-sm text-app-danger">Error al cargar restaurantes.</p>
                         ) : (
                             <div className="overflow-x-auto rounded-2xl border border-app-border">
                                 <table className="w-full text-left text-xs">
-                                    <thead className="bg-app-input text-app-muted uppercase tracking-wider">
+                                    <thead className="bg-app-input text-app-table-head uppercase tracking-wider">
                                         <tr>
                                             <th className="p-3 font-black">Nombre</th>
                                             <th className="p-3 font-black">fidelio_id</th>
@@ -287,7 +287,7 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                                                         type="button"
                                                         onClick={() => setDraft({ mode: 'edit', row: r })}
                                                         disabled={!!draft}
-                                                        className="px-2 py-1 rounded-lg bg-teal-500/15 text-teal-400 border border-teal-500/35 text-[9px] font-black uppercase disabled:opacity-40"
+                                                        className="px-2 py-1 rounded-lg bg-app-delivery-muted-bg text-app-delivery border border-app-delivery-muted text-[9px] font-black uppercase disabled:opacity-40"
                                                     >
                                                         Editar
                                                     </button>
@@ -347,7 +347,7 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                                     type="button"
                                     onClick={() => void addEmail()}
                                     disabled={mut.addNotificationEmail.isPending}
-                                    className="px-4 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase shrink-0 disabled:opacity-50"
+                                    className="px-4 py-2 rounded-xl bg-app-delivery text-white text-[10px] font-black uppercase shrink-0 hover:bg-app-delivery-strong disabled:opacity-50"
                                 >
                                     Añadir
                                 </button>
@@ -366,7 +366,7 @@ const DeliveryRestaurantsModal: React.FC<DeliveryRestaurantsModalProps> = ({ ope
                                                 type="button"
                                                 onClick={() => void removeEmail(row.id)}
                                                 disabled={mut.deleteNotificationEmail.isPending}
-                                                className="text-red-400 text-[9px] font-black uppercase shrink-0"
+                                                className="text-app-danger text-[9px] font-black uppercase shrink-0"
                                             >
                                                 Quitar
                                             </button>

@@ -24,7 +24,7 @@ export type ComercialDateFilterPopoverProps = {
 };
 
 const inputCls =
-    'w-full rounded-xl border px-3 py-2 text-sm min-h-[40px] outline-none focus:ring-2 focus:ring-teal-500/35';
+    'w-full rounded-xl border px-3 py-2 text-sm min-h-[40px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-commercial-accent-muted)';
 
 /**
  * Botón “Filtro por fecha” que abre un panel flotante con rango (alta en sistema).
@@ -72,17 +72,17 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                 aria-expanded={open}
                 aria-haspopup="dialog"
                 onClick={() => setOpen((o) => !o)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left min-h-[42px] transition-colors ${active ? 'border-teal-500/50 bg-teal-500/5' : ''
-                    } hover:border-teal-500/40`}
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left min-h-[42px] transition-colors ${active ? 'border-app-commercial-muted bg-app-commercial-muted-bg' : ''
+                    } hover:border-app-commercial-muted`}
                 style={{ borderColor: active ? undefined : 'var(--app-border)', backgroundColor: 'var(--app-input-bg)' }}
             >
-                <CalendarRange size={16} className="text-teal-500 shrink-0" aria-hidden />
+                <CalendarRange size={16} className="text-app-commercial shrink-0" aria-hidden />
                 <span className="flex flex-col min-w-0">
                     <span className="text-[9px] font-black uppercase tracking-widest text-app-muted leading-none">
                         Filtro por fecha
                     </span>
                     {summary ? (
-                        <span className="text-[11px] font-mono text-teal-400/95 mt-1 truncate max-w-[200px]">{summary}</span>
+                        <span className="text-[11px] font-mono text-app-commercial mt-1 truncate max-w-[200px]">{summary}</span>
                     ) : (
                         <span className="text-[10px] text-app-muted mt-0.5">Alta en sistema</span>
                     )}
@@ -105,7 +105,7 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                     role="dialog"
                     aria-labelledby={id}
                 >
-                    <p className="text-[10px] font-black uppercase tracking-widest text-teal-500/90 mb-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-commercial mb-3">
                         Rango · alta en sistema
                     </p>
                     <div className="space-y-3">
@@ -138,7 +138,7 @@ const ComercialDateFilterPopover: React.FC<ComercialDateFilterPopoverProps> = ({
                                 onDesdeChange('');
                                 onHastaChange('');
                             }}
-                            className="text-[10px] font-bold uppercase tracking-wide text-teal-500 hover:text-teal-400 disabled:opacity-30 disabled:pointer-events-none"
+                            className="text-[10px] font-bold uppercase tracking-wide text-app-commercial hover:text-app-commercial disabled:opacity-30 disabled:pointer-events-none"
                         >
                             Limpiar fechas
                         </button>

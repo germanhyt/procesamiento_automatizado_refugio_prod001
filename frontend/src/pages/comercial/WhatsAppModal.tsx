@@ -44,7 +44,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
             <button type="button" className="absolute inset-0 bg-black/70" aria-label="Cerrar" onClick={onClose} />
             <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
@@ -53,7 +53,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
             >
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400">
+                        <div className="p-2 rounded-xl bg-app-commercial-muted-bg text-app-commercial">
                             <MessageCircle size={22} />
                         </div>
                         <div>
@@ -72,7 +72,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
 
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-muted block mb-2">Mensaje</label>
                 <textarea
-                    className="w-full min-h-[160px] rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus:ring-2 focus:ring-teal-500/40 mb-6"
+                    className="w-full min-h-[160px] rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-commercial-accent-muted) mb-6"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                 />
@@ -89,7 +89,7 @@ const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ open, onClose, token, kin
                         type="button"
                         disabled={loading || !message.trim()}
                         onClick={() => void openWa()}
-                        className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-teal-500 text-black disabled:opacity-40"
+                        className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-app-commercial text-white hover:bg-app-commercial-strong disabled:opacity-40"
                     >
                         {loading ? 'Abriendo…' : 'Abrir WhatsApp'}
                     </button>

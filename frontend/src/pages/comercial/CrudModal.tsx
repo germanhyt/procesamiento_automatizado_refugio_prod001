@@ -19,7 +19,7 @@ export type CrudModalProps = {
 };
 
 const inputClass =
-    'w-full rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus:ring-2 focus:ring-teal-500/40 transition-colors';
+    'w-full rounded-xl border border-app-border bg-app-input px-4 py-3 text-sm text-app-text outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-commercial-accent-muted) transition-colors';
 const labelClass = 'text-[10px] font-black uppercase tracking-widest text-app-muted block mb-2';
 
 const CrudModal: React.FC<CrudModalProps> = ({
@@ -131,7 +131,7 @@ const CrudModal: React.FC<CrudModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
             <button type="button" className="absolute inset-0 bg-black/70" aria-label="Cerrar" onClick={onClose} />
             <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
@@ -308,7 +308,7 @@ const CrudModal: React.FC<CrudModalProps> = ({
                         <button
                             type="submit"
                             disabled={!canSubmit || loading}
-                            className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-teal-500 text-black disabled:opacity-40"
+                            className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-app-commercial text-white hover:bg-app-commercial-strong disabled:opacity-40"
                         >
                             {loading ? 'Guardando…' : 'Guardar'}
                         </button>

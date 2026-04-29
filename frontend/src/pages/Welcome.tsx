@@ -13,7 +13,7 @@ const Welcome: React.FC = () => {
             className="max-w-4xl mx-auto py-10"
         >
             <div className="flex items-center gap-4 mb-8">
-                <div className="w-14 h-14 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-500">
+                <div className="w-14 h-14 rounded-2xl bg-app-accent-muted-bg border border-app-accent-muted flex items-center justify-center text-app-accent">
                     <Handshake size={28} />
                 </div>
                 <div>

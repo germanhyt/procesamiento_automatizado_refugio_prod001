@@ -57,9 +57,9 @@ const ComercialPanel: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setAnalyticsOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-input px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover transition-colors"
+                    className="inline-flex items-center gap-2 rounded-xl border border-app-commercial-muted bg-app-input px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-commercial-muted-bg transition-colors"
                 >
-                    <BarChart3 size={16} className="text-teal-400" />
+                    <BarChart3 size={16} className="text-app-commercial" />
                     Analytics
                 </button>
             </div>
@@ -82,7 +82,7 @@ const ComercialPanel: React.FC = () => {
                             {tab === x.id && (
                                 <motion.div
                                     layoutId="comercial-tab"
-                                    className="absolute inset-0 bg-teal-500 rounded-xl shadow-lg shadow-teal-500/20"
+                                    className="absolute inset-0 bg-app-commercial rounded-xl shadow-app-secondary-glow"
                                     transition={{ type: 'tween', duration: 0.15, ease: 'easeOut' }}
                                 />
                             )}

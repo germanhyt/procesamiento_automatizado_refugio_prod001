@@ -79,12 +79,12 @@ const PowerBIDashboard: React.FC = () => {
 
                 {error && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-10 text-center">
-                        <AlertCircle className="text-red-500 mb-6" size={48} />
+                        <AlertCircle className="text-app-danger mb-6" size={48} />
                         <h3 className="text-xl font-black uppercase text-app-text mb-2">Error de Autenticación</h3>
                         <p className="text-app-muted text-sm max-w-md mb-8">{error}</p>
                         <button
                             onClick={fetchEmbedParams}
-                            className="bg-teal-500 text-black px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:scale-105 active:scale-95 transition-all"
+                            className="bg-app-accent text-black px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-app-accent-strong hover:scale-105 active:scale-95 transition-all"
                         >
                             Reintentar Conexión
                         </button>
@@ -126,7 +126,7 @@ const PowerBIDashboard: React.FC = () => {
 
             {/* <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-6 bg-black/20 border border-white/5 rounded-3xl flex items-center gap-4">
-                    <div className="p-3 bg-teal-500/10 text-teal-500 rounded-xl"><Maximize2 size={20} /></div>
+                    <div className="p-3 bg-app-accent-muted-bg text-app-accent rounded-xl"><Maximize2 size={20} /></div>
                     <div>
                         <h4 className="text-[9px] font-black uppercase text-white mb-0.5">Control Total</h4>
                         <p className="text-[8px] text-zinc-500 uppercase leading-relaxed">Usa la barra inferior para navegar entre páginas.</p>

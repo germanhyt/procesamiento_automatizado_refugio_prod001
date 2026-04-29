@@ -44,8 +44,8 @@ const DocumentosGcbFileDropzone: React.FC<DocumentosGcbFileDropzoneProps> = ({
             <div
                 {...getRootProps({
                     className: [
-                        'border-2 border-dashed rounded-xl px-4 py-5 flex flex-col items-center gap-2 transition-all outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40',
-                        isDragActive ? 'border-teal-500/50 bg-teal-500/5' : 'border-app-border hover:border-app-accent-muted',
+                        'border-2 border-dashed rounded-xl px-4 py-5 flex flex-col items-center gap-2 transition-all outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)',
+                        isDragActive ? 'border-app-accent-muted bg-app-accent-muted-bg' : 'border-app-border hover:border-app-accent-muted',
                         disabled ? 'opacity-50 pointer-events-none' : '',
                     ].join(' '),
                 })}
@@ -63,7 +63,7 @@ const DocumentosGcbFileDropzone: React.FC<DocumentosGcbFileDropzoneProps> = ({
                         type="button"
                         onClick={() => open()}
                         disabled={disabled}
-                        className="bg-teal-500 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        className="bg-app-accent text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-app-accent-strong transition-colors disabled:opacity-40 disabled:pointer-events-none"
                     >
                         Seleccionar archivo
                     </button>

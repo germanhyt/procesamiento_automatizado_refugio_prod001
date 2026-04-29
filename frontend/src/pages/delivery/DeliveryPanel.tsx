@@ -121,8 +121,8 @@ const DeliveryPanel: React.FC = () => {
             text: opts.text,
             timer: 1600,
             showConfirmButton: false,
-            background: '#0a0a0a',
-            color: '#fff',
+            background: 'var(--app-panel)',
+            color: 'var(--app-text)',
         });
     };
 
@@ -134,9 +134,9 @@ const DeliveryPanel: React.FC = () => {
             showCancelButton: true,
             confirmButtonText: opts.confirmText,
             cancelButtonText: 'Cancelar',
-            confirmButtonColor: opts.confirmColor ?? '#14b8a6',
-            background: '#0a0a0a',
-            color: '#fff',
+            confirmButtonColor: opts.confirmColor ?? 'var(--app-delivery-accent)',
+            background: 'var(--app-panel)',
+            color: 'var(--app-text)',
         });
         return res.isConfirmed;
     };
@@ -151,8 +151,8 @@ const DeliveryPanel: React.FC = () => {
             showCancelButton: true,
             confirmButtonText: 'Continuar',
             cancelButtonText: 'Cancelar',
-            background: '#0a0a0a',
-            color: '#fff',
+            background: 'var(--app-panel)',
+            color: 'var(--app-text)',
             inputValidator: (v) => (opts.required && !String(v ?? '').trim() ? 'Campo requerido' : undefined),
         });
         if (!res.isConfirmed) return null;
@@ -231,7 +231,7 @@ const DeliveryPanel: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setRestaurantsModalOpen(true)}
-                            className="px-4 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-[10px] font-black uppercase tracking-widest text-teal-400"
+                            className="px-4 py-2 rounded-xl bg-app-delivery-muted-bg hover:bg-app-card-hover border border-app-delivery-muted text-[10px] font-black uppercase tracking-widest text-app-delivery"
                         >
                             Restaurantes
                         </button>
@@ -265,7 +265,7 @@ const DeliveryPanel: React.FC = () => {
                         type="button"
                         onClick={() => setTab('runner')}
                         className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
-                            ? 'bg-teal-500 text-black border-teal-500/50'
+                            ? 'bg-app-delivery text-white border-app-delivery-muted'
                             : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                             }`}
                     >
@@ -276,7 +276,7 @@ const DeliveryPanel: React.FC = () => {
                             type="button"
                             onClick={() => setTab('admin')}
                             className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
-                                ? 'bg-teal-500 text-black border-teal-500/50'
+                                ? 'bg-app-delivery text-white border-app-delivery-muted'
                                 : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                                 }`}
                         >
@@ -331,7 +331,7 @@ const DeliveryPanel: React.FC = () => {
                         {drivers.isLoading ? (
                             <p className="text-sm text-app-muted">Cargando…</p>
                         ) : drivers.isError ? (
-                            <p className="text-sm text-red-400">Error cargando drivers.</p>
+                            <p className="text-sm text-app-danger">Error cargando drivers.</p>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-3">
@@ -390,7 +390,7 @@ const DeliveryPanel: React.FC = () => {
                                 {orders.isLoading ? (
                                     <p className="text-sm text-app-muted">Cargando…</p>
                                 ) : orders.isError ? (
-                                    <p className="text-sm text-red-400">Error cargando órdenes.</p>
+                                    <p className="text-sm text-app-danger">Error cargando órdenes.</p>
                                 ) : (
                                     <div className="space-y-3">
                                         {(ordersByStatus[status] ?? []).map((o) => (
@@ -421,7 +421,7 @@ const DeliveryPanel: React.FC = () => {
                                                                 </span>
                                                             ) : null}
                                                             {o.matched_driver_arrival_id ? (
-                                                                <span className="px-2 py-1 rounded-lg border border-teal-500/20 bg-teal-500/5 text-[9px] font-mono text-teal-400">
+                                                                <span className="px-2 py-1 rounded-lg border border-app-delivery-muted bg-app-delivery-muted-bg text-[9px] font-mono text-app-delivery">
                                                                     DRIVER MATCHEADO ✅
                                                                 </span>
                                                             ) : null}
@@ -440,7 +440,7 @@ const DeliveryPanel: React.FC = () => {
                                                                     })
                                                                 }
                                                                 disabled={manualMatch.isPending}
-                                                                className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                className="px-3 py-1.5 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                                                             >
                                                                 Match
                                                             </button>
@@ -462,7 +462,7 @@ const DeliveryPanel: React.FC = () => {
                                                                         });
                                                                     }}
                                                                     disabled={runner.accept.isPending}
-                                                                    className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                    className="px-3 py-1.5 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                                                                 >
                                                                     Tomar
                                                                 </button>
@@ -485,7 +485,7 @@ const DeliveryPanel: React.FC = () => {
                                                                         });
                                                                     }}
                                                                     disabled={runner.shelf.isPending}
-                                                                    className="px-3 py-1.5 rounded-lg bg-teal-500 text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-50"
+                                                                    className="px-3 py-1.5 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                                                                 >
                                                                     Estante
                                                                 </button>
@@ -500,7 +500,7 @@ const DeliveryPanel: React.FC = () => {
                                                                             title: 'Entregar pedido',
                                                                             text: `¿Confirmas ENTREGAR el pedido ${o.codigo_pedido}${o.restaurant_nombre?.trim() ? ` · ${o.restaurant_nombre.trim()}` : ''}?`,
                                                                             confirmText: 'Entregar',
-                                                                            confirmColor: '#22c55e',
+                                                                            confirmColor: 'var(--app-success)',
                                                                         });
                                                                         if (!ok) return;
                                                                         runner.deliver.mutate(o.id, {
@@ -511,7 +511,7 @@ const DeliveryPanel: React.FC = () => {
                                                                     disabled={runner.deliver.isPending || !o.matched_driver_arrival_id}
                                                                     title={!o.matched_driver_arrival_id ? "Requiere match con driver para entregar" : ""}
                                                                     className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-30 ${o.matched_driver_arrival_id
-                                                                        ? 'bg-teal-500 text-black'
+                                                                        ? 'bg-app-delivery text-white'
                                                                         : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                                                                         }`}
                                                                 >
@@ -613,7 +613,7 @@ const DeliveryPanel: React.FC = () => {
                                     type="button"
                                     onClick={confirmMatchFromModal}
                                     disabled={!selectedMatchDriver || manualMatch.isPending}
-                                    className="px-4 py-2 rounded-xl bg-teal-500 text-black text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                    className="px-4 py-2 rounded-xl bg-app-delivery text-white text-[10px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                                 >
                                     {manualMatch.isPending ? 'Matcheando…' : 'Continuar'}
                                 </button>

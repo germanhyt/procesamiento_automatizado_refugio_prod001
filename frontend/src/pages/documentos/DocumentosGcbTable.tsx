@@ -141,7 +141,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                 title="Ver"
                                 aria-label="Ver"
                                 onClick={() => onView(doc)}
-                                className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted hover:text-teal-400"
+                                className="p-2 rounded-lg hover:bg-app-card-hover text-app-muted hover:text-app-accent"
                             >
                                 <Eye size={16} />
                             </button>
@@ -150,7 +150,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                 title="Descargar"
                                 aria-label="Descargar"
                                 onClick={() => onDownload(doc)}
-                                className="p-2 rounded-lg hover:bg-app-card-hover text-teal-400"
+                                className="p-2 rounded-lg hover:bg-app-card-hover text-app-accent"
                             >
                                 <Download size={16} />
                             </button>
@@ -180,7 +180,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                             title="Desactivar"
                                             aria-label="Desactivar"
                                             onClick={() => onDeactivate(doc)}
-                                            className="p-2 rounded-lg hover:bg-red-500/10 text-red-400"
+                                        className="p-2 rounded-lg hover:bg-app-danger-muted text-app-danger"
                                         >
                                             <ShieldOff size={16} />
                                         </button>
@@ -219,7 +219,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                 type="button"
                                 disabled={bulkDownloadBusy || selectedCount === 0}
                                 onClick={() => onDownloadMany(selectedDocs)}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-teal-500 hover:bg-app-card-hover hover:text-teal-400 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-card-hover hover:text-app-accent disabled:opacity-40 disabled:pointer-events-none transition-colors"
                             >
                                 <Download size={14} />
                                 ZIP selección
@@ -246,7 +246,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                     {hg.headers.map((h) => (
                                         <th
                                             key={h.id}
-                                            className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted whitespace-nowrap"
+                                            className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head whitespace-nowrap"
                                         >
                                             {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                                         </th>

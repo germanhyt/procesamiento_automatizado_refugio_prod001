@@ -71,11 +71,11 @@ const UserManagement: React.FC = () => {
             text: `Esta acción borrará a ${user.username} permanentemente.`,
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonColor: '#ef4444',
-            cancelButtonColor: '#3f3f46',
+            confirmButtonColor: 'var(--app-danger)',
+            cancelButtonColor: 'var(--app-muted)',
             confirmButtonText: 'Sí, eliminar',
-            background: '#0a0a0a',
-            color: '#fff'
+            background: 'var(--app-panel)',
+            color: 'var(--app-text)'
         });
 
         if (result.isConfirmed) {
@@ -107,10 +107,10 @@ const UserManagement: React.FC = () => {
 
                 <div className="flex gap-4 w-full sm:w-auto">
                     <button onClick={() => setIsRoleModalOpen(true)} className="flex-1 sm:flex-none px-6 py-3 bg-app-input hover:bg-app-surface border border-app-border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 text-app-muted hover:text-app-text">
-                        <Shield size={14} className="text-teal-500" />
+                        <Shield size={14} className="text-current" />
                         Gestionar Roles
                     </button>
-                    <button onClick={() => setIsRegisterModalOpen(true)} className="flex-1 sm:flex-none px-6 py-3 bg-teal-500 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3">
+                    <button onClick={() => setIsRegisterModalOpen(true)} className="flex-1 sm:flex-none px-6 py-3 bg-app-users text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-app-users-strong hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3">
                         <UserPlus size={14} />
                         Nuevo Usuario
                     </button>
@@ -118,14 +118,14 @@ const UserManagement: React.FC = () => {
             </div>
 
             <div className="relative group max-w-xl">
-                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-app-muted group-focus-within:text-app-accent transition-colors" size={18} />
-                <input type="text" placeholder="Buscar por usuario o correo..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-app-input border border-app-border rounded-2xl py-5 pl-16 pr-6 text-sm text-app-text focus:border-app-accent outline-none transition-all" />
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-app-muted group-focus-within:text-app-users transition-colors" size={18} />
+                <input type="text" placeholder="Buscar por usuario o correo..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-app-input border border-app-border rounded-2xl py-5 pl-16 pr-6 text-sm text-app-text focus:border-app-users-muted outline-none transition-all" />
             </div>
 
             <div className="bg-app-card border border-app-border rounded-[40px] overflow-hidden shadow-2xl">
                 <div className="overflow-x-auto scrollbar-hide">
                     <table className="w-full text-left border-collapse min-w-[1000px]">
-                        <thead className="bg-app-input text-app-accent uppercase text-[9px] font-black tracking-widest">
+                        <thead className="bg-app-input text-app-table-head uppercase text-[9px] font-black tracking-widest">
                             <tr>
                                 <th className="p-8">Usuario</th>
                                 <th className="p-8">Email</th>
@@ -137,11 +137,11 @@ const UserManagement: React.FC = () => {
                         </thead>
                         <tbody className="text-[11px] text-app-muted">
                             {loading ? (
-                                <tr><td colSpan={6} className="p-20 text-center"><RefreshCcw className="animate-spin text-app-accent mx-auto mb-4" size={32} /><span className="uppercase font-black text-app-muted">Sincronizando...</span></td></tr>
+                                <tr><td colSpan={6} className="p-20 text-center"><RefreshCcw className="animate-spin text-app-users mx-auto mb-4" size={32} /><span className="uppercase font-black text-app-muted">Sincronizando...</span></td></tr>
                             ) : filteredUsers.map(user => (
                                 <tr key={user.id} className="border-b border-app-border hover:bg-app-surface transition-colors">
                                     <td className="p-8 flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-500 border border-teal-500/20 font-black">{user.username.substring(0, 2).toUpperCase()}</div>
+                                        <div className="w-10 h-10 rounded-xl bg-app-users-muted-bg flex items-center justify-center text-app-users border border-app-users-muted font-black">{user.username.substring(0, 2).toUpperCase()}</div>
                                         <div>
                                             <div className="text-app-text font-black uppercase text-xs">{user.username}</div>
                                             <div className="text-[9px] font-mono text-app-muted">ID: {user.id.toString().padStart(4, '0')}</div>
@@ -156,12 +156,12 @@ const UserManagement: React.FC = () => {
                                         </div>
                                     </td>
                                     <td className="p-8">
-                                        <button onClick={() => handleToggleStatus(user)} className={`px-4 py-1.5 rounded-full border text-[8px] font-black uppercase w-fit cursor-pointer transition-all hover:scale-105 ${user.is_active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>{user.is_active ? 'Activo' : 'Baja'}</button>
+                                        <button onClick={() => handleToggleStatus(user)} className={`px-4 py-1.5 rounded-full border text-[8px] font-black uppercase w-fit cursor-pointer transition-all hover:scale-105 ${user.is_active ? 'bg-app-success-muted border-app-success text-app-success' : 'bg-app-danger-muted border-app-danger text-app-danger'}`}>{user.is_active ? 'Activo' : 'Baja'}</button>
                                     </td>
                                     <td className="p-8 font-mono text-app-muted">{new Date(user.created_at).toLocaleDateString()}</td>
                                     <td className="p-8 text-right flex justify-end gap-2">
-                                        <button onClick={() => setEditingUser(user)} className="p-3 text-app-muted hover:text-app-accent transition-colors"><Edit3 size={16} /></button>
-                                        <button onClick={() => handleDeleteUser(user)} className="p-3 text-app-muted hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                        <button onClick={() => setEditingUser(user)} className="p-3 text-app-muted hover:text-app-users transition-colors"><Edit3 size={16} /></button>
+                                        <button onClick={() => handleDeleteUser(user)} className="p-3 text-app-muted hover:text-app-danger transition-colors"><Trash2 size={16} /></button>
                                     </td>
                                 </tr>
                             ))}
@@ -218,58 +218,58 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-        <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-6xl h-[90vh] sm:h-[85vh] rounded-[30px] sm:rounded-[40px] flex overflow-hidden flex-col sm:flex-row shadow-2xl">
-                <div className="w-full sm:w-80 bg-black/20 border-r border-white/5 flex flex-col">
-                    <div className="p-8 border-b border-white/5 flex justify-between items-center bg-zinc-800/20">
-                        <span className="uppercase tracking-widest text-[10px] font-black text-teal-500">Roles</span>
-                        <button onClick={() => { setIsCreating(true); setSelectedRole(null); setSelectedPermIds([]); }} className="p-2 hover:bg-teal-500/10 text-teal-500 rounded-lg transition-all"><Plus size={16} /></button>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-xl">
+        <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-app-modal-solid border border-app-border w-full max-w-6xl h-[90vh] sm:h-[85vh] rounded-[30px] sm:rounded-[40px] flex overflow-hidden flex-col sm:flex-row shadow-2xl text-app-text">
+                <div className="w-full sm:w-80 bg-app-surface border-r border-app-border flex flex-col">
+                    <div className="p-8 border-b border-app-border flex justify-between items-center bg-app-input">
+                        <span className="uppercase tracking-widest text-[10px] font-black text-app-users">Roles</span>
+                        <button onClick={() => { setIsCreating(true); setSelectedRole(null); setSelectedPermIds([]); }} className="p-2 hover:bg-app-users-muted-bg text-app-users rounded-lg transition-all"><Plus size={16} /></button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2">
                         {roles.map((r: any) => (
-                            <button key={r.id} onClick={() => { setSelectedRole(r); setIsCreating(false); }} className={`w-full p-6 rounded-2xl text-left transition-all border ${selectedRole?.id === r.id ? 'bg-teal-500 text-black border-teal-500' : 'bg-transparent text-zinc-400 border-transparent hover:bg-white/5 hover:text-white'}`}>
+                            <button key={r.id} onClick={() => { setSelectedRole(r); setIsCreating(false); }} className={`w-full p-6 rounded-2xl text-left transition-all border ${selectedRole?.id === r.id ? 'bg-app-users text-white border-app-users' : 'bg-transparent text-app-muted border-transparent hover:bg-app-card-hover hover:text-app-text'}`}>
                                 <div className="text-[11px] font-black uppercase tracking-tight">{r.name}</div>
                             </button>
                         ))}
                     </div>
-                    <button onClick={onClose} className="p-8 border-t border-white/5 text-[9px] font-black uppercase text-zinc-500 hover:text-white transition-all">Cerrar</button>
+                    <button onClick={onClose} className="p-8 border-t border-app-border text-[9px] font-black uppercase text-app-muted hover:text-app-text transition-all">Cerrar</button>
                 </div>
-                <div className="flex-1 flex flex-col min-w-0 bg-black/10">
-                    <div className="p-8 border-b border-white/5 flex flex-col sm:flex-row gap-6 justify-between items-center bg-zinc-900/40">
+                <div className="flex-1 flex flex-col min-w-0 bg-app-panel">
+                    <div className="p-8 border-b border-app-border flex flex-col sm:flex-row gap-6 justify-between items-center bg-app-surface">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-teal-500/10 text-teal-500 rounded-xl"><Key size={20} /></div>
+                            <div className="p-3 bg-app-users-muted-bg text-app-users rounded-xl"><Key size={20} /></div>
                             <div>
-                                <h4 className="text-[12px] font-black uppercase text-white">Configurar Permisos</h4>
-                                <p className="text-[9px] text-zinc-500 mt-1 uppercase leading-none">{isCreating ? 'Nuevo Rol' : `Editando: ${selectedRole?.name}`}</p>
+                                <h4 className="text-[12px] font-black uppercase text-app-text">Configurar Permisos</h4>
+                                <p className="text-[9px] text-app-muted mt-1 uppercase leading-none">{isCreating ? 'Nuevo Rol' : `Editando: ${selectedRole?.name}`}</p>
                             </div>
                         </div>
-                        <input type="text" placeholder="Buscar permiso..." value={searchPerm} onChange={e => setSearchPerm(e.target.value)} className="bg-black/40 border border-white/5 rounded-xl py-3 px-6 text-[11px] text-white outline-none focus:border-teal-500/50 w-full sm:w-64" />
+                        <input type="text" placeholder="Buscar permiso..." value={searchPerm} onChange={e => setSearchPerm(e.target.value)} className="bg-app-input border border-app-border rounded-xl py-3 px-6 text-[11px] text-app-text outline-none focus:border-app-users-muted w-full sm:w-64" />
                     </div>
                     <div className="flex-1 overflow-y-auto p-6 sm:p-12 space-y-6 sm:space-y-8 scrollbar-hide">
                         {isCreating && (
-                            <div className="grid grid-cols-2 gap-6 p-8 bg-teal-500/5 rounded-3xl border border-teal-500/10">
-                                <input placeholder="Nombre del Rol" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none" value={newRoleData.name} onChange={e => setNewRoleData({ ...newRoleData, name: e.target.value })} />
-                                <input placeholder="Descripción" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none" value={newRoleData.description} onChange={e => setNewRoleData({ ...newRoleData, description: e.target.value })} />
+                            <div className="grid grid-cols-2 gap-6 p-8 bg-app-users-muted-bg rounded-3xl border border-app-users-muted">
+                                <input placeholder="Nombre del Rol" className="bg-app-input border border-app-border rounded-2xl p-4 text-xs text-app-text outline-none" value={newRoleData.name} onChange={e => setNewRoleData({ ...newRoleData, name: e.target.value })} />
+                                <input placeholder="Descripción" className="bg-app-input border border-app-border rounded-2xl p-4 text-xs text-app-text outline-none" value={newRoleData.description} onChange={e => setNewRoleData({ ...newRoleData, description: e.target.value })} />
                             </div>
                         )}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {permissions?.filter((p: any) => p.name.toLowerCase().includes(searchPerm.toLowerCase())).map((p: any) => {
                                 const isChecked = selectedPermIds.includes(p.id);
                                 return (
-                                    <div key={p.id} onClick={() => setSelectedPermIds(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} className={`p-6 rounded-2xl border transition-all flex items-start gap-4 cursor-pointer ${isChecked ? 'bg-teal-500/10 border-teal-500/30' : 'bg-white/5 border-white/5 hover:border-white/10'}`}>
-                                        <div className={`mt-1 h-5 w-5 rounded-md border flex items-center justify-center ${isChecked ? 'bg-teal-500 border-teal-500 text-black' : 'bg-zinc-800 border-white/10'}`}>{isChecked && <Check size={12} strokeWidth={4} />}</div>
+                                    <div key={p.id} onClick={() => setSelectedPermIds(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} className={`p-6 rounded-2xl border transition-all flex items-start gap-4 cursor-pointer ${isChecked ? 'bg-app-users-muted-bg border-app-users-muted' : 'bg-app-surface border-app-border hover:border-app-users-muted'}`}>
+                                        <div className={`mt-1 h-5 w-5 rounded-md border flex items-center justify-center ${isChecked ? 'bg-app-users border-app-users text-white' : 'bg-app-input border-app-border'}`}>{isChecked && <Check size={12} strokeWidth={4} />}</div>
                                         <div className="min-w-0">
-                                            <div className="text-[11px] font-black uppercase text-white truncate">{p.name}</div>
-                                            <div className="text-[9px] text-zinc-600 font-mono mt-0.5">{p.codename}</div>
+                                            <div className="text-[11px] font-black uppercase text-app-text truncate">{p.name}</div>
+                                            <div className="text-[9px] text-app-muted font-mono mt-0.5">{p.codename}</div>
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
                     </div>
-                    <div className="p-6 sm:p-10 border-t border-white/5 flex flex-col sm:flex-row gap-4 justify-between items-center px-8 sm:px-12 bg-zinc-900/40">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{selectedPermIds.length} Asignados</span>
-                        <button onClick={handleSaveRole} disabled={isSaving || (!selectedRole && !isCreating)} className="w-full sm:w-auto px-12 py-4 bg-teal-500 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 disabled:opacity-50">{isSaving ? <RefreshCcw className="animate-spin" size={16} /> : <Save size={16} />}{isCreating ? 'Guardar Rol' : 'Actualizar'}</button>
+                    <div className="p-6 sm:p-10 border-t border-app-border flex flex-col sm:flex-row gap-4 justify-between items-center px-8 sm:px-12 bg-app-surface">
+                        <span className="text-[10px] font-black text-app-muted uppercase tracking-widest">{selectedPermIds.length} Asignados</span>
+                        <button onClick={handleSaveRole} disabled={isSaving || (!selectedRole && !isCreating)} className="w-full sm:w-auto px-12 py-4 bg-app-users text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-app-users-strong disabled:opacity-50">{isSaving ? <RefreshCcw className="animate-spin" size={16} /> : <Save size={16} />}{isCreating ? 'Guardar Rol' : 'Actualizar'}</button>
                     </div>
                 </div>
             </motion.div>
@@ -294,21 +294,21 @@ const RegisterModal = ({ onClose, roles, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8">
-                <div className="flex justify-between items-center border-b border-white/5 pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-white">Nuevo Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-xl">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-app-modal-solid border border-app-border w-full max-w-lg rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8 text-app-text">
+                <div className="flex justify-between items-center border-b border-app-border pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-app-text">Nuevo Usuario</h3><button onClick={onClose} className="text-app-muted hover:text-app-text"><X size={20} /></button></div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Usuario</label><input className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm text-white outline-none" required value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} /></div>
-                        <div className="space-y-2"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Email</label><input type="email" className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm text-white outline-none" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} /></div>
+                        <div className="space-y-2"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Usuario</label><input className="w-full bg-app-input border border-app-border rounded-2xl p-4 text-sm text-app-text outline-none" required value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} /></div>
+                        <div className="space-y-2"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Email</label><input type="email" className="w-full bg-app-input border border-app-border rounded-2xl p-4 text-sm text-app-text outline-none" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} /></div>
                     </div>
-                    <div className="space-y-2 relative"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Password</label>
-                        <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 pr-32 text-sm text-white outline-none" required value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button type="button" onClick={() => setShowPass(!showPass)} className="p-2 text-zinc-500">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button type="button" onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-teal-500/10 text-teal-500 rounded-lg"><Wand2 size={16} /></button></div>
+                    <div className="space-y-2 relative"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Password</label>
+                        <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-app-input border border-app-border rounded-2xl p-4 pr-32 text-sm text-app-text outline-none" required value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button type="button" onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button type="button" onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-app-users-muted-bg text-app-users rounded-lg"><Wand2 size={16} /></button></div>
                         </div>
                     </div>
-                    <div className="space-y-3"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Roles</label><div className="flex flex-wrap gap-2">{roles.map((r: any) => (<button key={r.id} type="button" onClick={() => setFormData({ ...formData, role_ids: formData.role_ids.includes(r.id) ? formData.role_ids.filter(x => x !== r.id) : [...formData.role_ids, r.id] })} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${formData.role_ids.includes(r.id) ? 'bg-teal-500 text-black border-teal-500' : 'bg-white/5 text-zinc-500 border-white/5'}`}>{r.name}</button>))}</div></div>
-                    <div className="pt-8 flex gap-4"><button type="button" onClick={onClose} className="flex-1 py-4 bg-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-zinc-500">Cancelar</button><button disabled={loading} className="flex-1 py-4 bg-teal-500 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest">{loading ? <RefreshCcw className="animate-spin mx-auto" size={18} /> : 'Registrar'}</button></div>
+                    <div className="space-y-3"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Roles</label><div className="flex flex-wrap gap-2">{roles.map((r: any) => (<button key={r.id} type="button" onClick={() => setFormData({ ...formData, role_ids: formData.role_ids.includes(r.id) ? formData.role_ids.filter(x => x !== r.id) : [...formData.role_ids, r.id] })} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${formData.role_ids.includes(r.id) ? 'bg-app-users text-white border-app-users' : 'bg-app-surface text-app-muted border-app-border'}`}>{r.name}</button>))}</div></div>
+                    <div className="pt-8 flex gap-4"><button type="button" onClick={onClose} className="flex-1 py-4 bg-app-surface rounded-2xl text-[10px] font-black uppercase tracking-widest text-app-muted border border-app-border">Cancelar</button><button disabled={loading} className="flex-1 py-4 bg-app-users text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-app-users-strong">{loading ? <RefreshCcw className="animate-spin mx-auto" size={18} /> : 'Registrar'}</button></div>
                 </form>
             </motion.div>
         </motion.div>
@@ -333,25 +333,25 @@ const EditUserModal = ({ user, onClose, roles, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-zinc-900 border border-white/10 w-full max-w-md rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8">
-                <div className="flex justify-between items-center border-b border-white/5 pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-white">Editar Usuario</h3><button onClick={onClose} className="text-zinc-500 hover:text-white"><X size={20} /></button></div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-xl">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-app-modal-solid border border-app-border w-full max-w-md rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8 text-app-text">
+                <div className="flex justify-between items-center border-b border-app-border pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-app-text">Editar Usuario</h3><button onClick={onClose} className="text-app-muted hover:text-app-text"><X size={20} /></button></div>
                 <div className="space-y-6">
-                    <div className="space-y-2"><label className="text-[9px] font-black text-zinc-500 ml-2 uppercase">Password (Opcional)</label>
-                        <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm text-white outline-none" placeholder="Vacío para no cambiar" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button onClick={() => setShowPass(!showPass)} className="p-2 text-zinc-500">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-teal-500/10 text-teal-500 rounded-lg"><Wand2 size={16} /></button></div>
+                    <div className="space-y-2"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Password (Opcional)</label>
+                        <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-app-input border border-app-border rounded-2xl p-4 text-sm text-app-text outline-none" placeholder="Vacío para no cambiar" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-app-users-muted-bg text-app-users rounded-lg"><Wand2 size={16} /></button></div>
                         </div>
                     </div>
                 </div>
                 <div className="space-y-4">
-                    <label className="text-[10px] font-black text-zinc-500 ml-4 uppercase">Roles</label>
+                    <label className="text-[10px] font-black text-app-muted ml-4 uppercase">Roles</label>
                     <div className="flex flex-col gap-2">{roles.map((r: any) => (
-                        <button key={r.id} onClick={() => setFormData({ ...formData, role_ids: formData.role_ids.includes(r.id) ? formData.role_ids.filter((x: any) => x !== r.id) : [...formData.role_ids, r.id] })} className={`w-full p-4 rounded-2xl text-left border transition-all flex items-center justify-between ${formData.role_ids.includes(r.id) ? 'bg-teal-500/10 border-teal-500 text-teal-500' : 'bg-transparent border-white/5 text-zinc-500'}`}>
+                        <button key={r.id} onClick={() => setFormData({ ...formData, role_ids: formData.role_ids.includes(r.id) ? formData.role_ids.filter((x: any) => x !== r.id) : [...formData.role_ids, r.id] })} className={`w-full p-4 rounded-2xl text-left border transition-all flex items-center justify-between ${formData.role_ids.includes(r.id) ? 'bg-app-users-muted-bg border-app-users text-app-users' : 'bg-transparent border-app-border text-app-muted'}`}>
                             <span className="text-[11px] font-black uppercase">{r.name}</span>{formData.role_ids.includes(r.id) && <Check size={16} />}
                         </button>
                     ))}</div>
                 </div>
-                <button disabled={loading} onClick={handleUpdate} className="w-full py-5 bg-teal-500 text-black rounded-3xl text-[10px] font-black uppercase tracking-widest">{loading ? <RefreshCcw className="animate-spin mx-auto" size={20} /> : 'Guardar'}</button>
+                <button disabled={loading} onClick={handleUpdate} className="w-full py-5 bg-app-users text-white rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-app-users-strong">{loading ? <RefreshCcw className="animate-spin mx-auto" size={20} /> : 'Guardar'}</button>
             </motion.div>
         </motion.div>
     );

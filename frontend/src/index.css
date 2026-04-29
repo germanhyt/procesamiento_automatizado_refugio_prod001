@@ -2,10 +2,10 @@
 
 @theme {
   --color-refugio-dark: #0a0a0a;
-  --color-refugio-card: #1a1a1a;
-  --color-refugio-primary: #3b82f6;
-  --color-refugio-secondary: #6366f1;
-  --color-refugio-muted: #a1a1aa;
+  --color-refugio-card: #3b352e;
+  --color-refugio-primary: #125128;
+  --color-refugio-secondary: #8543b1;
+  --color-refugio-muted: #e7d4c6;
 }
 
 :root {
@@ -14,24 +14,62 @@
   font-weight: 400;
 
   color-scheme: dark;
-  --app-bg: #050505;
-  --app-panel: #080808;
-  --app-surface: rgba(24, 24, 27, 0.4);
-  --app-text: rgba(255, 255, 255, 0.92);
-  --app-text-secondary: #a1a1aa;
-  --app-border: rgba(255, 255, 255, 0.06);
-  --app-card: rgba(39, 39, 42, 0.6);
-  --app-card-hover: rgba(63, 63, 70, 0.5);
-  --app-input-bg: rgba(0, 0, 0, 0.4);
-  --app-accent: #14b8a6;
-  --app-accent-strong: #2dd4bf;
-  --app-accent-muted: rgba(45, 212, 191, 0.25);
-  --app-accent-muted-bg: rgba(45, 212, 191, 0.15);
-  --app-accent-muted-bg-hover: rgba(45, 212, 191, 0.25);
-  --app-muted: #a1a1aa;
-  --app-icon-bg: #27272a;
+  --app-bg: #000000;
+  --app-panel: #11100f;
+  --app-surface: rgba(59, 53, 46, 0.22);
+  --app-text: rgba(248, 243, 238, 0.96);
+  --app-text-secondary: #d8c8bc;
+  --app-border: rgba(231, 212, 198, 0.14);
+  --app-card: rgba(45, 45, 45, 0.64);
+  --app-card-hover: rgba(59, 53, 46, 0.4);
+  --app-input-bg: rgba(59, 53, 46, 0.26);
+  --app-accent: #288248;
+  --app-accent-strong: #125128;
+  --app-accent-muted: rgba(40, 130, 72, 0.3);
+  --app-accent-muted-bg: rgba(40, 130, 72, 0.16);
+  --app-accent-muted-bg-hover: rgba(40, 130, 72, 0.24);
+  --app-muted: #b8a79a;
+  --app-icon-bg: #2d2d2d;
+  --app-success: #288248;
+  --app-success-muted: rgba(40, 130, 72, 0.16);
+  --app-secondary: #8543b1;
+  --app-secondary-strong: #6c2f96;
+  --app-secondary-muted: rgba(133, 67, 177, 0.34);
+  --app-secondary-muted-bg: rgba(133, 67, 177, 0.16);
+  --app-secondary-muted-bg-hover: rgba(133, 67, 177, 0.24);
+  --app-danger: #840909;
+  --app-danger-strong: #b80f0f;
+  --app-danger-muted: rgba(132, 9, 9, 0.18);
+  --app-warning: #fbbc00;
+  --app-warning-strong: #ffd451;
+  --app-warning-muted: rgba(251, 188, 0, 0.18);
+  --app-users-accent: #3b352e;
+  --app-users-accent-strong: #2d2d2d;
+  --app-users-accent-muted: rgba(231, 212, 198, 0.2);
+  --app-users-accent-muted-bg: rgba(231, 212, 198, 0.12);
+  --app-dashboard-accent: #125128;
+  --app-dashboard-accent-strong: #0e3f1f;
+  --app-dashboard-accent-muted: rgba(40, 130, 72, 0.28);
+  --app-dashboard-accent-muted-bg: rgba(40, 130, 72, 0.12);
+  --app-processing-accent: #2d2d2d;
+  --app-processing-accent-strong: #3b352e;
+  --app-processing-accent-muted: rgba(231, 212, 198, 0.14);
+  --app-processing-accent-muted-bg: rgba(231, 212, 198, 0.08);
+  --app-delivery-accent: var(--app-secondary);
+  --app-delivery-accent-strong: var(--app-secondary-strong);
+  --app-delivery-accent-muted: var(--app-secondary-muted);
+  --app-delivery-accent-muted-bg: var(--app-secondary-muted-bg);
+  --app-commercial-accent: var(--app-secondary);
+  --app-commercial-accent-strong: var(--app-secondary-strong);
+  --app-commercial-accent-muted: var(--app-secondary-muted);
+  --app-commercial-accent-muted-bg: var(--app-secondary-muted-bg);
+  --app-commercial-accent-muted-bg-hover: var(--app-secondary-muted-bg-hover);
+  --app-documentos-accent: #125128;
+  --app-documentos-accent-strong: #0e3f1f;
+  --app-documentos-accent-muted: rgba(40, 130, 72, 0.28);
+  --app-documentos-accent-muted-bg: rgba(40, 130, 72, 0.12);
   /* Superficie modal: mismo criterio que tarjetas Delivery, opaca (sin alpha) */
-  --app-modal-solid: #242426;
+  --app-modal-solid: #171412;
   color: var(--app-text);
   background-color: var(--app-bg);
 
@@ -43,24 +81,62 @@
 
 html[data-theme="light"] {
   color-scheme: light;
-  --app-bg: #f4f6f9;
-  --app-panel: #ffffff;
-  --app-surface: #ffffff;
-  --app-text: #18181b;
-  --app-text-secondary: #52525b;
-  --app-border: rgba(0, 0, 0, 0.12);
-  --app-card: #ffffff;
-  --app-card-hover: #e4e4e7;
-  --app-input-bg: #f4f4f5;
-  --app-accent: #0d9488;
-  --app-accent-strong: #0f766e;
-  --app-accent-muted: rgba(13, 148, 136, 0.2);
-  --app-accent-muted-bg: rgba(13, 148, 136, 0.12);
-  --app-accent-muted-bg-hover: rgba(13, 148, 136, 0.2);
-  --app-muted: #52525b;
-  --app-icon-bg: #e4e4e7;
-  --color-refugio-muted: #52525b;
-  --app-modal-solid: #ffffff;
+  --app-bg: #f3e9e1;
+  --app-panel: #faf4ee;
+  --app-surface: #fff8f3;
+  --app-text: #2d2d2d;
+  --app-text-secondary: #5b544e;
+  --app-border: rgba(59, 53, 46, 0.14);
+  --app-card: #fff8f3;
+  --app-card-hover: #e7d4c6;
+  --app-input-bg: #fff6ef;
+  --app-accent: #288248;
+  --app-accent-strong: #125128;
+  --app-accent-muted: rgba(18, 81, 40, 0.2);
+  --app-accent-muted-bg: rgba(18, 81, 40, 0.1);
+  --app-accent-muted-bg-hover: rgba(18, 81, 40, 0.14);
+  --app-muted: #6e665e;
+  --app-icon-bg: #e7d4c6;
+  --app-success: #288248;
+  --app-success-muted: rgba(40, 130, 72, 0.12);
+  --app-secondary: #8543b1;
+  --app-secondary-strong: #6b2d99;
+  --app-secondary-muted: rgba(133, 67, 177, 0.2);
+  --app-secondary-muted-bg: rgba(133, 67, 177, 0.1);
+  --app-secondary-muted-bg-hover: rgba(133, 67, 177, 0.16);
+  --app-danger: #840909;
+  --app-danger-strong: #b80f0f;
+  --app-danger-muted: rgba(132, 9, 9, 0.12);
+  --app-warning: #c68a00;
+  --app-warning-strong: #fbbc00;
+  --app-warning-muted: rgba(251, 188, 0, 0.16);
+  --app-users-accent: #3b352e;
+  --app-users-accent-strong: #2d2d2d;
+  --app-users-accent-muted: rgba(59, 53, 46, 0.2);
+  --app-users-accent-muted-bg: rgba(59, 53, 46, 0.1);
+  --app-dashboard-accent: #125128;
+  --app-dashboard-accent-strong: #0e3f1f;
+  --app-dashboard-accent-muted: rgba(18, 81, 40, 0.2);
+  --app-dashboard-accent-muted-bg: rgba(18, 81, 40, 0.1);
+  --app-processing-accent: #2d2d2d;
+  --app-processing-accent-strong: #3b352e;
+  --app-processing-accent-muted: rgba(45, 45, 45, 0.18);
+  --app-processing-accent-muted-bg: rgba(45, 45, 45, 0.08);
+  --app-delivery-accent: var(--app-secondary);
+  --app-delivery-accent-strong: var(--app-secondary-strong);
+  --app-delivery-accent-muted: var(--app-secondary-muted);
+  --app-delivery-accent-muted-bg: var(--app-secondary-muted-bg);
+  --app-commercial-accent: var(--app-secondary);
+  --app-commercial-accent-strong: var(--app-secondary-strong);
+  --app-commercial-accent-muted: var(--app-secondary-muted);
+  --app-commercial-accent-muted-bg: var(--app-secondary-muted-bg);
+  --app-commercial-accent-muted-bg-hover: var(--app-secondary-muted-bg-hover);
+  --app-documentos-accent: #125128;
+  --app-documentos-accent-strong: #0e3f1f;
+  --app-documentos-accent-muted: rgba(18, 81, 40, 0.2);
+  --app-documentos-accent-muted-bg: rgba(18, 81, 40, 0.1);
+  --color-refugio-muted: #6e665e;
+  --app-modal-solid: #fff8f3;
 }
 
 body {
@@ -89,8 +165,58 @@ body {
 .hover\:bg-app-accent-muted-bg:hover { background-color: var(--app-accent-muted-bg); }
 .hover\:bg-app-accent-muted-bg-hover:hover { background-color: var(--app-accent-muted-bg-hover); }
 .bg-app-accent { background-color: var(--app-accent); }
+.bg-app-accent-strong { background-color: var(--app-accent-strong); }
+.bg-app-secondary { background-color: var(--app-secondary); }
+.bg-app-secondary-strong { background-color: var(--app-secondary-strong); }
+.bg-app-secondary-muted-bg { background-color: var(--app-secondary-muted-bg); }
 .text-app-accent { color: var(--app-accent); }
+.text-app-users { color: var(--app-users-accent); }
+.bg-app-users { background-color: var(--app-users-accent); }
+.bg-app-users-strong { background-color: var(--app-users-accent-strong); }
+.bg-app-users-muted-bg { background-color: var(--app-users-accent-muted-bg); }
+.border-app-users { border-color: var(--app-users-accent); }
+.border-app-users-muted { border-color: var(--app-users-accent-muted); }
+.hover\:bg-app-users-strong:hover { background-color: var(--app-users-accent-strong); }
+.hover\:border-app-users-muted:hover { border-color: var(--app-users-accent-muted); }
+.hover\:text-app-users:hover { color: var(--app-users-accent); }
+.focus\:border-app-users-muted:focus { border-color: var(--app-users-accent-muted); }
+.group:focus-within .group-focus-within\:text-app-users { color: var(--app-users-accent); }
+.text-app-delivery { color: var(--app-delivery-accent); }
+.bg-app-delivery { background-color: var(--app-delivery-accent); }
+.bg-app-delivery-strong { background-color: var(--app-delivery-accent-strong); }
+.bg-app-delivery-muted-bg { background-color: var(--app-delivery-accent-muted-bg); }
+.border-app-delivery-muted { border-color: var(--app-delivery-accent-muted); }
+.hover\:bg-app-delivery-strong:hover { background-color: var(--app-delivery-accent-strong); }
+.hover\:border-app-delivery-muted:hover { border-color: var(--app-delivery-accent-muted); }
+.text-app-secondary { color: var(--app-secondary); }
+.border-app-secondary { border-color: var(--app-secondary); }
+.border-app-secondary-muted { border-color: var(--app-secondary-muted); }
+.hover\:border-app-secondary-muted:hover { border-color: var(--app-secondary-muted); }
+.hover\:bg-app-secondary-strong:hover { background-color: var(--app-secondary-strong); }
+.text-app-commercial { color: var(--app-commercial-accent); }
+.bg-app-commercial { background-color: var(--app-commercial-accent); }
+.bg-app-commercial-strong { background-color: var(--app-commercial-accent-strong); }
+.bg-app-commercial-muted-bg { background-color: var(--app-commercial-accent-muted-bg); }
+.border-app-commercial-muted { border-color: var(--app-commercial-accent-muted); }
+.hover\:bg-app-commercial-muted-bg:hover { background-color: var(--app-commercial-accent-muted-bg); }
+.hover\:bg-app-commercial-strong:hover { background-color: var(--app-commercial-accent-strong); }
+.hover\:border-app-commercial-muted:hover { border-color: var(--app-commercial-accent-muted); }
+.hover\:text-app-commercial:hover { color: var(--app-commercial-accent); }
+.text-app-success { color: var(--app-success); }
+.bg-app-success-muted { background-color: var(--app-success-muted); }
+.border-app-success { border-color: var(--app-success); }
+.text-app-danger { color: var(--app-danger); }
+.bg-app-danger { background-color: var(--app-danger); }
+.bg-app-danger-muted { background-color: var(--app-danger-muted); }
+.border-app-danger { border-color: var(--app-danger); }
+.text-app-warning { color: var(--app-warning); }
+.bg-app-warning-muted { background-color: var(--app-warning-muted); }
+.border-app-warning { border-color: var(--app-warning); }
 .text-app-muted { color: var(--app-muted); }
+/* Encabezados de tabla sobre bg-app-input / filas sticky: más legible que text-app-muted o accent oscuro */
+.text-app-table-head {
+  color: var(--app-text-secondary);
+}
 .text-app-text { color: var(--app-text); }
 .border-app-border { border-color: var(--app-border); }
 .border-app-accent-muted { border-color: var(--app-accent-muted); }
@@ -100,7 +226,54 @@ body {
 .hover\:text-app-text:hover { color: var(--app-text); }
 .hover\:bg-app-surface:hover { background-color: var(--app-surface); }
 .hover\:bg-app-card-hover:hover { background-color: var(--app-card-hover); }
+.hover\:bg-app-accent-strong:hover { background-color: var(--app-accent-strong); }
+.hover\:bg-app-danger-muted:hover { background-color: var(--app-danger-muted); }
 .focus\:border-app-accent:focus { border-color: var(--app-accent); }
+.border-t-app-accent { border-top-color: var(--app-accent); }
+.border-t-app-commercial { border-top-color: var(--app-commercial-accent); }
+.shadow-app-accent-glow { box-shadow: 0 0 30px var(--app-accent-muted); }
+.shadow-app-secondary-glow { box-shadow: 0 0 30px var(--app-secondary-muted); }
+
+/* Sidebar por módulo: color consistente sin hardcode por componente */
+.sidebar-module-button {
+  background-color: var(--module-bg, transparent);
+  border: 1px solid var(--module-border, transparent);
+  color: var(--module-text, var(--app-muted));
+}
+.sidebar-module-button:hover {
+  background-color: var(--module-hover-bg, var(--app-card-hover));
+  border-color: var(--module-hover-border, var(--app-border));
+  color: var(--module-hover-text, var(--app-text));
+}
+.sidebar-module-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.85rem;
+  background-color: var(--module-icon-bg, var(--app-input-bg));
+  border: 1px solid var(--module-icon-border, var(--app-border));
+  color: var(--module-icon-color, var(--app-accent));
+}
+/* Modo oscuro: el accent sólido sobre círculo oscuro casi no contrasta — aclarar mezclando con texto secundario */
+html[data-theme="dark"] .sidebar-module-button:not(.sidebar-module-button--active) .sidebar-module-button__icon {
+  color: color-mix(in srgb, var(--module-icon-color) 26%, var(--app-text-secondary) 74%);
+}
+.sidebar-module-button--active {
+  background-color: var(--module-active-bg, var(--app-accent));
+  border-color: var(--module-active-border, var(--app-accent));
+  color: var(--module-active-text, #fff);
+  box-shadow: 0 0 30px var(--module-shadow, rgba(0, 0, 0, 0.25));
+}
+.sidebar-module-button--active:hover {
+  color: var(--module-active-text, #fff);
+}
+.sidebar-module-button--active .sidebar-module-button__icon {
+  background-color: var(--module-active-icon-bg, rgba(255, 255, 255, 0.12));
+  border-color: var(--module-active-icon-border, rgba(255, 255, 255, 0.18));
+  color: var(--module-active-icon-color, currentColor);
+}
 
 /* Chips de días pendientes / al día (Legado FileStore): contraste en claro y oscuro */
 .pendiente-dia-chip {

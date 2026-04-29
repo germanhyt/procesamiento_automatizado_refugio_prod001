@@ -52,6 +52,6 @@ export function buildWhatsDefaultEvento(r: EventoWhatsFields): string {
 }
 
 export function estadoBadgeClass(estado: string): string {
-    if (estado === 'atendido') return 'rounded-lg px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400';
-    return 'rounded-lg px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400';
+    if (estado === 'atendido') return 'rounded-lg px-2 py-0.5 text-[10px] font-bold bg-app-success-muted text-app-success';
+    return 'rounded-lg px-2 py-0.5 text-[10px] font-bold bg-app-warning-muted text-app-warning';
 }

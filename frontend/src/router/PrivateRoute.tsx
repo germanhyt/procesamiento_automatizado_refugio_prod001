@@ -24,8 +24,8 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({ permission, requireSuperuse
         return (
             <div className="h-screen w-screen flex items-center justify-center" style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-text)' }}>
                 <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin" />
-                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Cargando Sistema...</p>
+                    <div className="w-12 h-12 border-4 border-app-accent-muted border-t-app-accent rounded-full animate-spin" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-muted">Cargando Sistema...</p>
                 </div>
             </div>
         );

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { CSSProperties, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -33,18 +33,94 @@ interface MenuItemConfig {
     label: string;
     icon: React.ReactNode;
     permission: string;
+    themeKey: 'users' | 'dashboard' | 'processing' | 'delivery' | 'comercial' | 'documentos';
     disabled?: boolean;
 }
 
 const MENU_ITEMS_CONFIG: MenuItemConfig[] = [
-    { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage' },
-    { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view' },
-    { id: 'legacy', path: '/legacy', label: 'Procesam. Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process' },
-    { id: 'dashboard', path: '', label: 'Procesam. Automático', icon: <Zap size={18} />, permission: 'dashboard:view', disabled: true },
-    { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view' },
-    { id: 'comercial', path: '/comercial', label: 'Comercial', icon: <Briefcase size={18} />, permission: 'comercial:view' },
-    { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view' },
+    { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage', themeKey: 'users' },
+    { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view', themeKey: 'dashboard' },
+    { id: 'legacy', path: '/legacy', label: 'Procesam. Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process', themeKey: 'processing' },
+    { id: 'dashboard', path: '', label: 'Procesam. Automático', icon: <Zap size={18} />, permission: 'dashboard:view', themeKey: 'processing', disabled: true },
+    { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view', themeKey: 'delivery' },
+    { id: 'comercial', path: '/comercial', label: 'Comercial', icon: <Briefcase size={18} />, permission: 'comercial:view', themeKey: 'comercial' },
+    { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view', themeKey: 'documentos' },
 ];
+
+type ModuleTheme = {
+    accent: string;
+    accentMuted: string;
+    accentMutedBg: string;
+    accentStrong: string;
+    textOnAccent: string;
+};
+
+const MODULE_THEMES: Record<MenuItemConfig['themeKey'], ModuleTheme> = {
+    users: {
+        accent: 'var(--app-users-accent)',
+        accentMuted: 'var(--app-users-accent-muted)',
+        accentMutedBg: 'var(--app-users-accent-muted-bg)',
+        accentStrong: 'var(--app-users-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    dashboard: {
+        accent: 'var(--app-dashboard-accent)',
+        accentMuted: 'var(--app-dashboard-accent-muted)',
+        accentMutedBg: 'var(--app-dashboard-accent-muted-bg)',
+        accentStrong: 'var(--app-dashboard-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    processing: {
+        accent: 'var(--app-processing-accent)',
+        accentMuted: 'var(--app-processing-accent-muted)',
+        accentMutedBg: 'var(--app-processing-accent-muted-bg)',
+        accentStrong: 'var(--app-processing-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    delivery: {
+        accent: 'var(--app-delivery-accent)',
+        accentMuted: 'var(--app-delivery-accent-muted)',
+        accentMutedBg: 'var(--app-delivery-accent-muted-bg)',
+        accentStrong: 'var(--app-delivery-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    comercial: {
+        accent: 'var(--app-commercial-accent)',
+        accentMuted: 'var(--app-commercial-accent-muted)',
+        accentMutedBg: 'var(--app-commercial-accent-muted-bg)',
+        accentStrong: 'var(--app-commercial-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    documentos: {
+        accent: 'var(--app-documentos-accent)',
+        accentMuted: 'var(--app-documentos-accent-muted)',
+        accentMutedBg: 'var(--app-documentos-accent-muted-bg)',
+        accentStrong: 'var(--app-documentos-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+};
+
+function getModuleButtonVars(themeKey: MenuItemConfig['themeKey']): CSSProperties {
+    const theme = MODULE_THEMES[themeKey];
+    return {
+        '--module-bg': 'transparent',
+        '--module-border': theme.accentMuted,
+        '--module-text': 'var(--app-muted)',
+        '--module-hover-bg': theme.accentMutedBg,
+        '--module-hover-border': theme.accentMuted,
+        '--module-hover-text': theme.accent,
+        '--module-active-bg': theme.accent,
+        '--module-active-border': theme.accent,
+        '--module-active-text': theme.textOnAccent,
+        '--module-shadow': theme.accentMuted,
+        '--module-icon-bg': theme.accentMutedBg,
+        '--module-icon-border': theme.accentMuted,
+        '--module-icon-color': theme.accent,
+        '--module-active-icon-bg': 'rgba(255, 255, 255, 0.12)',
+        '--module-active-icon-border': 'rgba(255, 255, 255, 0.18)',
+        '--module-active-icon-color': theme.textOnAccent,
+    } as CSSProperties;
+}
 
 
 const MainLayout: React.FC = () => {
@@ -72,10 +148,14 @@ const MainLayout: React.FC = () => {
     };
 
     const menuItems = MENU_ITEMS_CONFIG.filter((item) => hasPermission(item.permission));
+    const currentMenuItem = useMemo(
+        () => menuItems.find((m) => m.path && location.pathname === m.path) ?? null,
+        [location.pathname, menuItems]
+    );
     const breadcrumbLabel = useMemo(() => {
-        const currentItem = menuItems.find((m) => m.path && location.pathname === m.path);
-        return currentItem?.label ?? 'Bienvenida';
-    }, [location.pathname, menuItems]);
+        return currentMenuItem?.label ?? 'Bienvenida';
+    }, [currentMenuItem]);
+    const currentModuleTheme = currentMenuItem ? MODULE_THEMES[currentMenuItem.themeKey] : MODULE_THEMES.dashboard;
 
     const { data: status, isLoading: isStatusLoading } = useQuery({
         queryKey: ['drive-status'],
@@ -117,17 +197,18 @@ const MainLayout: React.FC = () => {
                     <button
                         type="button"
                         onClick={() => handleNavigate('/bienvenida')}
-                        className="relative shrink-0 flex items-center gap-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                        className="relative shrink-0 flex items-center gap-4 rounded-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)"
                     >
-                        <div className="absolute inset-0 bg-teal-500/30 blur-2xl rounded-full" />
+                        <div className="absolute inset-0 rounded-full blur-2xl" style={{ backgroundColor: 'var(--app-accent-muted)' }} />
                         <img
                             src={logo}
                             alt="Refugio Logo"
-                            className="w-12 h-12 rounded-full border-2 border-teal-500/50 object-cover relative shadow-inner shadow-teal-500/20"
+                            className="w-12 h-12 rounded-full border-2 object-cover relative shadow-inner"
+                            style={{ borderColor: 'var(--app-accent-muted)', boxShadow: 'inset 0 0 18px var(--app-accent-muted)' }}
                         />
                         <div className="overflow-hidden text-left relative">
                             <h2 className="text-sm font-black tracking-tighter uppercase leading-none">Refugio</h2>
-                            <p className="text-[10px] text-teal-500 font-mono tracking-[0.2em] mt-1">Data</p>
+                            <p className="text-[10px] text-app-accent font-mono tracking-[0.2em] mt-1">Data</p>
                         </div>
                     </button>
                     <button
@@ -148,18 +229,25 @@ const MainLayout: React.FC = () => {
                                 key={item.id}
                                 type="button"
                                 onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
-                                className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 ${isActive
-                                        ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]'
+                                className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 sidebar-module-button ${isActive
+                                        ? 'sidebar-module-button--active'
                                         : item.disabled
                                             ? 'opacity-40 cursor-not-allowed grayscale'
-                                            : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
+                                            : ''
                                     }`}
+                                style={getModuleButtonVars(item.themeKey)}
                             >
-                                <span className="shrink-0 relative z-10">{item.icon}</span>
+                                <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
                                 <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
                                     {item.label}
                                 </span>
-                                {isActive && <motion.div layoutId="active-pill-mobile" className="absolute inset-0 bg-teal-500" />}
+                                {isActive && (
+                                    <motion.div
+                                        layoutId="active-pill-mobile"
+                                        className="absolute inset-0 rounded-2xl"
+                                        style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                                    />
+                                )}
                             </button>
                         );
                     })}
@@ -169,7 +257,7 @@ const MainLayout: React.FC = () => {
                     <button
                         type="button"
                         onClick={logout}
-                        className="w-full flex items-center rounded-2xl text-red-500 hover:bg-red-500/5 transition-all p-4 gap-5"
+                        className="w-full flex items-center rounded-2xl text-app-danger hover:bg-app-danger-muted transition-all p-4 gap-5"
                     >
                         <LogOut size={18} />
                         <span className="text-[10px] font-black uppercase tracking-widest">Cerrar Sesión</span>
@@ -191,18 +279,19 @@ const MainLayout: React.FC = () => {
                     <button
                         type="button"
                         onClick={() => handleNavigate('/bienvenida')}
-                        className="relative shrink-0 flex items-center gap-5 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                        className="relative shrink-0 flex items-center gap-5 rounded-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)"
                     >
-                        <div className="absolute inset-0 bg-teal-500/30 blur-2xl rounded-full" />
+                        <div className="absolute inset-0 rounded-full blur-2xl" style={{ backgroundColor: 'var(--app-accent-muted)' }} />
                         <img
                             src={logo}
                             alt="Refugio Logo"
-                            className="w-14 h-14 rounded-full border-2 border-teal-500/50 object-cover relative shadow-inner shadow-teal-500/20"
+                            className="w-14 h-14 rounded-full border-2 object-cover relative shadow-inner"
+                            style={{ borderColor: 'var(--app-accent-muted)', boxShadow: 'inset 0 0 18px var(--app-accent-muted)' }}
                         />
                         {sidebarOpen && (
                             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="overflow-hidden text-left relative">
                                 <h2 className="text-sm font-black tracking-tighter uppercase leading-none">Refugio</h2>
-                                <p className="text-[10px] text-teal-500 font-mono tracking-[0.2em] mt-1">Data</p>
+                                <p className="text-[10px] text-app-accent font-mono tracking-[0.2em] mt-1">Data</p>
                             </motion.div>
                         )}
                     </button>
@@ -216,22 +305,29 @@ const MainLayout: React.FC = () => {
                                 key={item.id}
                                 type="button"
                                 onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
-                                className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl
+                                className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl sidebar-module-button
                                     ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
                                     ${isActive
-                                        ? 'bg-teal-500 text-black shadow-[0_0_30px_rgba(20,184,166,0.3)]'
+                                        ? 'sidebar-module-button--active'
                                         : item.disabled
                                             ? 'opacity-40 cursor-not-allowed grayscale'
-                                            : 'text-app-muted hover:bg-app-card-hover hover:text-app-accent'
+                                            : ''
                                     }`}
+                                style={getModuleButtonVars(item.themeKey)}
                             >
-                                <span className="shrink-0 relative z-10">{item.icon}</span>
+                                <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
                                 {sidebarOpen && (
                                     <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
                                         {item.label}
                                     </span>
                                 )}
-                                {isActive && <motion.div layoutId="active-pill" className="absolute inset-0 bg-teal-500" />}
+                                {isActive && (
+                                    <motion.div
+                                        layoutId="active-pill"
+                                        className="absolute inset-0 rounded-2xl"
+                                        style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                                    />
+                                )}
                             </button>
                         );
                     })}
@@ -241,7 +337,7 @@ const MainLayout: React.FC = () => {
                     <button
                         type="button"
                         onClick={logout}
-                        className={`w-full flex items-center rounded-2xl text-red-500 hover:bg-red-500/5 transition-all ${sidebarOpen ? 'p-4 gap-5' : 'p-0 h-16 justify-center'}`}
+                        className={`w-full flex items-center rounded-2xl text-app-danger hover:bg-app-danger-muted transition-all ${sidebarOpen ? 'p-4 gap-5' : 'p-0 h-16 justify-center'}`}
                     >
                         <LogOut size={18} />
                         {sidebarOpen && (
@@ -256,7 +352,7 @@ const MainLayout: React.FC = () => {
                     className="p-6 border-t text-app-muted hover:text-app-accent flex justify-center transition-all group"
                     style={{ borderColor: 'var(--app-border)' }}
                 >
-                    <div className="bg-white/5 p-2 rounded-lg group-hover:bg-teal-500/10">
+                    <div className="bg-white/5 p-2 rounded-lg group-hover:bg-app-accent-muted-bg">
                         {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
                     </div>
                 </button>
@@ -277,10 +373,20 @@ const MainLayout: React.FC = () => {
                         >
                             <Menu size={18} />
                         </button>
-                        <div className="flex items-center gap-2 font-black text-[10px] truncate text-app-muted">
-                            <Home size={14} className="shrink-0" />
+                        <div className="flex items-center gap-2 font-black text-[10px] truncate text-app-text-secondary">
+                            <Home size={14} className="shrink-0 opacity-90" />
                             <span className="opacity-40 select-none">/</span>
-                            <span className="uppercase tracking-widest text-app-accent truncate">{breadcrumbLabel}</span>
+                            <span
+                                className="uppercase tracking-widest truncate"
+                                style={{
+                                    color:
+                                        theme === 'dark'
+                                            ? `color-mix(in srgb, var(--app-text-secondary) 76%, ${currentModuleTheme.accent} 24%)`
+                                            : currentModuleTheme.accent,
+                                }}
+                            >
+                                {breadcrumbLabel}
+                            </span>
                         </div>
                     </div>
 
@@ -307,7 +413,17 @@ const MainLayout: React.FC = () => {
                                     {user?.roles?.map((x: { name: string }) => x.name).join(', ')}
                                 </p>
                             </div>
-                            <div className="w-10 h-10 rounded-xl border flex items-center justify-center text-teal-500 shrink-0 shadow-lg shadow-black/20" style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-panel)' }}>
+                            <div
+                                className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 shadow-lg shadow-black/20"
+                                style={{
+                                    borderColor: currentModuleTheme.accentMuted,
+                                    backgroundColor: currentModuleTheme.accentMutedBg,
+                                    color:
+                                        theme === 'dark'
+                                            ? `color-mix(in srgb, var(--app-text-secondary) 68%, ${currentModuleTheme.accent} 32%)`
+                                            : currentModuleTheme.accent,
+                                }}
+                            >
                                 <UserIcon size={18} />
                             </div>
                         </div>
