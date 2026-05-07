@@ -6,12 +6,17 @@ import Login from '@/pages/Login';
 import Welcome from '@/pages/Welcome';
 import NotFound from '@/pages/NotFound';
 import LegacyFlow from '@/pages/flowprocess/LegacyFlow';
+import FuentesDatos from '@/pages/FuentesDatos';
 import PowerBIDashboard from '@/pages/PowerBIDashboard';
 import UserManagement from '@/pages/UserManagement';
-import FuentesDatos from '@/pages/FuentesDatos';
 import DeliveryPanel from '@/pages/delivery/DeliveryPanel';
 import ComercialPanel from '@/pages/comercial/ComercialPanel';
 import DocumentosGcbPage from '@/pages/documentos/DocumentosGcbPage';
+import SisaReservasLayout from '@/pages/sisa_reservas/SisaReservasLayout';
+import SisaReservasListPage from '@/pages/sisa_reservas/SisaReservasListPage';
+import SisaReservasPlanoPage from '@/pages/sisa_reservas/SisaReservasPlanoPage';
+import SisaReservasDashboardPage from '@/pages/sisa_reservas/SisaReservasDashboardPage';
+import SisaPublicReservaPage from '@/pages/sisa_reservas/SisaPublicReservaPage';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -40,6 +45,7 @@ const AppRoutes: React.FC = () => {
                 element={user ? <Navigate to={BIENVENIDA_PATH} replace /> : <Login />}
             />
             <Route path="/fuentes" element={<FuentesDatos />} />
+            <Route path="/reserva-sisa" element={<SisaPublicReservaPage />} />
 
             {/* Redirect raíz */}
             <Route path="/" element={<Navigate to={user ? BIENVENIDA_PATH : '/login'} replace />} />
@@ -60,6 +66,14 @@ const AppRoutes: React.FC = () => {
                     </Route>
                     <Route element={<PrivateRoute permission="documentos_gcb:view" />}>
                         <Route path="documentos-gcb" element={<DocumentosGcbPage />} />
+                    </Route>
+                    <Route element={<PrivateRoute permission="sisa_reservas:view" />}>
+                        <Route path="sisa-reservas" element={<SisaReservasLayout />}>
+                            <Route index element={<Navigate to="reservas" replace />} />
+                            <Route path="reservas" element={<SisaReservasListPage />} />
+                            <Route path="plano" element={<SisaReservasPlanoPage />} />
+                            <Route path="dashboard" element={<SisaReservasDashboardPage />} />
+                        </Route>
                     </Route>
                 </Route>
             </Route>

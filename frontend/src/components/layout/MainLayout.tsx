@@ -1,6 +1,4 @@
 import React, { CSSProperties, useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -18,33 +16,117 @@ import {
     FileText,
     Sun,
     Moon,
+    CalendarRange,
+    ChevronDown,
+    ClipboardList,
+    LayoutGrid,
+    BarChart3,
+    Database,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
-import StatusBadge from './StatusBadge';
 import logo from '@/assets/logo.png';
 import { useTheme } from '@/hooks/useTheme';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+type MenuThemeKey =
+    | 'users'
+    | 'dashboard'
+    | 'processing'
+    | 'delivery'
+    | 'comercial'
+    | 'documentos'
+    | 'sisa_reservas';
 
-interface MenuItemConfig {
+interface MenuLeafItem {
     id: string;
     path: string;
     label: string;
     icon: React.ReactNode;
     permission: string;
-    themeKey: 'users' | 'dashboard' | 'processing' | 'delivery' | 'comercial' | 'documentos';
+    themeKey: MenuThemeKey;
     disabled?: boolean;
 }
 
-const MENU_ITEMS_CONFIG: MenuItemConfig[] = [
+interface MenuGroupItem {
+    id: string;
+    label: string;
+    icon: React.ReactNode;
+    permission: string;
+    themeKey: MenuThemeKey;
+    children: MenuLeafItem[];
+}
+
+type TopLevelMenuEntry = MenuLeafItem | MenuGroupItem;
+
+function isMenuGroup(entry: TopLevelMenuEntry): entry is MenuGroupItem {
+    return 'children' in entry;
+}
+
+const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
     { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage', themeKey: 'users' },
+    { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view', themeKey: 'documentos' },
     { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view', themeKey: 'dashboard' },
-    { id: 'legacy', path: '/legacy', label: 'Procesam. Manual (Legacy)', icon: <History size={18} />, permission: 'legacy:process', themeKey: 'processing' },
-    { id: 'dashboard', path: '', label: 'Procesam. Automático', icon: <Zap size={18} />, permission: 'dashboard:view', themeKey: 'processing', disabled: true },
+    {
+        id: 'procesamiento-data',
+        label: 'Procesamiento data',
+        icon: <Database size={18} />,
+        permission: 'legacy:process',
+        themeKey: 'processing',
+        children: [
+            {
+                id: 'legacy',
+                path: '/legacy',
+                label: 'Procesam. Manual',
+                icon: <History size={16} />,
+                permission: 'legacy:process',
+                themeKey: 'processing',
+            },
+            {
+                id: 'procesamiento-automatico',
+                path: '',
+                label: 'Procesam. Automático',
+                icon: <Zap size={16} />,
+                permission: 'legacy:process',
+                themeKey: 'processing',
+                disabled: true,
+            },
+        ],
+    },
     { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view', themeKey: 'delivery' },
     { id: 'comercial', path: '/comercial', label: 'Comercial', icon: <Briefcase size={18} />, permission: 'comercial:view', themeKey: 'comercial' },
-    { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view', themeKey: 'documentos' },
+    {
+        id: 'sisa-reservas',
+        label: 'Reservas Sisa',
+        icon: <CalendarRange size={18} />,
+        permission: 'sisa_reservas:view',
+        themeKey: 'sisa_reservas',
+        children: [
+            {
+                id: 'sisa-reservas-reservas',
+                path: '/sisa-reservas/reservas',
+                label: 'Reservas',
+                icon: <ClipboardList size={16} />,
+                permission: 'sisa_reservas:view',
+                themeKey: 'sisa_reservas',
+            },
+            {
+                id: 'sisa-reservas-plano',
+                path: '/sisa-reservas/plano',
+                label: 'Plano',
+                icon: <LayoutGrid size={16} />,
+                permission: 'sisa_reservas:view',
+                themeKey: 'sisa_reservas',
+            },
+            {
+                id: 'sisa-reservas-dashboard',
+                path: '/sisa-reservas/dashboard',
+                label: 'Dashboard',
+                icon: <BarChart3 size={16} />,
+                permission: 'sisa_reservas:view',
+                themeKey: 'sisa_reservas',
+            },
+        ],
+    },
 ];
 
 type ModuleTheme = {
@@ -55,7 +137,7 @@ type ModuleTheme = {
     textOnAccent: string;
 };
 
-const MODULE_THEMES: Record<MenuItemConfig['themeKey'], ModuleTheme> = {
+const MODULE_THEMES: Record<MenuThemeKey, ModuleTheme> = {
     users: {
         accent: 'var(--app-users-accent)',
         accentMuted: 'var(--app-users-accent-muted)',
@@ -98,9 +180,16 @@ const MODULE_THEMES: Record<MenuItemConfig['themeKey'], ModuleTheme> = {
         accentStrong: 'var(--app-documentos-accent-strong)',
         textOnAccent: '#f8f3ee',
     },
+    sisa_reservas: {
+        accent: 'var(--app-sisa-reservas-accent)',
+        accentMuted: 'var(--app-sisa-reservas-accent-muted)',
+        accentMutedBg: 'var(--app-sisa-reservas-accent-muted-bg)',
+        accentStrong: 'var(--app-sisa-reservas-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
 };
 
-function getModuleButtonVars(themeKey: MenuItemConfig['themeKey']): CSSProperties {
+function getModuleButtonVars(themeKey: MenuThemeKey): CSSProperties {
     const theme = MODULE_THEMES[themeKey];
     return {
         '--module-bg': 'transparent',
@@ -147,25 +236,47 @@ const MainLayout: React.FC = () => {
         return roles?.some((role) => role.permissions?.some((p) => p.codename === codename)) ?? false;
     };
 
-    const menuItems = MENU_ITEMS_CONFIG.filter((item) => hasPermission(item.permission));
-    const currentMenuItem = useMemo(
-        () => menuItems.find((m) => m.path && location.pathname === m.path) ?? null,
-        [location.pathname, menuItems]
-    );
-    const breadcrumbLabel = useMemo(() => {
-        return currentMenuItem?.label ?? 'Bienvenida';
-    }, [currentMenuItem]);
-    const currentModuleTheme = currentMenuItem ? MODULE_THEMES[currentMenuItem.themeKey] : MODULE_THEMES.dashboard;
+    const visibleMenu = useMemo(() => {
+        return TOP_LEVEL_MENU.reduce<TopLevelMenuEntry[]>((acc, e) => {
+            if (!isMenuGroup(e)) {
+                if (hasPermission(e.permission)) acc.push(e);
+                return acc;
+            }
+            const visChildren = e.children.filter((c) => hasPermission(c.permission));
+            if (visChildren.length) acc.push({ ...e, children: visChildren });
+            return acc;
+        }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user]);
 
-    const { data: status, isLoading: isStatusLoading } = useQuery({
-        queryKey: ['drive-status'],
-        queryFn: async () => {
-            const response = await axios.get(`${API_URL}/procesamiento/status-drive`);
-            return response.data;
-        },
-        refetchInterval: 5000,
-        enabled: !!user,
+    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+        'sisa-reservas': true,
+        'procesamiento-data': true,
     });
+
+    useEffect(() => {
+        if (location.pathname.startsWith('/sisa-reservas')) {
+            setOpenGroups((p) => ({ ...p, 'sisa-reservas': true }));
+        }
+        if (location.pathname === '/legacy') {
+            setOpenGroups((p) => ({ ...p, 'procesamiento-data': true }));
+        }
+    }, [location.pathname]);
+
+    const breadcrumbMeta = useMemo(() => {
+        for (const e of visibleMenu) {
+            if (!isMenuGroup(e)) {
+                if (e.path && location.pathname === e.path) return { label: e.label, themeKey: e.themeKey };
+            } else {
+                const child = e.children.find((c) => location.pathname === c.path);
+                if (child) return { label: `${e.label} · ${child.label}`, themeKey: e.themeKey };
+            }
+        }
+        return { label: 'Bienvenida', themeKey: 'dashboard' as MenuThemeKey };
+    }, [location.pathname, visibleMenu]);
+
+    const breadcrumbLabel = breadcrumbMeta.label;
+    const currentModuleTheme = MODULE_THEMES[breadcrumbMeta.themeKey];
 
     const handleNavigate = (path?: string) => {
         if (!path) return;
@@ -222,33 +333,87 @@ const MainLayout: React.FC = () => {
                 </div>
 
                 <nav className="flex-1 px-4 pb-4 space-y-3 overflow-y-auto">
-                    {menuItems.map((item) => {
-                        const isActive = item.path && location.pathname === item.path;
+                    {visibleMenu.map((entry) => {
+                        if (!isMenuGroup(entry)) {
+                            const item = entry;
+                            const isActive = item.path && location.pathname === item.path;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
+                                    className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 sidebar-module-button ${isActive
+                                            ? 'sidebar-module-button--active'
+                                            : item.disabled
+                                                ? 'opacity-40 cursor-not-allowed grayscale'
+                                                : ''
+                                        }`}
+                                    style={getModuleButtonVars(item.themeKey)}
+                                >
+                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
+                                        {item.label}
+                                    </span>
+                                    {isActive && (
+                                        <motion.div
+                                            layoutId="active-pill-mobile"
+                                            className="absolute inset-0 rounded-2xl"
+                                            style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                                        />
+                                    )}
+                                </button>
+                            );
+                        }
+                        const g = entry;
+                        const groupOpen = openGroups[g.id] !== false;
                         return (
-                            <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
-                                className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 sidebar-module-button ${isActive
-                                        ? 'sidebar-module-button--active'
-                                        : item.disabled
-                                            ? 'opacity-40 cursor-not-allowed grayscale'
-                                            : ''
-                                    }`}
-                                style={getModuleButtonVars(item.themeKey)}
-                            >
-                                <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
-                                <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
-                                    {item.label}
-                                </span>
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="active-pill-mobile"
-                                        className="absolute inset-0 rounded-2xl"
-                                        style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                            <div key={g.id} className="space-y-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenGroups((p) => ({ ...p, [g.id]: !groupOpen }))}
+                                    className="w-full flex items-center transition-all duration-200 rounded-2xl px-6 py-4 gap-3 sidebar-module-button border border-transparent"
+                                    style={getModuleButtonVars(g.themeKey)}
+                                >
+                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{g.icon}</span>
+                                    <span className="flex-1 text-left text-[10px] font-black uppercase tracking-widest relative z-10">
+                                        {g.label}
+                                    </span>
+                                    <ChevronDown
+                                        size={16}
+                                        className={`shrink-0 transition-transform relative z-10 ${groupOpen ? 'rotate-180' : ''}`}
                                     />
+                                </button>
+                                {groupOpen && (
+                                    <div className="pl-3 ml-4 space-y-2 border-l" style={{ borderColor: 'var(--app-border)' }}>
+                                        {g.children.map((child) => {
+                                            const isActive = Boolean(child.path) && location.pathname === child.path;
+                                            return (
+                                                <button
+                                                    key={child.id}
+                                                    type="button"
+                                                    disabled={child.disabled}
+                                                    title={child.disabled ? 'Próximamente' : undefined}
+                                                    onClick={() => !child.disabled && child.path && handleNavigate(child.path)}
+                                                    className={`w-full flex items-center rounded-xl px-4 py-3 gap-3 text-left sidebar-module-button relative overflow-hidden ${isActive ? 'sidebar-module-button--active' : ''} ${child.disabled ? 'opacity-40 cursor-not-allowed grayscale' : ''}`}
+                                                    style={getModuleButtonVars(child.themeKey)}
+                                                >
+                                                    <span className="shrink-0 opacity-90">{child.icon}</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap relative z-10">
+                                                        {child.label}
+                                                    </span>
+                                                    {isActive && (
+                                                        <motion.div
+                                                            layoutId="active-pill-mobile-sub"
+                                                            className="absolute inset-0 rounded-xl"
+                                                            style={{ backgroundColor: MODULE_THEMES[child.themeKey].accent }}
+                                                        />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 )}
-                            </button>
+                            </div>
                         );
                     })}
                 </nav>
@@ -268,7 +433,7 @@ const MainLayout: React.FC = () => {
             {/* Desktop sidebar */}
             <motion.aside
                 initial={false}
-                animate={{ width: sidebarOpen ? 300 : 80 }}
+                animate={{ width: sidebarOpen ? 315 : 80 }}
                 className="hidden sm:flex flex-col relative z-30 h-full transition-all duration-300 ease-in-out shadow-2xl border-r"
                 style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
             >
@@ -298,37 +463,114 @@ const MainLayout: React.FC = () => {
                 </div>
 
                 <nav className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
-                    {menuItems.map((item) => {
-                        const isActive = item.path && location.pathname === item.path;
+                    {visibleMenu.map((entry) => {
+                        if (!isMenuGroup(entry)) {
+                            const item = entry;
+                            const isActive = item.path && location.pathname === item.path;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
+                                    className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl sidebar-module-button
+                                        ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
+                                        ${isActive
+                                            ? 'sidebar-module-button--active'
+                                            : item.disabled
+                                                ? 'opacity-40 cursor-not-allowed grayscale'
+                                                : ''
+                                        }`}
+                                    style={getModuleButtonVars(item.themeKey)}
+                                >
+                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
+                                    {sidebarOpen && (
+                                        <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
+                                            {item.label}
+                                        </span>
+                                    )}
+                                    {isActive && (
+                                        <motion.div
+                                            layoutId="active-pill"
+                                            className="absolute inset-0 rounded-2xl"
+                                            style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                                        />
+                                    )}
+                                </button>
+                            );
+                        }
+                        const g = entry;
+                        const groupOpen = openGroups[g.id] !== false;
+                        const childActive = g.children.some((c) => Boolean(c.path) && location.pathname === c.path);
+                        const firstPath = g.children.find((c) => c.path && !c.disabled)?.path;
+                        if (!sidebarOpen) {
+                            return (
+                                <button
+                                    key={g.id}
+                                    type="button"
+                                    onClick={() => firstPath && handleNavigate(firstPath)}
+                                    className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl sidebar-module-button p-0 h-16 justify-center ${childActive ? 'sidebar-module-button--active' : ''}`}
+                                    style={getModuleButtonVars(g.themeKey)}
+                                    title={g.label}
+                                >
+                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{g.icon}</span>
+                                    {childActive && (
+                                        <motion.div
+                                            layoutId="active-pill"
+                                            className="absolute inset-0 rounded-2xl"
+                                            style={{ backgroundColor: MODULE_THEMES[g.themeKey].accent }}
+                                        />
+                                    )}
+                                </button>
+                            );
+                        }
                         return (
-                            <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
-                                className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl sidebar-module-button
-                                    ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
-                                    ${isActive
-                                        ? 'sidebar-module-button--active'
-                                        : item.disabled
-                                            ? 'opacity-40 cursor-not-allowed grayscale'
-                                            : ''
-                                    }`}
-                                style={getModuleButtonVars(item.themeKey)}
-                            >
-                                <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
-                                {sidebarOpen && (
-                                    <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
-                                        {item.label}
+                            <div key={g.id} className="space-y-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenGroups((p) => ({ ...p, [g.id]: !groupOpen }))}
+                                    className="w-full flex items-center transition-all duration-300 rounded-2xl px-6 py-4 gap-3 sidebar-module-button"
+                                    style={getModuleButtonVars(g.themeKey)}
+                                >
+                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{g.icon}</span>
+                                    <span className="flex-1 text-left text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
+                                        {g.label}
                                     </span>
-                                )}
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="active-pill"
-                                        className="absolute inset-0 rounded-2xl"
-                                        style={{ backgroundColor: MODULE_THEMES[item.themeKey].accent }}
+                                    <ChevronDown
+                                        size={16}
+                                        className={`shrink-0 transition-transform relative z-10 ${groupOpen ? 'rotate-180' : ''}`}
                                     />
+                                </button>
+                                {groupOpen && (
+                                    <div className="pl-2 ml-5 space-y-1 border-l" style={{ borderColor: 'var(--app-border)' }}>
+                                        {g.children.map((child) => {
+                                            const isActive = Boolean(child.path) && location.pathname === child.path;
+                                            return (
+                                                <button
+                                                    key={child.id}
+                                                    type="button"
+                                                    disabled={child.disabled}
+                                                    title={child.disabled ? 'Próximamente' : undefined}
+                                                    onClick={() => !child.disabled && child.path && handleNavigate(child.path)}
+                                                    className={`w-full flex items-center rounded-xl px-4 py-1 gap-3 sidebar-module-button relative overflow-hidden ${isActive ? 'sidebar-module-button--active' : ''} ${child.disabled ? 'opacity-40 cursor-not-allowed grayscale' : ''}`}
+                                                    style={getModuleButtonVars(child.themeKey)}
+                                                >
+                                                    <span className="sidebar-module-button__icon shrink-0 relative z-10">{child.icon}</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
+                                                        {child.label}
+                                                    </span>
+                                                    {isActive && (
+                                                        <motion.div
+                                                            layoutId="active-pill-sub"
+                                                            className="absolute inset-0 rounded-xl"
+                                                            style={{ backgroundColor: MODULE_THEMES[child.themeKey].accent }}
+                                                        />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 )}
-                            </button>
+                            </div>
                         );
                     })}
                 </nav>
@@ -401,10 +643,6 @@ const MainLayout: React.FC = () => {
                         >
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
-                        <div className="flex gap-2 sm:gap-4">
-                            <StatusBadge active={status?.drive_connected} label="Drive" loading={isStatusLoading} />
-                            <StatusBadge active={status?.config_exists} label="Config" loading={isStatusLoading} />
-                        </div>
                         <div className="h-6 w-px hidden sm:block" style={{ backgroundColor: 'var(--app-border)' }} />
                         <div className="flex items-center gap-3">
                             <div className="text-right hidden md:block">

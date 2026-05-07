@@ -14,6 +14,7 @@ from app.api import (
     comercial,
     notificaciones,
     documentos_gcb,
+    sisa_reservas,
 )
 
 # Configuración de logs para ver errores reales
@@ -27,9 +28,15 @@ async def lifespan(_app: FastAPI):
         shutdown_notificaciones_scheduler,
         start_notificaciones_scheduler,
     )
+    from app.services.sisa_reservas_notifications_scheduler import (
+        shutdown_sisa_reservas_notifications_scheduler,
+        start_sisa_reservas_notifications_scheduler,
+    )
 
     start_notificaciones_scheduler()
+    start_sisa_reservas_notifications_scheduler()
     yield
+    shutdown_sisa_reservas_notifications_scheduler()
     shutdown_notificaciones_scheduler()
 
 
@@ -55,6 +62,7 @@ app.include_router(delivery.router, prefix="/api")
 app.include_router(comercial.router, prefix="/api")
 app.include_router(notificaciones.router, prefix="/api")
 app.include_router(documentos_gcb.router, prefix="/api")
+app.include_router(sisa_reservas.router, prefix="/api")
 
 @app.get("/")
 async def root():

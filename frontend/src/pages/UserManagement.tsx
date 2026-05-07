@@ -141,10 +141,15 @@ const UserManagement: React.FC = () => {
                             ) : filteredUsers.map(user => (
                                 <tr key={user.id} className="border-b border-app-border hover:bg-app-surface transition-colors">
                                     <td className="p-8 flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-xl bg-app-users-muted-bg flex items-center justify-center text-app-users border border-app-users-muted font-black">{user.username.substring(0, 2).toUpperCase()}</div>
+                                        <div
+                                            aria-hidden
+                                            className="w-10 h-10 shrink-0 rounded-xl bg-app-users-muted-bg flex items-center justify-center border border-app-users-muted font-black text-app-text-secondary"
+                                        >
+                                            {user.username.substring(0, 2).toUpperCase()}
+                                        </div>
                                         <div>
                                             <div className="text-app-text font-black uppercase text-xs">{user.username}</div>
-                                            <div className="text-[9px] font-mono text-app-muted">ID: {user.id.toString().padStart(4, '0')}</div>
+                                            <div className="text-[9px] font-mono text-app-text-secondary/95">ID: {user.id.toString().padStart(4, '0')}</div>
                                         </div>
                                     </td>
                                     <td className="p-8 font-medium italic">{user.email}</td>
@@ -158,10 +163,24 @@ const UserManagement: React.FC = () => {
                                     <td className="p-8">
                                         <button onClick={() => handleToggleStatus(user)} className={`px-4 py-1.5 rounded-full border text-[8px] font-black uppercase w-fit cursor-pointer transition-all hover:scale-105 ${user.is_active ? 'bg-app-success-muted border-app-success text-app-success' : 'bg-app-danger-muted border-app-danger text-app-danger'}`}>{user.is_active ? 'Activo' : 'Baja'}</button>
                                     </td>
-                                    <td className="p-8 font-mono text-app-muted">{new Date(user.created_at).toLocaleDateString()}</td>
+                                    <td className="p-8 font-mono text-app-text-secondary/90">{new Date(user.created_at).toLocaleDateString()}</td>
                                     <td className="p-8 text-right flex justify-end gap-2">
-                                        <button onClick={() => setEditingUser(user)} className="p-3 text-app-muted hover:text-app-users transition-colors"><Edit3 size={16} /></button>
-                                        <button onClick={() => handleDeleteUser(user)} className="p-3 text-app-muted hover:text-app-danger transition-colors"><Trash2 size={16} /></button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingUser(user)}
+                                            className="p-3 text-app-text-secondary hover:text-app-users transition-colors"
+                                            aria-label={`Editar ${user.username}`}
+                                        >
+                                            <Edit3 size={16} className="shrink-0" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteUser(user)}
+                                            className="p-3 text-app-text-secondary hover:text-app-danger transition-colors"
+                                            aria-label={`Eliminar ${user.username}`}
+                                        >
+                                            <Trash2 size={16} className="shrink-0" />
+                                        </button>
                                     </td>
                                 </tr>
                             ))}

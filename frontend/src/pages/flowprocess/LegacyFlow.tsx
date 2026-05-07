@@ -28,6 +28,7 @@ import {
 
 import { LOCATARIOS } from '@/constants/locatarios';
 import AppSelect from '@/components/ui/AppSelect';
+import ProcessingStatusBadges from '@/components/procesamiento/ProcessingStatusBadges';
 import type { LocatarioArchivos } from '@/services/fuentesService';
 import {
     fetchArchivosCierreCaja,
@@ -1097,15 +1098,22 @@ const LegacyFlow: React.FC = () => {
 
             <div className="xl:col-span-4 h-full flex flex-col min-h-[300px] sm:min-h-[500px]">
                 <div className="flex-1 bg-app-card border border-app-border rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
-                    <div className="p-8 border-b border-app-border flex items-center justify-between bg-app-input">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent">Flujo procesos</h3>
-                        <button
-                            type="button"
-                            onClick={() => setLogs([])}
-                            className="text-[8px] font-black uppercase text-app-muted hover:text-app-text transition-colors"
-                        >
-                            Clean
-                        </button>
+                    <div className="p-8 border-b border-app-border flex flex-wrap items-start justify-between gap-4 bg-app-input">
+                        <div className="flex min-w-0 flex-col gap-2 items-start">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+                                Flujo procesos
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setLogs([])}
+                                className=" text-[8px] font-black uppercase text-app-muted hover:text-app-text transition-colors cursor-pointer"
+                            >
+                                Limpiar
+                            </button>
+                        </div>
+                        <div className="shrink-0">
+                            <ProcessingStatusBadges className="justify-end" />
+                        </div>
                     </div>
                     <div className="flex-1 overflow-y-auto p-8 space-y-4 scrollbar-hide font-mono">
                         <AnimatePresence initial={false}>

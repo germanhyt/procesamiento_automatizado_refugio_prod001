@@ -131,34 +131,7 @@ const FuentesDatos: React.FC = () => {
         noKeyboard: true,
     });
 
-    return (
-        <div
-            className="min-h-screen w-screen font-sans flex flex-col"
-            style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-text)' }}
-        >
-            <header
-                className="border-b px-4 sm:px-10 py-6 flex items-center justify-between backdrop-blur-xl"
-                style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
-            >
-                <Link
-                    to="/"
-                    className="flex items-center gap-3 rounded-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)"
-                >
-                    <img src={logo} alt="Refugio" className="w-10 h-10 rounded-full border-2 object-cover" style={{ borderColor: 'var(--app-accent-muted)' }} />
-                    <div>
-                        <h1 className="text-sm font-black uppercase tracking-tighter text-app-text">Refugio Data</h1>
-                        <p className="text-[9px] text-app-accent font-mono tracking-widest">Fuentes de datos</p>
-                    </div>
-                </Link>
-                <Link
-                    to="/login"
-                    className="text-[10px] font-black uppercase tracking-widest text-refugio-muted hover:text-app-accent transition-colors"
-                >
-                    Acceso al sistema
-                </Link>
-            </header>
-
-            <main className="flex-1 p-6 sm:p-10 max-w-4xl mx-auto w-full">
+    const body = (
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
                     <div className="flex items-center gap-3 text-refugio-muted">
                         {loadingSemana ? (
@@ -291,6 +264,37 @@ const FuentesDatos: React.FC = () => {
                         )}
                     </div>
                 </motion.div>
+    );
+
+    return (
+        <div
+            className="min-h-screen w-screen font-sans flex flex-col"
+            style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-text)' }}
+        >
+            <header
+                className="border-b px-4 sm:px-10 py-6 flex items-center justify-between backdrop-blur-xl"
+                style={{ borderColor: 'var(--app-border)', backgroundColor: 'var(--app-surface)' }}
+            >
+                <Link
+                    to="/"
+                    className="flex items-center gap-3 rounded-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--app-accent-muted)"
+                >
+                    <img src={logo} alt="Refugio" className="w-10 h-10 rounded-full border-2 object-cover" style={{ borderColor: 'var(--app-accent-muted)' }} />
+                    <div>
+                        <h1 className="text-sm font-black uppercase tracking-tighter text-app-text">Refugio Data</h1>
+                        <p className="text-[9px] text-app-accent font-mono tracking-widest">Fuentes de datos</p>
+                    </div>
+                </Link>
+                <Link
+                    to="/login"
+                    className="text-[10px] font-black uppercase tracking-widest text-refugio-muted hover:text-app-accent transition-colors"
+                >
+                    Acceso al sistema
+                </Link>
+            </header>
+
+            <main className="flex-1 p-6 sm:p-10 max-w-4xl mx-auto w-full">
+                {body}
             </main>
         </div>
     );

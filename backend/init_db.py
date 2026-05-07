@@ -3,6 +3,12 @@ from app.models.auth import User, Role, Permission
 from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryConfig  # noqa: F401
 from app.models.comercial import ComercialReserva, ComercialEvento  # noqa: F401 — registra tablas en metadata
 from app.models.documentos_gcb import DocumentoGcb  # noqa: F401 — registra tablas en metadata
+from app.models.sisa_reservas import (  # noqa: F401
+    SisaReservaMesa,
+    SisaReservaRegistro,
+    SisaReservaZona,
+    SisaReservasNotificacionesConfig,
+)
 from app.core.security import get_password_hash
 import sys
 
@@ -24,6 +30,8 @@ def init():
         {"name": "Gestionar Comercial", "codename": "comercial:manage", "module": "comercial"},
         {"name": "Ver Documentos GCB", "codename": "documentos_gcb:view", "module": "documentos_gcb"},
         {"name": "Gestionar Documentos GCB", "codename": "documentos_gcb:manage", "module": "documentos_gcb"},
+        {"name": "Ver Reservas Sisa", "codename": "sisa_reservas:view", "module": "sisa_reservas"},
+        {"name": "Gestionar Reservas Sisa", "codename": "sisa_reservas:manage", "module": "sisa_reservas"},
     ]
     
     perms = []

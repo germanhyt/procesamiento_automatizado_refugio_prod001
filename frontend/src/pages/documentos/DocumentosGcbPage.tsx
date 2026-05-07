@@ -177,16 +177,6 @@ const DocumentosGcbPage: React.FC = () => {
                     <p className="text-sm text-app-muted mt-1">Gestión documental con visor y reemplazo de archivo</p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-end">
-                    {canManage && (
-                        <button
-                            type="button"
-                            onClick={() => setRegisterOpen(true)}
-                            className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-input px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover transition-colors"
-                        >
-                            <Plus size={15} />
-                            Nuevo documento
-                        </button>
-                    )}
                     <button
                         type="button"
                         onClick={() => invalidate()}
@@ -195,77 +185,88 @@ const DocumentosGcbPage: React.FC = () => {
                         <RefreshCw size={15} className={docsQuery.isFetching ? 'animate-spin' : ''} />
                         Actualizar
                     </button>
+                    {canManage && (
+                        <button
+                            type="button"
+                            onClick={() => setRegisterOpen(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-input px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover transition-colors"
+                            style={{ backgroundColor: 'var(--app-sisa-reservas-accent-strong)' }}
+                        >
+                            <Plus size={15} />
+                            Nuevo documento
+                        </button>
+                    )}
                 </div>
             </div>
 
             <div className="bg-app-card border border-app-border rounded-3xl p-5 sm:p-6 space-y-5">
-            <section className="space-y-4">
-                <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted">Filtros</h2>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:items-end">
-                    <div className="md:col-span-1">
-                        <label htmlFor="doc-gcb-q" className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">
-                            Búsqueda
-                        </label>
-                        <input
-                            id="doc-gcb-q"
-                            value={q}
-                            onChange={(e) => setQ(e.target.value)}
-                            placeholder="Código, nombre o archivo"
-                            className={inputCls}
-                        />
+                <section className="space-y-4">
+                    <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted">Filtros</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:items-end">
+                        <div className="md:col-span-1">
+                            <label htmlFor="doc-gcb-q" className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">
+                                Búsqueda
+                            </label>
+                            <input
+                                id="doc-gcb-q"
+                                value={q}
+                                onChange={(e) => setQ(e.target.value)}
+                                placeholder="Código, nombre o archivo"
+                                className={inputCls}
+                            />
+                        </div>
+                        <div>
+                            <span className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">Colección</span>
+                            <AppSelect
+                                options={coleccionOptions}
+                                value={coleccionOptions.find((o) => o.value === coleccion) ?? null}
+                                onChange={(opt) => {
+                                    setColeccion(opt?.value ?? '');
+                                    setCategoria('');
+                                }}
+                                placeholder="Todas las colecciones"
+                                isClearable={false}
+                                size="sm"
+                            />
+                        </div>
+                        <div>
+                            <span className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">Categoría</span>
+                            <AppSelect
+                                options={categoriaOptions}
+                                value={categoriaOptions.find((o) => o.value === categoria) ?? null}
+                                onChange={(opt) => setCategoria(opt?.value ?? '')}
+                                placeholder="Todas las categorías"
+                                isClearable={false}
+                                size="sm"
+                            />
+                        </div>
+                        <div className="rounded-xl border border-app-border bg-app-input px-3 py-2.5 flex items-center gap-3 min-h-[42px]">
+                            <input
+                                id="doc-gcb-solo-activos"
+                                type="checkbox"
+                                checked={soloActivos}
+                                onChange={(e) => setSoloActivos(e.target.checked)}
+                                className="size-4 shrink-0 rounded border-app-border bg-app-input accent-(--app-accent)"
+                            />
+                            <label htmlFor="doc-gcb-solo-activos" className="text-xs text-app-text cursor-pointer select-none font-medium">
+                                Solo activos
+                            </label>
+                        </div>
                     </div>
-                    <div>
-                        <span className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">Colección</span>
-                        <AppSelect
-                            options={coleccionOptions}
-                            value={coleccionOptions.find((o) => o.value === coleccion) ?? null}
-                            onChange={(opt) => {
-                                setColeccion(opt?.value ?? '');
-                                setCategoria('');
-                            }}
-                            placeholder="Todas las colecciones"
-                            isClearable={false}
-                            size="sm"
-                        />
-                    </div>
-                    <div>
-                        <span className="block text-[10px] font-black uppercase tracking-widest text-app-muted mb-1">Categoría</span>
-                        <AppSelect
-                            options={categoriaOptions}
-                            value={categoriaOptions.find((o) => o.value === categoria) ?? null}
-                            onChange={(opt) => setCategoria(opt?.value ?? '')}
-                            placeholder="Todas las categorías"
-                            isClearable={false}
-                            size="sm"
-                        />
-                    </div>
-                    <div className="rounded-xl border border-app-border bg-app-input px-3 py-2.5 flex items-center gap-3 min-h-[42px]">
-                        <input
-                            id="doc-gcb-solo-activos"
-                            type="checkbox"
-                            checked={soloActivos}
-                            onChange={(e) => setSoloActivos(e.target.checked)}
-                            className="size-4 shrink-0 rounded border-app-border bg-app-input accent-(--app-accent)"
-                        />
-                        <label htmlFor="doc-gcb-solo-activos" className="text-xs text-app-text cursor-pointer select-none font-medium">
-                            Solo activos
-                        </label>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <DocumentosGcbTable
-                rows={docs}
-                isLoading={docsQuery.isLoading}
-                canManage={canManage}
-                bulkDownloadBusy={bulkDownloadBusy}
-                onView={handleViewFile}
-                onDownload={handleDownload}
-                onDownloadMany={handleDownloadMany}
-                onEdit={(doc) => setEditDoc(doc)}
-                onReplace={(doc) => setReplaceDoc(doc)}
-                onDeactivate={handleDeactivate}
-            />
+                <DocumentosGcbTable
+                    rows={docs}
+                    isLoading={docsQuery.isLoading}
+                    canManage={canManage}
+                    bulkDownloadBusy={bulkDownloadBusy}
+                    onView={handleViewFile}
+                    onDownload={handleDownload}
+                    onDownloadMany={handleDownloadMany}
+                    onEdit={(doc) => setEditDoc(doc)}
+                    onReplace={(doc) => setReplaceDoc(doc)}
+                    onDeactivate={handleDeactivate}
+                />
             </div>
 
             <DocumentosGcbRegisterModal

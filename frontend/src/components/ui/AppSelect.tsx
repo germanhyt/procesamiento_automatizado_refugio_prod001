@@ -27,8 +27,13 @@ const themeStyles: StylesConfig<AppSelectOption, false> = {
         ...base,
         backgroundColor: 'var(--app-panel)',
         borderRadius: '12px',
-        zIndex: 9999,
+        /* Por encima de modales z-[100] y LegacyFlow (≈10k); por debajo de SweetAlert (200k en index.css). */
+        zIndex: 120000,
         border: '1px solid var(--app-border)',
+    }),
+    menuPortal: (base) => ({
+        ...base,
+        zIndex: 120000,
     }),
     menuList: (base) => ({
         ...base,
