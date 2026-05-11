@@ -6,7 +6,7 @@ interface User {
     username: string;
     email: string;
     is_superuser: boolean;
-    roles: Array<{ name: string; id: number }>;
+    roles: Array<{ name: string; id: number; permissions?: Array<{ codename: string }> }>;
 }
 
 interface AuthContextType {

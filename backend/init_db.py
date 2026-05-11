@@ -3,6 +3,7 @@ from app.models.auth import User, Role, Permission
 from app.models.delivery import Restaurant, Order, DriverArrival, DeliveryConfig  # noqa: F401
 from app.models.comercial import ComercialReserva, ComercialEvento  # noqa: F401 — registra tablas en metadata
 from app.models.documentos_gcb import DocumentoGcb  # noqa: F401 — registra tablas en metadata
+from app.models.bosque_magico import BosqueMagicoConfig, BosqueMagicoLead  # noqa: F401
 from app.models.sisa_reservas import (  # noqa: F401
     SisaReservaMesa,
     SisaReservaRegistro,
@@ -32,6 +33,8 @@ def init():
         {"name": "Gestionar Documentos GCB", "codename": "documentos_gcb:manage", "module": "documentos_gcb"},
         {"name": "Ver Reservas Sisa", "codename": "sisa_reservas:view", "module": "sisa_reservas"},
         {"name": "Gestionar Reservas Sisa", "codename": "sisa_reservas:manage", "module": "sisa_reservas"},
+        {"name": "Ver Bosque Mágico", "codename": "bosque_magico:view", "module": "bosque_magico"},
+        {"name": "Gestionar Bosque Mágico", "codename": "bosque_magico:manage", "module": "bosque_magico"},
     ]
     
     perms = []
@@ -82,6 +85,14 @@ def init():
         print("--- El usuario admin ya existe.")
     
     db.commit()
+
+    from app.data.bosque_magico_seed import seed_bosque_magico_config_if_missing
+
+    n_cfg = seed_bosque_magico_config_if_missing(db)
+    if n_cfg:
+        db.commit()
+        print(f">>> Semilla Bosque Mágico config: +{n_cfg} claves.")
+
     db.close()
     print(">>> Inicialización completada con éxito.")
 

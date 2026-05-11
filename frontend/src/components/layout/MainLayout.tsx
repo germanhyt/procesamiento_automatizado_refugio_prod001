@@ -22,6 +22,8 @@ import {
     LayoutGrid,
     BarChart3,
     Database,
+    Trees,
+    Settings,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -35,7 +37,8 @@ type MenuThemeKey =
     | 'delivery'
     | 'comercial'
     | 'documentos'
-    | 'sisa_reservas';
+    | 'sisa_reservas'
+    | 'bosque_magico';
 
 interface MenuLeafItem {
     id: string;
@@ -127,6 +130,31 @@ const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
             },
         ],
     },
+    {
+        id: 'bosque-magico',
+        label: 'Bosque Mágico',
+        icon: <Trees size={18} />,
+        permission: 'bosque_magico:view',
+        themeKey: 'bosque_magico',
+        children: [
+            {
+                id: 'bosque-magico-leads',
+                path: '/bosque-magico/leads',
+                label: 'Leads',
+                icon: <ClipboardList size={16} />,
+                permission: 'bosque_magico:view',
+                themeKey: 'bosque_magico',
+            },
+            {
+                id: 'bosque-magico-config',
+                path: '/bosque-magico/config',
+                label: 'Configuración',
+                icon: <Settings size={16} />,
+                permission: 'bosque_magico:view',
+                themeKey: 'bosque_magico',
+            },
+        ],
+    },
 ];
 
 type ModuleTheme = {
@@ -185,6 +213,13 @@ const MODULE_THEMES: Record<MenuThemeKey, ModuleTheme> = {
         accentMuted: 'var(--app-sisa-reservas-accent-muted)',
         accentMutedBg: 'var(--app-sisa-reservas-accent-muted-bg)',
         accentStrong: 'var(--app-sisa-reservas-accent-strong)',
+        textOnAccent: '#f8f3ee',
+    },
+    bosque_magico: {
+        accent: 'var(--app-bosque-magico-accent)',
+        accentMuted: 'var(--app-bosque-magico-accent-muted)',
+        accentMutedBg: 'var(--app-bosque-magico-accent-muted-bg)',
+        accentStrong: 'var(--app-bosque-magico-accent-strong)',
         textOnAccent: '#f8f3ee',
     },
 };
@@ -252,6 +287,7 @@ const MainLayout: React.FC = () => {
     const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
         'sisa-reservas': true,
         'procesamiento-data': true,
+        'bosque-magico': true,
     });
 
     useEffect(() => {
@@ -260,6 +296,9 @@ const MainLayout: React.FC = () => {
         }
         if (location.pathname === '/legacy') {
             setOpenGroups((p) => ({ ...p, 'procesamiento-data': true }));
+        }
+        if (location.pathname.startsWith('/bosque-magico')) {
+            setOpenGroups((p) => ({ ...p, 'bosque-magico': true }));
         }
     }, [location.pathname]);
 

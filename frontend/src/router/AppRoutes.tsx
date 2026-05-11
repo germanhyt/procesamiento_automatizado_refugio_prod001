@@ -17,6 +17,10 @@ import SisaReservasListPage from '@/pages/sisa_reservas/SisaReservasListPage';
 import SisaReservasPlanoPage from '@/pages/sisa_reservas/SisaReservasPlanoPage';
 import SisaReservasDashboardPage from '@/pages/sisa_reservas/SisaReservasDashboardPage';
 import SisaPublicReservaPage from '@/pages/sisa_reservas/SisaPublicReservaPage';
+import BosqueMagicoLayout from '@/pages/bosque-magico/BosqueMagicoLayout';
+import BosqueMagicoLeadsListPage from '@/pages/bosque-magico/BosqueMagicoLeadsListPage';
+import BosqueMagicoLeadDetailPage from '@/pages/bosque-magico/BosqueMagicoLeadDetailPage';
+import BosqueMagicoConfigPage from '@/pages/bosque-magico/BosqueMagicoConfigPage';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -73,6 +77,14 @@ const AppRoutes: React.FC = () => {
                             <Route path="reservas" element={<SisaReservasListPage />} />
                             <Route path="plano" element={<SisaReservasPlanoPage />} />
                             <Route path="dashboard" element={<SisaReservasDashboardPage />} />
+                        </Route>
+                    </Route>
+                    <Route element={<PrivateRoute permission="bosque_magico:view" />}>
+                        <Route path="bosque-magico" element={<BosqueMagicoLayout />}>
+                            <Route index element={<Navigate to="leads" replace />} />
+                            <Route path="leads" element={<BosqueMagicoLeadsListPage />} />
+                            <Route path="leads/:id" element={<BosqueMagicoLeadDetailPage />} />
+                            <Route path="config" element={<BosqueMagicoConfigPage />} />
                         </Route>
                     </Route>
                 </Route>
