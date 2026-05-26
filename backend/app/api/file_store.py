@@ -6,10 +6,11 @@ Ruta base: /api/fuentes
 import os
 import zipfile
 import io
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 
 from app.core.constants import LOCATARIOS, FILE_STORE_CIERRE_CAJA, FILE_STORE_PROCESADOS
 from app.services.file_store_service import (
@@ -24,6 +25,11 @@ from app.services.file_store_service import (
     preview_cierre_caja_tabular,
     preview_procesados_tabular,
     _dir_cierre_caja,
+    _dir_locatario_pendientes,
+    _dir_locatario_consolidados,
+    _dir_locatario_backup,
+    move_to_backup,
+    restore_from_backup,
 )
 from app.api.auth import get_current_user
 from app.models.auth import User
@@ -233,6 +239,59 @@ async def fuentes_descargar_zip(
     )
 
 
+@router.get("/download")
+async def fuentes_descargar_archivo(
+    origen: str,
+    locatario_codigo: str,
+    filename: str,
+    zona: str | None = None,
+    fecha: str | None = None,
+):
+    """
+    Descarga directa de archivo individual.
+    origen: cierre | procesados
+    cierre: zona=pendiente|consolidado
+    procesados: fecha=YYYY-MM-DD
+    """
+    o = (origen or "").strip().lower()
+    loc = (locatario_codigo or "").strip()
+    fn = Path((filename or "").strip()).name
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    if not fn:
+        raise HTTPException(status_code=400, detail="filename inválido")
+
+    base = get_upload_base()
+    if o == "cierre":
+        z = (zona or "").strip().lower()
+        if z in ("consolidado", "consolidados", "_consolidados"):
+            path = _dir_locatario_consolidados(base, loc) / fn
+        elif z in ("backup", "respaldo", "backup_no_consolidados"):
+            path = _dir_locatario_backup(base, loc) / fn
+        elif z == "pendiente":
+            path = _dir_locatario_pendientes(base, loc) / fn
+        else:
+            raise HTTPException(status_code=400, detail="zona debe ser pendiente, consolidado o backup")
+    elif o == "procesados":
+        raw_f = (fecha or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_f):
+            raise HTTPException(status_code=400, detail="fecha inválida (use YYYY-MM-DD)")
+        day_dir = (base / FILE_STORE_PROCESADOS / raw_f).resolve()
+        if not day_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Fecha no encontrada")
+        path = (day_dir / loc / fn).resolve()
+        try:
+            path.relative_to(day_dir)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    else:
+        raise HTTPException(status_code=400, detail="origen debe ser cierre o procesados")
+
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return FileResponse(path=str(path), filename=fn, media_type="application/octet-stream")
+
+
 @router.post("/upload-bulk")
 async def fuentes_upload_bulk(
     files: list[UploadFile] = File(...),
@@ -279,8 +338,8 @@ async def fuentes_eliminar_archivo(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Elimina archivo en pendiente o consolidado.
-    zona: pendiente | consolidado
+    Elimina archivo en pendiente, consolidado o backup.
+    zona: pendiente | consolidado | backup
     semana_folder: ignorado (compat).
     """
     if not current_user.is_superuser:
@@ -294,3 +353,59 @@ async def fuentes_eliminar_archivo(
     if not ok:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return {"ok": True}
+
+
+@router.post("/mover-backup")
+async def fuentes_mover_backup(
+    locatario_codigo: str = Form(...),
+    filenames: list[str] = Form(...),
+    zona: str = Form("pendiente"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Mueve archivos a cierre_caja/{locatario}/backup_no_consolidados.
+    Acepta movimiento individual o masivo.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo superuser puede mover archivos a backup")
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    z = (zona or "pendiente").strip().lower()
+    if z in ("consolidado", "consolidados", "_consolidados"):
+        z = "consolidado"
+    elif z in ("backup", "respaldo", "backup_no_consolidados"):
+        z = "backup"
+    elif z != "pendiente":
+        raise HTTPException(status_code=400, detail="zona debe ser pendiente, consolidado o backup")
+    clean_names = [Path((f or "").strip()).name for f in filenames if (f or "").strip()]
+    if not clean_names:
+        raise HTTPException(status_code=400, detail="filenames es requerido")
+    moved = move_to_backup(loc, clean_names, zona=z)
+    missing = [n for n in clean_names if not any(p.endswith(f"/{n}") or p.endswith(f"\\{n}") for p in moved)]
+    return {"ok": True, "moved": moved, "requested": clean_names, "missing": missing, "zona": z}
+
+
+@router.post("/restaurar-backup")
+async def fuentes_restaurar_backup(
+    locatario_codigo: str = Form(...),
+    filenames: list[str] = Form(...),
+    destino: str = Form("pendiente"),
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo superuser puede restaurar archivos desde backup")
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    d = (destino or "pendiente").strip().lower()
+    if d in ("consolidado", "consolidados", "_consolidados"):
+        d = "consolidado"
+    elif d != "pendiente":
+        raise HTTPException(status_code=400, detail="destino debe ser pendiente o consolidado")
+    clean_names = [Path((f or "").strip()).name for f in filenames if (f or "").strip()]
+    if not clean_names:
+        raise HTTPException(status_code=400, detail="filenames es requerido")
+    moved = restore_from_backup(loc, clean_names, destino=d)
+    missing = [n for n in clean_names if not any(p.endswith(f"/{n}") or p.endswith(f"\\{n}") for p in moved)]
+    return {"ok": True, "moved": moved, "requested": clean_names, "missing": missing, "destino": d}

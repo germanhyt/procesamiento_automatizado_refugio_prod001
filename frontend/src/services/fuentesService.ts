@@ -14,6 +14,7 @@ export interface LocatarioArchivos {
     locatario: string;
     pendientes: string[];
     consolidados: string[];
+    backup?: string[];
 }
 
 export interface ArchivosCierreCajaResponse {
@@ -69,6 +70,22 @@ export function zipCierreCajaUrl(locatario?: string): string {
     return q ? `${FUENTES_BASE}/zip?${q}` : `${FUENTES_BASE}/zip`;
 }
 
+export function downloadFuentesUrl(params: {
+    origen: 'cierre' | 'procesados';
+    locatario_codigo: string;
+    filename: string;
+    zona?: 'pendiente' | 'consolidado' | 'backup';
+    fecha?: string;
+}): string {
+    const q = new URLSearchParams();
+    q.set('origen', params.origen);
+    q.set('locatario_codigo', params.locatario_codigo);
+    q.set('filename', params.filename);
+    if (params.origen === 'cierre' && params.zona) q.set('zona', params.zona);
+    if (params.origen === 'procesados' && params.fecha) q.set('fecha', params.fecha);
+    return `${FUENTES_BASE}/download?${q.toString()}`;
+}
+
 export async function uploadBulkFuentes(locatarioCodigo: string, files: FileList | File[], replace: boolean): Promise<unknown> {
     const formData = new FormData();
     Array.from(files).forEach((f) => formData.append('files', f));
@@ -112,7 +129,7 @@ export async function deleteFuentesArchivo(
     token: string | null,
     locatarioCodigo: string,
     filename: string,
-    zona: 'pendiente' | 'consolidado'
+    zona: 'pendiente' | 'consolidado' | 'backup'
 ): Promise<void> {
     await axios.delete(`${FUENTES_BASE}/archivo`, {
         params: {
@@ -122,4 +139,32 @@ export async function deleteFuentesArchivo(
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+}
+
+export async function moveFuentesToBackup(
+    token: string | null,
+    params: { locatarioCodigo: string; filenames: string[]; zona: 'pendiente' | 'consolidado' }
+): Promise<{ ok: boolean; moved: string[]; requested: string[]; missing: string[]; zona: string }> {
+    const formData = new FormData();
+    formData.append('locatario_codigo', params.locatarioCodigo);
+    formData.append('zona', params.zona);
+    params.filenames.forEach((name) => formData.append('filenames', name));
+    const res = await axios.post(`${FUENTES_BASE}/mover-backup`, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.data;
+}
+
+export async function restoreFuentesFromBackup(
+    token: string | null,
+    params: { locatarioCodigo: string; filenames: string[]; destino: 'pendiente' | 'consolidado' }
+): Promise<{ ok: boolean; moved: string[]; requested: string[]; missing: string[]; destino: string }> {
+    const formData = new FormData();
+    formData.append('locatario_codigo', params.locatarioCodigo);
+    formData.append('destino', params.destino);
+    params.filenames.forEach((name) => formData.append('filenames', name));
+    const res = await axios.post(`${FUENTES_BASE}/restaurar-backup`, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.data;
 }

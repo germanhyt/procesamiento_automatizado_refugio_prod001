@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  FlatList,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -19,10 +21,12 @@ import {
   kioskListRestaurants,
   simulateRunnerOrderReady,
   userHasPermission,
+  type Order,
 } from '@refugio/delivery-api';
 import { DELIVERY_PERMISSIONS } from '@refugio/constants';
 import { useAuth } from '@/context/AuthContext';
 import { useRunnerTheme } from '@/context/ThemeContext';
+import type { RunnerPalette } from '@/constants/runnerTheme';
 
 const PLATFORM_OPTIONS = ['RAPPI', 'PEDIDOSYA','DIDI','OTROS'] as const;
 type PlatformOption = (typeof PLATFORM_OPTIONS)[number];
@@ -74,9 +78,60 @@ function parseHHMM(s: string): number | null {
   return h * 60 + min;
 }
 
+function DeliveredOrderRow({ order: o, palette: p }: { order: Order; palette: RunnerPalette }) {
+  const da = o.matched_driver_arrival;
+  const driverParts = [
+    da?.alias_conductor?.trim(),
+    da?.placa?.trim() ? `Placa ${da.placa.trim()}` : null,
+  ].filter(Boolean);
+
+  return (
+    <View style={[styles.deliveredItem, { borderColor: p.border, backgroundColor: p.cardBg }]}>
+      <View style={styles.deliveredItemTop}>
+        <View style={[styles.platformPill, { backgroundColor: p.topBarBg, borderColor: p.border }]}>
+          <Text style={[styles.platformPillText, { color: p.accent }]}>{o.plataforma}</Text>
+        </View>
+        <Text style={[styles.deliveredTime, { color: p.muted }]}>
+          {formatTimePE(o.entregado_at ?? o.updated_at)}
+        </Text>
+      </View>
+
+      <Text style={[styles.deliveredCode, { color: p.text }]} numberOfLines={1}>
+        {o.codigo_pedido}
+      </Text>
+
+      {o.restaurant_nombre ? (
+        <Text style={[styles.deliveredRestaurant, { color: p.text }]} numberOfLines={2}>
+          {o.restaurant_nombre}
+        </Text>
+      ) : null}
+
+      <View style={styles.deliveredDetails}>
+        {o.numero_bolsas != null ? (
+          <Text style={[styles.deliveredDetailLine, { color: p.muted }]}>
+            {o.numero_bolsas} bolsa{o.numero_bolsas !== 1 ? 's' : ''}
+          </Text>
+        ) : null}
+        {driverParts.length > 0 ? (
+          <Text style={[styles.deliveredDetailLine, { color: p.muted }]} numberOfLines={2}>
+            Driver: {driverParts.join(' · ')}
+          </Text>
+        ) : null}
+        {o.locked_by_runner_username ? (
+          <Text style={[styles.deliveredDetailLine, { color: p.muted }]} numberOfLines={1}>
+            Entregado por: {o.locked_by_runner_username}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const { logout, token } = useAuth();
   const { palette: p } = useRunnerTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const deliveredModalHeight = Math.round(windowHeight * 0.86);
 
   // —— Simulation modal state ——
   const [restaurantFidelioId, setRestaurantFidelioId] = useState('');
@@ -121,6 +176,15 @@ export default function SettingsScreen() {
     queryFn: kioskListRestaurants,
     staleTime: 60_000,
     enabled: canSimulateOrderReady,
+  });
+
+  const todayDate = todayLima();
+
+  const todayDeliveredQuery = useQuery({
+    queryKey: ['delivery', 'kiosk', 'orders', 'delivered', todayDate],
+    queryFn: () => kioskListDeliveredOrdersByDate(todayDate),
+    enabled: !!token,
+    staleTime: 60_000,
   });
 
   const deliveredQuery = useQuery({
@@ -232,7 +296,14 @@ export default function SettingsScreen() {
               style={[styles.row, styles.rowWithBorder, { borderBottomColor: p.border }]}
               onPress={openDeliveredModal}
             >
-              <Text style={[styles.rowLabel, { color: p.text }]}>Ver Pedidos Entregados</Text>
+              <View style={styles.rowTextWrap}>
+                <Text style={[styles.rowLabel, { color: p.text }]}>Ver Pedidos Entregados</Text>
+                <Text style={[styles.rowHintInline, { color: p.muted }]}>
+                  {todayDeliveredQuery.isLoading
+                    ? 'Cargando resumen…'
+                    : `${todayDeliveredQuery.data?.length ?? 0} hoy · toca para ver detalle`}
+                </Text>
+              </View>
               <Text style={[styles.rowChevron, { color: p.muted }]}>›</Text>
             </TouchableOpacity>
 
@@ -277,7 +348,13 @@ export default function SettingsScreen() {
             style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.78)' }]}
             onPress={closeDeliveredModal}
           />
-          <View style={[styles.modalCard, { backgroundColor: p.bg, borderColor: p.cardBorder }]}>
+          <View
+            style={[
+              styles.modalCard,
+              styles.deliveredModalCard,
+              { backgroundColor: p.bg, borderColor: p.cardBorder, height: deliveredModalHeight },
+            ]}
+          >
             {/* Header */}
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: p.text }]}>Pedidos Entregados</Text>
@@ -350,12 +427,12 @@ export default function SettingsScreen() {
             {/* Count */}
             <Text style={[styles.filterCount, { color: p.muted }]}>
               {filteredDelivered.length} pedido{filteredDelivered.length !== 1 ? 's' : ''}
-              {selectedDate !== todayLima() ? ` · ${formatDateDisplay(selectedDate)}` : ''}
+              {selectedDate !== todayDate ? ` · ${formatDateDisplay(selectedDate)}` : ''}
               {(timeFrom || timeTo) ? ' (filtrado por hora)' : ''}
             </Text>
 
-            {/* Lista */}
-            <ScrollView style={styles.deliveredList} contentContainerStyle={styles.deliveredListContent}>
+            {/* Lista (FlatList en contenedor flex para que no colapse en Android) */}
+            <View style={styles.deliveredListWrap}>
               {deliveredQuery.isLoading ? (
                 <Text style={[styles.hintText, { color: p.muted }]}>Cargando…</Text>
               ) : deliveredQuery.isError ? (
@@ -365,32 +442,15 @@ export default function SettingsScreen() {
                   Sin pedidos entregados{(timeFrom || timeTo) ? ' en el horario indicado' : ' hoy'}.
                 </Text>
               ) : (
-                pageDelivered.map((o) => (
-                  <View
-                    key={o.id}
-                    style={[styles.deliveredItem, { borderColor: p.border, backgroundColor: p.cardBg }]}
-                  >
-                    <View style={styles.deliveredItemTop}>
-                      <Text style={[styles.deliveredCode, { color: p.text }]} numberOfLines={1}>
-                        {o.codigo_pedido}
-                      </Text>
-                      <Text style={[styles.deliveredTime, { color: p.muted }]}>
-                        {formatTimePE(o.entregado_at ?? o.updated_at)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.deliveredMeta, { color: p.muted }]} numberOfLines={1}>
-                      {o.plataforma}
-                      {o.restaurant_nombre ? ` · ${o.restaurant_nombre}` : ''}
-                    </Text>
-                    {o.numero_bolsas != null ? (
-                      <Text style={[styles.deliveredBags, { color: p.muted }]}>
-                        {o.numero_bolsas} bolsa{o.numero_bolsas !== 1 ? 's' : ''}
-                      </Text>
-                    ) : null}
-                  </View>
-                ))
+                <FlatList
+                  data={pageDelivered}
+                  keyExtractor={(item) => String(item.id)}
+                  renderItem={({ item }) => <DeliveredOrderRow order={item} palette={p} />}
+                  contentContainerStyle={styles.deliveredListContent}
+                  showsVerticalScrollIndicator
+                />
               )}
-            </ScrollView>
+            </View>
 
             {/* Paginación */}
             <View style={[styles.pagination, { borderTopColor: p.border }]}>
@@ -598,6 +658,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  rowTextWrap: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  rowHintInline: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   rowChevron: {
     fontSize: 22,
     fontWeight: '400',
@@ -633,6 +703,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxHeight: '88%',
     overflow: 'hidden',
+  },
+  deliveredModalCard: {
+    flexDirection: 'column',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -694,25 +767,42 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 4,
   },
-  deliveredList: { flex: 1 },
-  deliveredListContent: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
+  deliveredListWrap: {
+    flex: 1,
+    minHeight: 0,
+  },
+  deliveredListContent: { paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
   hintText: { fontSize: 13, fontWeight: '600', textAlign: 'center', paddingVertical: 24 },
   deliveredItem: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 12,
     paddingHorizontal: 14,
+    marginBottom: 10,
   },
   deliveredItemTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 6,
   },
-  deliveredCode: { fontSize: 14, fontWeight: '900', flex: 1 },
+  platformPill: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  platformPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  deliveredCode: { fontSize: 22, fontWeight: '900', letterSpacing: 0.4 },
   deliveredTime: { fontSize: 12, fontWeight: '700' },
-  deliveredMeta: { fontSize: 11, fontWeight: '700', marginTop: 3 },
-  deliveredBags: { fontSize: 11, fontWeight: '600', marginTop: 2, opacity: 0.7 },
+  deliveredRestaurant: { fontSize: 13, fontWeight: '800', marginTop: 2, lineHeight: 18 },
+  deliveredDetails: { marginTop: 8, gap: 3 },
+  deliveredDetailLine: { fontSize: 11, fontWeight: '600', lineHeight: 16 },
   pagination: {
     flexDirection: 'row',
     alignItems: 'center',

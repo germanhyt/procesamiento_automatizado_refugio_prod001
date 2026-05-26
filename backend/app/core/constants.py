@@ -35,6 +35,7 @@ CODIGOS_LOCATARIOS_VALIDOS = {loc["codigo"] for loc in LOCATARIOS}
 FILE_STORE_CIERRE_CAJA = "cierre_caja"
 FILE_STORE_PROCESADOS = "procesados"
 FILE_STORE_SUB_CONSOLIDADOS = "_consolidados"
+FILE_STORE_SUB_BACKUP = "backup_no_consolidados"
 
 MESES_ES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",

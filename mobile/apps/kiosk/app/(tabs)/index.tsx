@@ -3,6 +3,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BackHandler,
   KeyboardAvoidingView,
   LayoutChangeEvent,
   Modal,
@@ -53,6 +54,10 @@ const QUEUE_GRID_GAP = 8;
 const QUEUE_CARD_MIN_WIDTH = 80;
 const QUEUE_MAX_ITEMS = 30;
 const MODAL_SUCCESS_CLOSE_MS = 1400;
+/** Cuenta regresiva antes de captura automática de foto del conductor. */
+const KIOSK_PHOTO_COUNTDOWN_SEC = 2;
+
+type PhotoUploadStatus = 'idle' | 'uploading' | 'done' | 'error';
 /** Altura máxima de la lista del dropdown (evita pantalla completa; `mode="auto"` aplica maxHeight en el modal). */
 const DROPDOWN_LIST_MAX_H = 240;
 
@@ -320,6 +325,8 @@ export default function KioskScreen() {
   const [cameraCountdown, setCameraCountdown] = useState<number | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraCaptured, setCameraCaptured] = useState(false);
+  const [photoUploadStatus, setPhotoUploadStatus] = useState<PhotoUploadStatus>('idle');
+  const [photoCaptureFailed, setPhotoCaptureFailed] = useState(false);
   const cameraRef = useRef<CameraView | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Pre-fetch DNI: stores the last fetched DNI to avoid duplicate requests
@@ -429,6 +436,8 @@ export default function KioskScreen() {
     setCameraCountdown(null);
     setCameraReady(false);
     setCameraCaptured(false);
+    setPhotoUploadStatus('idle');
+    setPhotoCaptureFailed(false);
     prefetchedDniRef.current = '';
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
@@ -441,6 +450,33 @@ export default function KioskScreen() {
     setRegisterModalVisible(false);
     resetForm();
   }, [clearSuccessTimer, resetForm]);
+
+  /** Bloquea cierre mientras la foto se captura y sube (solo con captura habilitada y cámara disponible). */
+  const confirmPhotoCloseBlocked = useMemo(() => {
+    if (registrationStep !== 'confirm' || !enableDriverPhoto) return false;
+    if (!cameraPermission?.granted) return false;
+    if (photoCaptureFailed || photoUploadStatus === 'error') return false;
+    if (!capturedPhotoUri) return true;
+    return photoUploadStatus === 'uploading';
+  }, [
+    registrationStep,
+    enableDriverPhoto,
+    cameraPermission?.granted,
+    photoCaptureFailed,
+    capturedPhotoUri,
+    photoUploadStatus,
+  ]);
+
+  const requestCloseRegisterModal = useCallback(() => {
+    if (confirmPhotoCloseBlocked) return;
+    closeRegisterModal();
+  }, [confirmPhotoCloseBlocked, closeRegisterModal]);
+
+  useEffect(() => {
+    if (!confirmPhotoCloseBlocked) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, [confirmPhotoCloseBlocked]);
 
   useEffect(() => {
     return () => {
@@ -483,8 +519,10 @@ export default function KioskScreen() {
 
   // ── Auto-capture countdown ──
   const startCameraCountdown = useCallback(() => {
-    setCameraCountdown(3);
+    setCameraCountdown(KIOSK_PHOTO_COUNTDOWN_SEC);
     setCameraCaptured(false);
+    setPhotoCaptureFailed(false);
+    setPhotoUploadStatus('idle');
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     countdownTimerRef.current = setInterval(() => {
       setCameraCountdown((prev) => {
@@ -505,8 +543,16 @@ export default function KioskScreen() {
     setCameraCaptured(true);
     cameraRef.current
       ?.takePictureAsync({ quality: 0.75, skipProcessing: true })
-      .then((photo) => { if (photo?.uri) setCapturedPhotoUri(photo.uri); })
-      .catch(() => {/* continue without photo */ });
+      .then((photo) => {
+        if (photo?.uri) {
+          setCapturedPhotoUri(photo.uri);
+        } else {
+          setPhotoCaptureFailed(true);
+        }
+      })
+      .catch(() => {
+        setPhotoCaptureFailed(true);
+      });
   }, [cameraCountdown, cameraReady, cameraCaptured, registrationStep, enableDriverPhoto]);
 
   useEffect(() => {
@@ -516,12 +562,14 @@ export default function KioskScreen() {
     const { dni: docDni, ce: docCe } = lastPhotoDocRef.current;
     if (enableDriverDni && !docDni && !docCe) return;
     photoUploadedRef.current = true;
-    kioskUploadDriverPhoto(id, { conductorDni: docDni, conductorCarneExtranjeria: docCe }, capturedPhotoUri).catch(
-      (err) => {
+    setPhotoUploadStatus('uploading');
+    kioskUploadDriverPhoto(id, { conductorDni: docDni, conductorCarneExtranjeria: docCe }, capturedPhotoUri)
+      .then(() => setPhotoUploadStatus('done'))
+      .catch((err) => {
         photoUploadedRef.current = false;
+        setPhotoUploadStatus('error');
         console.warn('[kiosk] Falló subida de foto del conductor', err);
-      },
-    );
+      });
   }, [capturedPhotoUri, enableDriverPhoto, enableDriverDni]);
 
   const submit = async () => {
@@ -649,8 +697,8 @@ export default function KioskScreen() {
 
   const onBackdropPress = () => {
     if (isSubmitting) return;
-    if (registrationStep === 'confirm') return;
-    closeRegisterModal();
+    if (confirmPhotoCloseBlocked) return;
+    requestCloseRegisterModal();
   };
 
   const ripple = (color: string) =>
@@ -794,7 +842,7 @@ export default function KioskScreen() {
         </ScrollView>
       </View>
 
-      <Modal visible={registerModalVisible} transparent animationType="fade" onRequestClose={closeRegisterModal}>
+      <Modal visible={registerModalVisible} transparent animationType="fade" onRequestClose={requestCloseRegisterModal}>
         <KeyboardAvoidingView style={styles.modalRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <Pressable style={[styles.modalBackdrop, { backgroundColor: palette.modalOverlay }]} onPress={onBackdropPress} />
           <Animated.View
@@ -814,13 +862,19 @@ export default function KioskScreen() {
               <Text style={[styles.modalTitle, { color: palette.text }]}>
                 {registrationStep === 'form' ? 'Registro de driver' : '¡Registrado!'}
               </Text>
-              <Pressable
-                onPress={closeRegisterModal}
-                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-                hitSlop={12}
-              >
-                <Text style={[styles.modalCloseText, { color: palette.muted }]}>Cerrar</Text>
-              </Pressable>
+              {confirmPhotoCloseBlocked ? (
+                <Text style={[styles.modalCloseText, { color: palette.muted, opacity: 0.45 }]}>
+                  {photoUploadStatus === 'uploading' ? 'Subiendo…' : 'Capturando…'}
+                </Text>
+              ) : (
+                <Pressable
+                  onPress={requestCloseRegisterModal}
+                  style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                  hitSlop={12}
+                >
+                  <Text style={[styles.modalCloseText, { color: palette.muted }]}>Cerrar</Text>
+                </Pressable>
+              )}
             </View>
 
             {/* ───── STEP 1: FORM ───── */}
@@ -1161,19 +1215,39 @@ export default function KioskScreen() {
                   </Text>
                 </View>
 
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.submitBtn,
-                    {
-                      backgroundColor: palette.accent,
-                      marginTop: space.lg
-                    },
-                    pressed && styles.pressedPrimary,
-                  ]}
-                  onPress={closeRegisterModal}
-                >
-                  <Text style={[styles.submitText, { color: palette.accentText }]}>CERRAR</Text>
-                </Pressable>
+                {confirmPhotoCloseBlocked ? (
+                  <Text style={[styles.photoWaitHint, { color: palette.muted }]}>
+                    {photoUploadStatus === 'uploading'
+                      ? 'Guardando foto, espera un momento…'
+                      : 'Mantente frente a la cámara. No cierres esta ventana.'}
+                  </Text>
+                ) : (
+                  <>
+                    {photoUploadStatus === 'error' ? (
+                      <Text style={[styles.photoWaitHint, { color: palette.error }]}>
+                        No se pudo guardar la foto. Puedes cerrar e intentar de nuevo.
+                      </Text>
+                    ) : null}
+                    {photoCaptureFailed ? (
+                      <Text style={[styles.photoWaitHint, { color: palette.error }]}>
+                        No se pudo capturar la foto. Puedes cerrar e intentar de nuevo.
+                      </Text>
+                    ) : null}
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.submitBtn,
+                        {
+                          backgroundColor: palette.accent,
+                          marginTop: space.lg,
+                        },
+                        pressed && styles.pressedPrimary,
+                      ]}
+                      onPress={requestCloseRegisterModal}
+                    >
+                      <Text style={[styles.submitText, { color: palette.accentText }]}>CERRAR</Text>
+                    </Pressable>
+                  </>
+                )}
               </Animated.View>
             )}
           </Animated.View>
@@ -1613,4 +1687,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   confirmBadgeTxt: { fontSize: 13, fontWeight: '700' },
+  photoWaitHint: {
+    marginTop: space.lg,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 19,
+    paddingHorizontal: space.sm,
+  },
 });

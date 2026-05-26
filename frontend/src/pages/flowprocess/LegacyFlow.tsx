@@ -38,6 +38,9 @@ import {
     deleteFuentesArchivo,
     fetchFuentesPreview,
     zipCierreCajaUrl,
+    downloadFuentesUrl,
+    moveFuentesToBackup,
+    restoreFuentesFromBackup,
 } from '@/services/fuentesService';
 import type { ModoRango } from '@/services/legacyService';
 import {
@@ -135,6 +138,11 @@ const LegacyFlow: React.FC = () => {
     const [procesadosGrupos, setProcesadosGrupos] = useState<{ locatario: string; archivos: string[] }[]>([]);
     const [filesModalLoading, setFilesModalLoading] = useState(false);
     const [bulkLocatario, setBulkLocatario] = useState('');
+    const [expandedCierreLocs, setExpandedCierreLocs] = useState<Record<string, boolean>>({});
+    const [expandedProcesadosLocs, setExpandedProcesadosLocs] = useState<Record<string, boolean>>({});
+    const [selectedBackupFiles, setSelectedBackupFiles] = useState<Record<string, boolean>>({});
+    const [selectedRestoreFiles, setSelectedRestoreFiles] = useState<Record<string, boolean>>({});
+    const [filesSearchTerm, setFilesSearchTerm] = useState('');
 
     const [pendientesLoading, setPendientesLoading] = useState(false);
     const [notifModo, setNotifModo] = useState<ModoPendientesNotificaciones>('ultima_semana');
@@ -532,6 +540,11 @@ const LegacyFlow: React.FC = () => {
         setIsFilesModalOpen(true);
         setFilesModalLoading(true);
         setFilesModalTab('cierre');
+        setExpandedCierreLocs({});
+        setExpandedProcesadosLocs({});
+        setSelectedBackupFiles({});
+        setSelectedRestoreFiles({});
+        setFilesSearchTerm('');
         try {
             await refreshCierreModal();
         } catch {
@@ -565,6 +578,7 @@ const LegacyFlow: React.FC = () => {
     const loadProcesadosFecha = async (fecha: string) => {
         setProcesadosFechaSel(fecha);
         setFilesModalLoading(true);
+        setExpandedProcesadosLocs({});
         try {
             const arch = await fetchProcesadosArchivos(fecha);
             setProcesadosGrupos(arch.grupos ?? []);
@@ -631,7 +645,7 @@ const LegacyFlow: React.FC = () => {
         }
     };
 
-    const deleteFileStoreFile = async (locatario: string, filename: string, zona: 'pendiente' | 'consolidado') => {
+    const deleteFileStoreFile = async (locatario: string, filename: string, zona: 'pendiente' | 'consolidado' | 'backup') => {
         const ok = await Swal.fire({
             title: 'Eliminar archivo',
             text: `¿Eliminar ${filename}? (${zona})`,
@@ -700,6 +714,149 @@ const LegacyFlow: React.FC = () => {
         setFsPreviewOpen(false);
         setFsPreviewErr(null);
         setFsPreviewTable(null);
+    };
+
+    const backupKey = (locatario: string, zona: 'pendiente' | 'consolidado', filename: string) =>
+        `${locatario}::${zona}::${filename}`;
+
+    const toggleBackupSelection = (locatario: string, zona: 'pendiente' | 'consolidado', filename: string) => {
+        const key = backupKey(locatario, zona, filename);
+        setSelectedBackupFiles((prev) => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const selectedCountByZona = (locatario: string, zona: 'pendiente' | 'consolidado') =>
+        Object.entries(selectedBackupFiles).filter(([k, v]) => v && k.startsWith(`${locatario}::${zona}::`)).length;
+
+    const selectedNamesByZona = (locatario: string, zona: 'pendiente' | 'consolidado') =>
+        Object.entries(selectedBackupFiles)
+            .filter(([k, v]) => v && k.startsWith(`${locatario}::${zona}::`))
+            .map(([k]) => k.split('::')[2])
+            .filter(Boolean);
+
+    const moveToBackup = async (locatario: string, zona: 'pendiente' | 'consolidado', filenames: string[], mode: 'single' | 'bulk') => {
+        if (!filenames.length) return;
+        const confirm = await Swal.fire({
+            title: 'Mover a backup',
+            text:
+                mode === 'single'
+                    ? `¿Mover ${filenames[0]} a backup_no_consolidados?`
+                    : `¿Mover ${filenames.length} archivo(s) a backup_no_consolidados?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#0ea5e9',
+            background: '#111',
+            color: '#fff',
+        });
+        if (!confirm.isConfirmed) return;
+        try {
+            const jwt = localStorage.getItem('token');
+            const res = await moveFuentesToBackup(jwt, {
+                locatarioCodigo: locatario,
+                filenames,
+                zona,
+            });
+            const movedCount = Array.isArray(res.moved) ? res.moved.length : 0;
+            const missingCount = Array.isArray(res.missing) ? res.missing.length : 0;
+            setLogs((prev) => [
+                `📦 Backup ${locatario} (${zona}): movidos ${movedCount}${missingCount ? `, omitidos ${missingCount}` : ''}`,
+                ...prev,
+            ]);
+            if (mode === 'bulk') {
+                const prefix = `${locatario}::${zona}::`;
+                setSelectedBackupFiles((prev) => {
+                    const next = { ...prev };
+                    Object.keys(next).forEach((k) => {
+                        if (k.startsWith(prefix)) delete next[k];
+                    });
+                    return next;
+                });
+            } else {
+                const only = filenames[0];
+                setSelectedBackupFiles((prev) => {
+                    const next = { ...prev };
+                    delete next[backupKey(locatario, zona, only)];
+                    return next;
+                });
+            }
+            await refreshCierreModal();
+        } catch (err: any) {
+            Swal.fire({
+                title: 'Error',
+                text: err.response?.data?.detail ?? err.message,
+                icon: 'error',
+                background: '#111',
+                color: '#fff',
+            });
+        }
+    };
+
+    const restoreKey = (locatario: string, filename: string) => `${locatario}::${filename}`;
+    const toggleRestoreSelection = (locatario: string, filename: string) => {
+        const key = restoreKey(locatario, filename);
+        setSelectedRestoreFiles((prev) => ({ ...prev, [key]: !prev[key] }));
+    };
+    const selectedRestoreNames = (locatario: string) =>
+        Object.entries(selectedRestoreFiles)
+            .filter(([k, v]) => v && k.startsWith(`${locatario}::`))
+            .map(([k]) => k.split('::')[1])
+            .filter(Boolean);
+
+    const restoreFromBackup = async (locatario: string, filenames: string[], mode: 'single' | 'bulk') => {
+        if (!filenames.length) return;
+        const confirm = await Swal.fire({
+            title: 'Restaurar desde backup',
+            text:
+                mode === 'single'
+                    ? `¿Restaurar ${filenames[0]} a pendientes?`
+                    : `¿Restaurar ${filenames.length} archivo(s) a pendientes?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#22c55e',
+            background: '#111',
+            color: '#fff',
+        });
+        if (!confirm.isConfirmed) return;
+        try {
+            const jwt = localStorage.getItem('token');
+            const res = await restoreFuentesFromBackup(jwt, {
+                locatarioCodigo: locatario,
+                filenames,
+                destino: 'pendiente',
+            });
+            const movedCount = Array.isArray(res.moved) ? res.moved.length : 0;
+            setLogs((prev) => [`♻️ Restore ${locatario}: ${movedCount} archivo(s)`, ...prev]);
+            const prefix = `${locatario}::`;
+            setSelectedRestoreFiles((prev) => {
+                const next = { ...prev };
+                Object.keys(next).forEach((k) => {
+                    if (k.startsWith(prefix)) delete next[k];
+                });
+                return next;
+            });
+            await refreshCierreModal();
+        } catch (err: any) {
+            Swal.fire({
+                title: 'Error',
+                text: err.response?.data?.detail ?? err.message,
+                icon: 'error',
+                background: '#111',
+                color: '#fff',
+            });
+        }
+    };
+
+    const toggleCierreLoc = (locatario: string) => {
+        setExpandedCierreLocs((prev) => ({ ...prev, [locatario]: !prev[locatario] }));
+    };
+
+    const toggleProcesadosLoc = (locatario: string) => {
+        setExpandedProcesadosLocs((prev) => ({ ...prev, [locatario]: !prev[locatario] }));
+    };
+
+    const filterBySearch = (items: string[]) => {
+        const q = filesSearchTerm.trim().toLowerCase();
+        if (!q) return items;
+        return items.filter((n) => n.toLowerCase().includes(q));
     };
 
     const openPendientesModal = () => {
@@ -1193,6 +1350,16 @@ const LegacyFlow: React.FC = () => {
                                 </button>
                             </div>
                             <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                                <div className="flex items-center gap-2">
+                                    <Search size={14} className="text-app-muted" />
+                                    <input
+                                        type="text"
+                                        value={filesSearchTerm}
+                                        onChange={(e) => setFilesSearchTerm(e.target.value)}
+                                        placeholder="Filtrar archivos por nombre..."
+                                        className="w-full sm:max-w-md bg-app-input border border-app-border rounded-xl px-3 py-2 text-[10px] text-app-text"
+                                    />
+                                </div>
                                 {filesModalTab === 'cierre' && (
                                     <>
                                         <div className="flex flex-wrap items-center gap-4">
@@ -1213,7 +1380,14 @@ const LegacyFlow: React.FC = () => {
                                                 {porLocatarioModal.map((grupo) => (
                                                     <div key={grupo.locatario} className="bg-app-input rounded-2xl border border-app-border p-4">
                                                         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                                                            <span className="text-[10px] font-black uppercase text-teal-500">{grupo.locatario}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleCierreLoc(grupo.locatario)}
+                                                                className="flex items-center gap-2 text-[10px] font-black uppercase text-teal-500"
+                                                            >
+                                                                <ChevronRight size={14} className={`transition-transform ${expandedCierreLocs[grupo.locatario] ? 'rotate-90' : ''}`} />
+                                                                {grupo.locatario}
+                                                            </button>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => window.open(zipCierreCajaUrl(grupo.locatario), '_blank')}
@@ -1222,20 +1396,72 @@ const LegacyFlow: React.FC = () => {
                                                                 <Download size={12} /> ZIP locatario
                                                             </button>
                                                         </div>
+                                                        {expandedCierreLocs[grupo.locatario] ? (
+                                                            <>
                                                         {grupo.pendientes?.length ? (
-                                                            <p className="text-[8px] font-bold text-app-muted uppercase mb-2">Pendientes</p>
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <p className="text-[8px] font-bold text-app-muted uppercase">Pendientes</p>
+                                                                {selectedCountByZona(grupo.locatario, 'pendiente') > 0 ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            void moveToBackup(
+                                                                                grupo.locatario,
+                                                                                'pendiente',
+                                                                                selectedNamesByZona(grupo.locatario, 'pendiente'),
+                                                                                'bulk'
+                                                                            )
+                                                                        }
+                                                                        className="text-[8px] font-black uppercase text-sky-400 hover:text-sky-300"
+                                                                    >
+                                                                        Mover seleccionados ({selectedCountByZona(grupo.locatario, 'pendiente')})
+                                                                    </button>
+                                                                ) : null}
+                                                            </div>
                                                         ) : null}
-                                                        <ul className="space-y-2 mb-4">
-                                                            {(grupo.pendientes || []).map((nombre) => (
+                                                                <ul className="space-y-2 mb-4">
+                                                                    {filterBySearch(grupo.pendientes || []).map((nombre) => (
                                                                 <li
                                                                     key={`p-${nombre}`}
                                                                     className="flex items-center justify-between py-2 border-b border-app-border last:border-0 text-[10px]"
                                                                 >
                                                                     <span className="flex items-center gap-2 text-app-text min-w-0">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={!!selectedBackupFiles[backupKey(grupo.locatario, 'pendiente', nombre)]}
+                                                                            onChange={() => toggleBackupSelection(grupo.locatario, 'pendiente', nombre)}
+                                                                            className="accent-teal-500"
+                                                                        />
                                                                         <FileCode size={14} className="text-emerald-500/80 shrink-0" />{' '}
                                                                         <span className="truncate">{nombre}</span>
                                                                     </span>
                                                                     <span className="flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void moveToBackup(grupo.locatario, 'pendiente', [nombre], 'single')}
+                                                                            className="p-1.5 rounded-lg text-app-muted hover:bg-sky-500/20 hover:text-sky-400"
+                                                                            title="Mover a backup"
+                                                                        >
+                                                                            <FolderOpen size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                window.open(
+                                                                                    downloadFuentesUrl({
+                                                                                        origen: 'cierre',
+                                                                                        locatario_codigo: grupo.locatario,
+                                                                                        filename: nombre,
+                                                                                        zona: 'pendiente',
+                                                                                    }),
+                                                                                    '_blank'
+                                                                                )
+                                                                            }
+                                                                            className="p-1.5 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400"
+                                                                            title="Descargar"
+                                                                        >
+                                                                            <Download size={14} />
+                                                                        </button>
                                                                         <button
                                                                             type="button"
                                                                             onClick={() =>
@@ -1264,19 +1490,69 @@ const LegacyFlow: React.FC = () => {
                                                             ))}
                                                         </ul>
                                                         {grupo.consolidados?.length ? (
-                                                            <p className="text-[8px] font-bold text-app-muted uppercase mb-2">_consolidados</p>
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <p className="text-[8px] font-bold text-app-muted uppercase">_consolidados</p>
+                                                                {selectedCountByZona(grupo.locatario, 'consolidado') > 0 ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            void moveToBackup(
+                                                                                grupo.locatario,
+                                                                                'consolidado',
+                                                                                selectedNamesByZona(grupo.locatario, 'consolidado'),
+                                                                                'bulk'
+                                                                            )
+                                                                        }
+                                                                        className="text-[8px] font-black uppercase text-sky-400 hover:text-sky-300"
+                                                                    >
+                                                                        Mover seleccionados ({selectedCountByZona(grupo.locatario, 'consolidado')})
+                                                                    </button>
+                                                                ) : null}
+                                                            </div>
                                                         ) : null}
-                                                        <ul className="space-y-2">
-                                                            {(grupo.consolidados || []).map((nombre) => (
+                                                                <ul className="space-y-2">
+                                                                    {filterBySearch(grupo.consolidados || []).map((nombre) => (
                                                                 <li
                                                                     key={`c-${nombre}`}
                                                                     className="flex items-center justify-between py-2 border-b border-app-border last:border-0 text-[10px]"
                                                                 >
                                                                     <span className="flex items-center gap-2 text-app-text opacity-90 min-w-0">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={!!selectedBackupFiles[backupKey(grupo.locatario, 'consolidado', nombre)]}
+                                                                            onChange={() => toggleBackupSelection(grupo.locatario, 'consolidado', nombre)}
+                                                                            className="accent-teal-500"
+                                                                        />
                                                                         <FileCode size={14} className="text-amber-500/80 shrink-0" />{' '}
                                                                         <span className="truncate">{nombre}</span>
                                                                     </span>
                                                                     <span className="flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void moveToBackup(grupo.locatario, 'consolidado', [nombre], 'single')}
+                                                                            className="p-1.5 rounded-lg text-app-muted hover:bg-sky-500/20 hover:text-sky-400"
+                                                                            title="Mover a backup"
+                                                                        >
+                                                                            <FolderOpen size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                window.open(
+                                                                                    downloadFuentesUrl({
+                                                                                        origen: 'cierre',
+                                                                                        locatario_codigo: grupo.locatario,
+                                                                                        filename: nombre,
+                                                                                        zona: 'consolidado',
+                                                                                    }),
+                                                                                    '_blank'
+                                                                                )
+                                                                            }
+                                                                            className="p-1.5 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400"
+                                                                            title="Descargar"
+                                                                        >
+                                                                            <Download size={14} />
+                                                                        </button>
                                                                         <button
                                                                             type="button"
                                                                             onClick={() =>
@@ -1302,8 +1578,85 @@ const LegacyFlow: React.FC = () => {
                                                                         </button>
                                                                     </span>
                                                                 </li>
-                                                            ))}
-                                                        </ul>
+                                                                    ))}
+                                                                </ul>
+                                                                {grupo.backup?.length ? (
+                                                                    <div className="flex items-center justify-between mt-4 mb-2">
+                                                                        <p className="text-[8px] font-bold text-app-muted uppercase">backup_no_consolidados</p>
+                                                                        {selectedRestoreNames(grupo.locatario).length > 0 ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    void restoreFromBackup(
+                                                                                        grupo.locatario,
+                                                                                        selectedRestoreNames(grupo.locatario),
+                                                                                        'bulk'
+                                                                                    )
+                                                                                }
+                                                                                className="text-[8px] font-black uppercase text-emerald-400 hover:text-emerald-300"
+                                                                            >
+                                                                                Restaurar seleccionados ({selectedRestoreNames(grupo.locatario).length})
+                                                                            </button>
+                                                                        ) : null}
+                                                                    </div>
+                                                                ) : null}
+                                                                <ul className="space-y-2">
+                                                                    {filterBySearch(grupo.backup || []).map((nombre) => (
+                                                                        <li
+                                                                            key={`b-${nombre}`}
+                                                                            className="flex items-center justify-between py-2 border-b border-app-border last:border-0 text-[10px]"
+                                                                        >
+                                                                            <span className="flex items-center gap-2 text-app-text opacity-80 min-w-0">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={!!selectedRestoreFiles[restoreKey(grupo.locatario, nombre)]}
+                                                                                    onChange={() => toggleRestoreSelection(grupo.locatario, nombre)}
+                                                                                    className="accent-emerald-500"
+                                                                                />
+                                                                                <FileCode size={14} className="text-sky-500/80 shrink-0" />
+                                                                                <span className="truncate">{nombre}</span>
+                                                                            </span>
+                                                                            <span className="flex items-center gap-1 shrink-0">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => void restoreFromBackup(grupo.locatario, [nombre], 'single')}
+                                                                                    className="p-1.5 rounded-lg text-app-muted hover:bg-emerald-500/20 hover:text-emerald-400"
+                                                                                    title="Restaurar a pendientes"
+                                                                                >
+                                                                                    <RefreshCcw size={14} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() =>
+                                                                                        window.open(
+                                                                                            downloadFuentesUrl({
+                                                                                                origen: 'cierre',
+                                                                                                locatario_codigo: grupo.locatario,
+                                                                                                filename: nombre,
+                                                                                                zona: 'backup',
+                                                                                            }),
+                                                                                            '_blank'
+                                                                                        )
+                                                                                    }
+                                                                                    className="p-1.5 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400"
+                                                                                    title="Descargar"
+                                                                                >
+                                                                                    <Download size={14} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => deleteFileStoreFile(grupo.locatario, nombre, 'backup')}
+                                                                                    className="p-1.5 rounded-lg text-app-muted hover:bg-red-500/20 hover:text-red-500"
+                                                                                    title="Eliminar backup"
+                                                                                >
+                                                                                    <Trash2 size={14} />
+                                                                                </button>
+                                                                            </span>
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </>
+                                                        ) : null}
                                                     </div>
                                                 ))}
                                                 {porLocatarioModal.length === 0 && !filesModalLoading && (
@@ -1333,14 +1686,42 @@ const LegacyFlow: React.FC = () => {
                                             <div className="space-y-4">
                                                 {procesadosGrupos.map((g) => (
                                                     <div key={g.locatario} className="bg-app-input rounded-xl border border-app-border p-3">
-                                                        <p className="text-[10px] font-black text-teal-500 mb-2">{g.locatario}</p>
-                                                        <ul className="text-[10px] text-app-muted space-y-1">
-                                                            {g.archivos.map((a) => (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleProcesadosLoc(g.locatario)}
+                                                            className="flex items-center gap-2 text-[10px] font-black text-teal-500 mb-2"
+                                                        >
+                                                            <ChevronRight size={14} className={`transition-transform ${expandedProcesadosLocs[g.locatario] ? 'rotate-90' : ''}`} />
+                                                            {g.locatario}
+                                                        </button>
+                                                        {expandedProcesadosLocs[g.locatario] ? (
+                                                            <ul className="text-[10px] text-app-muted space-y-1">
+                                                                {filterBySearch(g.archivos).map((a) => (
                                                                 <li
                                                                     key={a}
                                                                     className="flex items-center justify-between gap-2 py-0.5 border-b border-app-border/50 last:border-0"
                                                                 >
                                                                     <span className="truncate text-app-text">{a}</span>
+                                                                    {procesadosFechaSel ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                window.open(
+                                                                                    downloadFuentesUrl({
+                                                                                        origen: 'procesados',
+                                                                                        locatario_codigo: g.locatario,
+                                                                                        filename: a,
+                                                                                        fecha: procesadosFechaSel,
+                                                                                    }),
+                                                                                    '_blank'
+                                                                                )
+                                                                            }
+                                                                            className="p-1 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400 shrink-0"
+                                                                            title="Descargar"
+                                                                        >
+                                                                            <Download size={14} />
+                                                                        </button>
+                                                                    ) : null}
                                                                     {procesadosFechaSel ? (
                                                                         <button
                                                                             type="button"
@@ -1361,6 +1742,7 @@ const LegacyFlow: React.FC = () => {
                                                                 </li>
                                                             ))}
                                                         </ul>
+                                                        ) : null}
                                                     </div>
                                                 ))}
                                                 {procesadosGrupos.length === 0 && (

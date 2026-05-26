@@ -23,6 +23,7 @@ from app.core.constants import (
     FILE_STORE_CIERRE_CAJA,
     FILE_STORE_PROCESADOS,
     FILE_STORE_SUB_CONSOLIDADOS,
+    FILE_STORE_SUB_BACKUP,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,10 @@ def _dir_locatario_pendientes(base: Path, locatario_codigo: str) -> Path:
 
 def _dir_locatario_consolidados(base: Path, locatario_codigo: str) -> Path:
     return _dir_locatario_pendientes(base, locatario_codigo) / FILE_STORE_SUB_CONSOLIDADOS
+
+
+def _dir_locatario_backup(base: Path, locatario_codigo: str) -> Path:
+    return _dir_locatario_pendientes(base, locatario_codigo) / FILE_STORE_SUB_BACKUP
 
 
 def _stem_ext(filename: str) -> tuple[str, str]:
@@ -167,11 +172,13 @@ def list_cierre_caja_por_locatario() -> list[dict]:
         cons_dir = loc_dir / FILE_STORE_SUB_CONSOLIDADOS
         consolidados = _list_files_in_dir(cons_dir)
         pendientes.sort()
-        if pendientes or consolidados:
+        backup = _list_files_in_dir(_dir_locatario_backup(base, name))
+        if pendientes or consolidados or backup:
             result.append({
                 "locatario": name,
                 "pendientes": pendientes,
                 "consolidados": consolidados,
+                "backup": backup,
             })
     return result
 
@@ -210,13 +217,15 @@ def delete_file(
 ) -> bool:
     """
     Elimina un archivo.
-    zona: 'pendiente' | 'consolidado'
+    zona: 'pendiente' | 'consolidado' | 'backup'
     """
     base = get_upload_base()
     loc = locatario_codigo.strip()
     fn = os.path.basename(filename)
     if zona == "consolidado":
         path = _dir_locatario_consolidados(base, loc) / fn
+    elif zona == "backup":
+        path = _dir_locatario_backup(base, loc) / fn
     else:
         path = _dir_locatario_pendientes(base, loc) / fn
     if not path.is_file():
@@ -433,6 +442,63 @@ def move_to_procesados(locatario_codigo: str, filenames: list[str], *, zona: str
         if not src.is_file():
             continue
         dest = dest_root / fn
+        shutil.move(str(src), str(dest))
+        moved.append(str(dest.relative_to(base)))
+    return moved
+
+
+def move_to_backup(locatario_codigo: str, filenames: list[str], *, zona: str = "pendiente") -> list[str]:
+    """
+    Mueve archivos a cierre_caja/{locatario}/backup_no_consolidados/.
+    Retorna rutas relativas creadas.
+    """
+    base = get_upload_base()
+    dest_root = _dir_locatario_backup(base, locatario_codigo.strip())
+    dest_root.mkdir(parents=True, exist_ok=True)
+    moved: list[str] = []
+    for fn in filenames:
+        safe_name = os.path.basename(fn)
+        if not safe_name:
+            continue
+        if zona == "consolidado":
+            src = _dir_locatario_consolidados(base, locatario_codigo) / safe_name
+        else:
+            src = _dir_locatario_pendientes(base, locatario_codigo) / safe_name
+        if not src.is_file():
+            continue
+        dest = dest_root / safe_name
+        if dest.exists():
+            stem = dest.stem
+            ext = dest.suffix
+            ts = _ahora_lima().strftime("%Y%m%d_%H%M%S")
+            dest = dest_root / f"{stem}_{ts}{ext}"
+        shutil.move(str(src), str(dest))
+        moved.append(str(dest.relative_to(base)))
+    return moved
+
+
+def restore_from_backup(locatario_codigo: str, filenames: list[str], *, destino: str = "pendiente") -> list[str]:
+    """
+    Restaura archivos desde backup_no_consolidados hacia pendientes o consolidados.
+    """
+    base = get_upload_base()
+    dest_dir = _dir_locatario_consolidados(base, locatario_codigo) if destino == "consolidado" else _dir_locatario_pendientes(base, locatario_codigo)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    src_dir = _dir_locatario_backup(base, locatario_codigo)
+    moved: list[str] = []
+    for fn in filenames:
+        safe_name = os.path.basename(fn)
+        if not safe_name:
+            continue
+        src = src_dir / safe_name
+        if not src.is_file():
+            continue
+        dest = dest_dir / safe_name
+        if dest.exists():
+            stem = dest.stem
+            ext = dest.suffix
+            ts = _ahora_lima().strftime("%Y%m%d_%H%M%S")
+            dest = dest_dir / f"{stem}_{ts}{ext}"
         shutil.move(str(src), str(dest))
         moved.append(str(dest.relative_to(base)))
     return moved
