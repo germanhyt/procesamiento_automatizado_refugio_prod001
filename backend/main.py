@@ -15,6 +15,7 @@ from app.api import (
     notificaciones,
     documentos_gcb,
     sisa_reservas,
+    agenda_deportiva,
 )
 
 # Configuración de logs para ver errores reales
@@ -63,6 +64,7 @@ app.include_router(comercial.router, prefix="/api")
 app.include_router(notificaciones.router, prefix="/api")
 app.include_router(documentos_gcb.router, prefix="/api")
 app.include_router(sisa_reservas.router, prefix="/api")
+app.include_router(agenda_deportiva.router, prefix="/api")
 
 @app.get("/")
 async def root():

@@ -17,6 +17,10 @@ import SisaReservasListPage from '@/pages/sisa_reservas/SisaReservasListPage';
 import SisaReservasPlanoPage from '@/pages/sisa_reservas/SisaReservasPlanoPage';
 import SisaReservasDashboardPage from '@/pages/sisa_reservas/SisaReservasDashboardPage';
 import SisaPublicReservaPage from '@/pages/sisa_reservas/SisaPublicReservaPage';
+import AgendaDeportivaLayout from '@/pages/agenda_deportiva/AgendaDeportivaLayout';
+import AgendaProgramacionesPage from '@/pages/agenda_deportiva/AgendaProgramacionesPage';
+import AgendaProgramacionSlidesPage from '@/pages/agenda_deportiva/AgendaProgramacionSlidesPage';
+import AgendaMusicaPage from '@/pages/agenda_deportiva/AgendaMusicaPage';
 
 import PrivateRoute from './PrivateRoute';
 import MainLayout from '@/components/layout/MainLayout';
@@ -73,6 +77,14 @@ const AppRoutes: React.FC = () => {
                             <Route path="reservas" element={<SisaReservasListPage />} />
                             <Route path="plano" element={<SisaReservasPlanoPage />} />
                             <Route path="dashboard" element={<SisaReservasDashboardPage />} />
+                        </Route>
+                    </Route>
+                    <Route element={<PrivateRoute permission="agenda_deportiva:view" />}>
+                        <Route path="agenda-deportiva" element={<AgendaDeportivaLayout />}>
+                            <Route index element={<Navigate to="programaciones" replace />} />
+                            <Route path="programaciones" element={<AgendaProgramacionesPage />} />
+                            <Route path="programaciones/:id" element={<AgendaProgramacionSlidesPage />} />
+                            <Route path="musica" element={<AgendaMusicaPage />} />
                         </Route>
                     </Route>
                 </Route>

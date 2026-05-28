@@ -22,6 +22,7 @@ import {
     LayoutGrid,
     BarChart3,
     Database,
+    MonitorPlay,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -35,7 +36,8 @@ type MenuThemeKey =
     | 'delivery'
     | 'comercial'
     | 'documentos'
-    | 'sisa_reservas';
+    | 'sisa_reservas'
+    | 'agenda_deportiva';
 
 interface MenuLeafItem {
     id: string;
@@ -94,6 +96,31 @@ const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
     },
     { id: 'delivery', path: '/delivery', label: 'Delivery', icon: <Truck size={18} />, permission: 'delivery:view', themeKey: 'delivery' },
     { id: 'comercial', path: '/comercial', label: 'Comercial', icon: <Briefcase size={18} />, permission: 'comercial:view', themeKey: 'comercial' },
+    {
+        id: 'agenda-deportiva',
+        label: 'Agenda Deportiva',
+        icon: <MonitorPlay size={18} />,
+        permission: 'agenda_deportiva:view',
+        themeKey: 'agenda_deportiva',
+        children: [
+            {
+                id: 'agenda-programaciones',
+                path: '/agenda-deportiva/programaciones',
+                label: 'Programaciones',
+                icon: <CalendarRange size={16} />,
+                permission: 'agenda_deportiva:view',
+                themeKey: 'agenda_deportiva',
+            },
+            {
+                id: 'agenda-musica',
+                path: '/agenda-deportiva/musica',
+                label: 'Música',
+                icon: <MonitorPlay size={16} />,
+                permission: 'agenda_deportiva:view',
+                themeKey: 'agenda_deportiva',
+            },
+        ],
+    },
     {
         id: 'sisa-reservas',
         label: 'Reservas Sisa',
@@ -187,6 +214,13 @@ const MODULE_THEMES: Record<MenuThemeKey, ModuleTheme> = {
         accentStrong: 'var(--app-sisa-reservas-accent-strong)',
         textOnAccent: '#f8f3ee',
     },
+    agenda_deportiva: {
+        accent: 'var(--app-agenda-accent)',
+        accentMuted: 'var(--app-agenda-accent-muted)',
+        accentMutedBg: 'var(--app-agenda-accent-muted-bg)',
+        accentStrong: 'var(--app-agenda-accent-strong)',
+        textOnAccent: '#1a1208',
+    },
 };
 
 function getModuleButtonVars(themeKey: MenuThemeKey): CSSProperties {
@@ -252,11 +286,15 @@ const MainLayout: React.FC = () => {
     const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
         'sisa-reservas': true,
         'procesamiento-data': true,
+        'agenda-deportiva': true,
     });
 
     useEffect(() => {
         if (location.pathname.startsWith('/sisa-reservas')) {
             setOpenGroups((p) => ({ ...p, 'sisa-reservas': true }));
+        }
+        if (location.pathname.startsWith('/agenda-deportiva')) {
+            setOpenGroups((p) => ({ ...p, 'agenda-deportiva': true }));
         }
         if (location.pathname === '/legacy') {
             setOpenGroups((p) => ({ ...p, 'procesamiento-data': true }));
@@ -268,7 +306,9 @@ const MainLayout: React.FC = () => {
             if (!isMenuGroup(e)) {
                 if (e.path && location.pathname === e.path) return { label: e.label, themeKey: e.themeKey };
             } else {
-                const child = e.children.find((c) => location.pathname === c.path);
+                const child = e.children.find(
+                    (c) => c.path && (location.pathname === c.path || location.pathname.startsWith(`${c.path}/`))
+                );
                 if (child) return { label: `${e.label} · ${child.label}`, themeKey: e.themeKey };
             }
         }

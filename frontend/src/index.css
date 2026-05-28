@@ -73,6 +73,10 @@
   --app-sisa-reservas-accent-strong: #125128;
   --app-sisa-reservas-accent-muted: rgba(40, 130, 72, 0.38);
   --app-sisa-reservas-accent-muted-bg: rgba(40, 130, 72, 0.16);
+  --app-agenda-accent: #f5a623;
+  --app-agenda-accent-strong: #c77800;
+  --app-agenda-accent-muted: rgba(245, 166, 35, 0.38);
+  --app-agenda-accent-muted-bg: rgba(245, 166, 35, 0.14);
   /* Superficie modal: mismo criterio que tarjetas Delivery, opaca (sin alpha) */
   --app-modal-solid: #171412;
   color: var(--app-text);
@@ -144,6 +148,10 @@ html[data-theme="light"] {
   --app-sisa-reservas-accent-strong: #125128;
   --app-sisa-reservas-accent-muted: rgba(18, 81, 40, 0.28);
   --app-sisa-reservas-accent-muted-bg: rgba(18, 81, 40, 0.12);
+  --app-agenda-accent: #d48806;
+  --app-agenda-accent-strong: #a66a00;
+  --app-agenda-accent-muted: rgba(212, 136, 6, 0.28);
+  --app-agenda-accent-muted-bg: rgba(212, 136, 6, 0.12);
   --color-refugio-muted: #6e665e;
   --app-modal-solid: #fff8f3;
 }
