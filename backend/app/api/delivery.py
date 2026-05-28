@@ -54,6 +54,7 @@ from jose import jwt, JWTError
 from app.schemas.delivery import (
     DeliveryStatus,
     FidelioOrderReadyIn,
+    FidelioOrderReadyOut,
     KioskArrivalIn,
     KioskArrivalResult,
     ManualMatchIn,
@@ -92,6 +93,7 @@ from app.services.delivery_decolecta import fetch_reniec_dni_dict, fetch_reniec_
 from app.services.delivery_config import get_delivery_config
 from app.services.delivery_driver_photo import save_kiosk_driver_photo_file
 from app.services.file_store_service import get_upload_base
+from app.services.fidelio_webhook_service import process_fidelio_order_ready
 
 from fuzzywuzzy import fuzz
 
@@ -394,18 +396,71 @@ def _orders_to_dicts(orders: List[Order]) -> List[Dict[str, Any]]:
     return [order_orm_to_dict(o) for o in orders]
 
 
-@router.post("/webhooks/fidelio/order-ready", response_model=OrderOut)
-async def fidelio_order_ready(
+async def _fidelio_apply_order_ready_side_effects(
+    db: Session,
+    background_tasks: BackgroundTasks,
+    order_id: int,
+    plataforma: str,
+    codigo: str,
+    restaurant_nombre: str,
+    *,
+    notify_runners: bool,
+    emit_order_updated: bool,
+    try_early_bird: bool,
+) -> None:
+    if emit_order_updated:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            await _emit(
+                EVENT_ORDER_UPDATED,
+                {
+                    "order_id": order.id,
+                    "estado": order.estado,
+                    "source": "fidelio_webhook",
+                    "restaurant_nombre": restaurant_nombre,
+                },
+            )
+    if notify_runners:
+        background_tasks.add_task(notify_runners_order_listo_sync, order_id, plataforma, codigo)
+    if try_early_bird:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            matched_driver = _try_match_waiting_driver_for_order(db, order)
+            if matched_driver:
+                await _emit(
+                    EVENT_PRIORITY_UPDATE,
+                    {
+                        "order_id": order.id,
+                        "driver_arrival_id": matched_driver.id,
+                        "plataforma": order.plataforma,
+                        "codigo_ingresado": matched_driver.codigo_ingresado,
+                        "match_score": None,
+                        "source": "early_bird",
+                    },
+                )
+                await _emit(
+                    EVENT_ORDER_UPDATED,
+                    {"order_id": order.id, "estado": order.estado, "source": "early_bird"},
+                )
+                await _emit(
+                    EVENT_DRIVER_UPDATED,
+                    {
+                        "driver_arrival_id": matched_driver.id,
+                        "estado": matched_driver.estado,
+                        "source": "early_bird",
+                    },
+                )
+
+
+async def _fidelio_order_ready_legacy(
     payload: FidelioOrderReadyIn,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
+    db: Session,
+) -> Dict[str, Any]:
     """
-    Webhook S2S (Fidelio -> Backend): marca pedido como LISTO.
-    Seguridad inicial: X-API-Key opcional via env FIDELIO_API_KEY.
+    Lógica anterior del webhook (idempotente sobre pedido activo).
+    Usada por simulación Runner — sin contrato `{ order, reception }`.
     """
-    _require_webhook_key(x_api_key)
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
@@ -418,13 +473,12 @@ async def fidelio_order_ready(
     if not rest:
         raise HTTPException(
             status_code=404,
-            detail=f"Restaurante con fidelio_id '{payload.restaurant_fidelio_id}' no registrado en la base de datos"
+            detail=f"Restaurante con fidelio_id '{payload.restaurant_fidelio_id}' no registrado en la base de datos",
         )
 
     plataforma = payload.plataforma.strip().upper()
     codigo = payload.codigo_pedido.strip()
 
-    # Buscar pedido activo (si existe). Si ya está entregado/cancelado, creamos uno nuevo.
     order = (
         db.query(Order)
         .filter(
@@ -451,39 +505,19 @@ async def fidelio_order_ready(
         db.add(order)
         db.commit()
         db.refresh(order)
-        await _emit(
-            EVENT_ORDER_UPDATED,
-            {
-                "order_id": order.id,
-                "estado": order.estado,
-                "source": "fidelio_webhook",
-                "restaurant_nombre": rest.nombre,
-            },
+        await _fidelio_apply_order_ready_side_effects(
+            db,
+            background_tasks,
+            order.id,
+            plataforma,
+            codigo,
+            rest.nombre,
+            notify_runners=True,
+            emit_order_updated=True,
+            try_early_bird=True,
         )
-        background_tasks.add_task(notify_runners_order_listo_sync, order.id, plataforma, codigo)
-        # Early Bird: si hay driver esperando, matchear al toque
-        matched_driver = _try_match_waiting_driver_for_order(db, order)
-        if matched_driver:
-            await _emit(
-                EVENT_PRIORITY_UPDATE,
-                {
-                    "order_id": order.id,
-                    "driver_arrival_id": matched_driver.id,
-                    "plataforma": order.plataforma,
-                    "codigo_ingresado": matched_driver.codigo_ingresado,
-                    "match_score": None,
-                    "source": "early_bird",
-                },
-            )
-            
-            await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "early_bird"})
-            
-            await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"})
-        
         return _load_order_dict(db, order.id)
 
-
-    # Actualizar estado a LISTO si aún no se había marcado
     prev_estado = order.estado
     t1 = _utcnow()
     order.estado = ORDER_STATUS_LISTO
@@ -493,7 +527,7 @@ async def fidelio_order_ready(
         order.numero_bolsas = payload.numero_bolsas
     db.commit()
     db.refresh(order)
-    
+
     await _emit(
         EVENT_ORDER_UPDATED,
         {
@@ -518,9 +552,67 @@ async def fidelio_order_ready(
                 "source": "early_bird",
             },
         )
-        await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "early_bird"})
-        await _emit(EVENT_DRIVER_UPDATED, {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"})
+        await _emit(
+            EVENT_ORDER_UPDATED,
+            {"order_id": order.id, "estado": order.estado, "source": "early_bird"},
+        )
+        await _emit(
+            EVENT_DRIVER_UPDATED,
+            {"driver_arrival_id": matched_driver.id, "estado": matched_driver.estado, "source": "early_bird"},
+        )
     return _load_order_dict(db, order.id)
+
+
+@router.post("/webhooks/fidelio/order-ready", response_model=FidelioOrderReadyOut)
+async def fidelio_order_ready(
+    payload: FidelioOrderReadyIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    """
+    Webhook S2S (Fidelio -> Backend): marca pedido como LISTO.
+    Respuesta `{ order, reception }` con kind created | duplicate | new_cycle.
+    Seguridad: X-API-Key opcional via env FIDELIO_API_KEY.
+    """
+    _require_webhook_key(x_api_key)
+    timeouts_res = apply_timeouts(db)
+    if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
+        await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+
+    rest = (
+        db.query(Restaurant)
+        .filter(Restaurant.fidelio_id == payload.restaurant_fidelio_id)
+        .first()
+    )
+    if not rest:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Restaurante con fidelio_id '{payload.restaurant_fidelio_id}' no registrado en la base de datos",
+        )
+
+    plataforma = payload.plataforma.strip().upper()
+    codigo = payload.codigo_pedido.strip()
+
+    result = process_fidelio_order_ready(
+        db,
+        rest,
+        plataforma,
+        codigo,
+        payload.numero_bolsas,
+    )
+    await _fidelio_apply_order_ready_side_effects(
+        db,
+        background_tasks,
+        result.order_id,
+        result.plataforma,
+        result.codigo_pedido,
+        rest.nombre,
+        notify_runners=result.notify_runners,
+        emit_order_updated=result.emit_order_updated,
+        try_early_bird=result.try_early_bird,
+    )
+    return result.response
 
 
 @router.post("/runner/simulate/order-ready", response_model=OrderOut)
@@ -531,10 +623,9 @@ async def runner_simulate_order_ready(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Simulación operativa desde app Runner.
-    Reutiliza la misma lógica del webhook Fidelio sin exponer X-API-Key en cliente.
+    Simulación operativa desde app Runner (lógica legacy, respuesta OrderOut completa).
     Autorización: permiso explícito `delivery:simulate_order_ready`, o bien `delivery:operate`
-    si el flag `enable_runner_simulate_order_ready` está activo en config (misma tabla que kiosk).
+    si el flag `enable_runner_simulate_order_ready` está activo en config.
     """
     cfg = get_delivery_config(db)
     db.commit()
@@ -551,13 +642,7 @@ async def runner_simulate_order_ready(
             status_code=403,
             detail="No tiene permisos para simular pedido listo.",
         )
-    internal_api_key = (os.getenv(FIDELIO_API_KEY_ENV) or "").strip() or None
-    return await fidelio_order_ready(
-        payload=payload,
-        background_tasks=background_tasks,
-        db=db,
-        x_api_key=internal_api_key,
-    )
+    return await _fidelio_order_ready_legacy(payload, background_tasks, db)
 
 
 @router.get("/runner/feature-flags", response_model=RunnerFeatureFlagsOut)

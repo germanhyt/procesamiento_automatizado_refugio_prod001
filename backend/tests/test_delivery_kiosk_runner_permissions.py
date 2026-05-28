@@ -76,7 +76,7 @@ async def _simulate(
     mock_cfg.enable_runner_simulate_order_ready = flag_enabled
 
     with patch("app.api.delivery.get_delivery_config", return_value=mock_cfg):
-        with patch("app.api.delivery.fidelio_order_ready", new_callable=AsyncMock) as mock_fidelio:
+        with patch("app.api.delivery._fidelio_order_ready_legacy", new_callable=AsyncMock) as mock_fidelio:
             mock_fidelio.return_value = _minimal_order_dict()
             out = await runner_simulate_order_ready(
                 payload=payload,
@@ -132,7 +132,7 @@ class TestRunnerSimulateOrderReadyAuth:
             mock_cfg.enable_runner_simulate_order_ready = False
 
             with patch("app.api.delivery.get_delivery_config", return_value=mock_cfg):
-                with patch("app.api.delivery.fidelio_order_ready", new_callable=AsyncMock) as mock_fidelio:
+                with patch("app.api.delivery._fidelio_order_ready_legacy", new_callable=AsyncMock) as mock_fidelio:
                     with pytest.raises(HTTPException) as ei:
                         await runner_simulate_order_ready(
                             payload=payload,
@@ -159,7 +159,7 @@ class TestRunnerSimulateOrderReadyAuth:
             mock_cfg.enable_runner_simulate_order_ready = True
 
             with patch("app.api.delivery.get_delivery_config", return_value=mock_cfg):
-                with patch("app.api.delivery.fidelio_order_ready", new_callable=AsyncMock) as mock_fidelio:
+                with patch("app.api.delivery._fidelio_order_ready_legacy", new_callable=AsyncMock) as mock_fidelio:
                     with pytest.raises(HTTPException) as ei:
                         await runner_simulate_order_ready(
                             payload=payload,

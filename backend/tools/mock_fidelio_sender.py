@@ -27,7 +27,11 @@ def main():
 
     r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
     print("status:", r.status_code)
-    print(r.text)
+    try:
+        data = r.json()
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    except Exception:
+        print(r.text)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,18 @@ ORDER_STATUS_ENTREGADO = "ENTREGADO"
 ORDER_STATUS_DEVOLUCION = "DEVOLUCION"
 ORDER_STATUS_CANCELADO = "CANCELADO"
 
+# Pedido terminal: permite nuevo ciclo con la misma tripleta (webhook Fidelio).
+ORDER_TERMINAL_STATUSES = (
+    ORDER_STATUS_ENTREGADO,
+    ORDER_STATUS_CANCELADO,
+    ORDER_STATUS_DEVOLUCION,
+)
+
+# reception.tipo en respuesta webhook Fidelio (español)
+FIDELIO_RECEPTION_KIND_CREATED = "creado"
+FIDELIO_RECEPTION_KIND_DUPLICATE = "duplicado"
+FIDELIO_RECEPTION_KIND_NEW_CYCLE = "nuevo_ciclo"
+
 
 # Estados de driver (driver_arrivals.estado)
 DRIVER_STATUS_ESPERANDO = "ESPERANDO"

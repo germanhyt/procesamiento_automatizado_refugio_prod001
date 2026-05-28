@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 
@@ -157,6 +157,35 @@ class FidelioOrderReadyIn(BaseModel):
     plataforma: str
     codigo_pedido: str
     numero_bolsas: Optional[int] = None
+
+
+class FidelioOrdenResumenOut(BaseModel):
+    """Resumen de pedido en respuesta webhook Fidelio (metadatos en español)."""
+
+    id: int
+    id_restaurante: int
+    nombre_restaurante: str
+    plataforma: str
+    codigo_pedido: str
+    estado: str
+    numero_bolsas: Optional[int] = None
+
+
+class FidelioRecepcionOut(BaseModel):
+    tipo: Literal["creado", "duplicado", "nuevo_ciclo"]
+    duplicado: bool
+    mensaje: str
+    fecha_primera_recepcion: Optional[datetime] = None
+    minutos_desde_primera_recepcion: Optional[int] = None
+    tiempo_desde_primera_recepcion: Optional[str] = None
+    bolsas_actualizadas: Optional[bool] = None
+    id_pedido_anterior: Optional[int] = None
+    estado_anterior: Optional[str] = None
+
+
+class FidelioOrderReadyOut(BaseModel):
+    orden: FidelioOrdenResumenOut
+    recepcion: FidelioRecepcionOut
 
 
 class KioskArrivalIn(BaseModel):
