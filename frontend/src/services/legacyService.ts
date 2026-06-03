@@ -14,8 +14,15 @@ export function buildRangoParams(modo: ModoRango, fechaInicio: string, fechaFin:
     return p;
 }
 
-export async function postLegacyConsolidar(modo: ModoRango, fechaInicio: string, fechaFin: string) {
-    return axios.post(`${LEGACY}/consolidar`, null, { params: buildRangoParams(modo, fechaInicio, fechaFin) });
+export async function postLegacyConsolidar(
+    modo: ModoRango,
+    fechaInicio: string,
+    fechaFin: string,
+    dryRun = false,
+) {
+    return axios.post(`${LEGACY}/consolidar`, null, {
+        params: { ...buildRangoParams(modo, fechaInicio, fechaFin), dry_run: dryRun },
+    });
 }
 
 export async function postLegacyAsociar(modo: ModoRango, fechaInicio: string, fechaFin: string) {

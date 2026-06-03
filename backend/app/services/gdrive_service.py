@@ -16,15 +16,50 @@ class GDriveService:
         self.service = build('drive', 'v3', credentials=self.creds)
 
     def download_file(self, file_id: str, local_path: str) -> bool:
-        """Descarga un archivo desde Google Drive a una ruta local."""
+        """
+        Descarga un archivo desde Google Drive a una ruta local.
+        Si el ID es una Google Sheet nativa, exporta a .xlsx (get_media devuelve contenido inválido).
+        """
+        if not (file_id or "").strip():
+            logger.error("download_file: file_id vacío")
+            return False
         try:
-            request = self.service.files().get_media(fileId=file_id)
+            meta = (
+                self.service.files()
+                .get(fileId=file_id, fields="mimeType,name,size")
+                .execute()
+            )
+            mime = (meta.get("mimeType") or "").strip()
+            name = meta.get("name") or file_id
+            logger.info("Drive download: name=%s mime=%s -> %s", name, mime, local_path)
+
+            if mime == "application/vnd.google-apps.spreadsheet":
+                request = self.service.files().export_media(
+                    fileId=file_id,
+                    mimeType=(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ),
+                )
+            else:
+                request = self.service.files().get_media(fileId=file_id)
+
+            os.makedirs(os.path.dirname(os.path.abspath(local_path)) or ".", exist_ok=True)
             with open(local_path, "wb") as fh:
                 downloader = MediaIoBaseDownload(fh, request)
                 done = False
-                while done is False:
-                    status, done = downloader.next_chunk()
-            logger.info(f"Archivo {file_id} descargado en {local_path}")
+                while not done:
+                    _, done = downloader.next_chunk()
+
+            size = os.path.getsize(local_path)
+            if size < 128:
+                logger.error(
+                    "Descarga inválida (archivo demasiado pequeño: %s bytes) id=%s mime=%s",
+                    size,
+                    file_id,
+                    mime,
+                )
+                return False
+            logger.info("Archivo %s descargado en %s (%s bytes)", file_id, local_path, size)
             return True
         except Exception as e:
             logger.error(f"Error descargando {file_id}: {str(e)}")

@@ -26,6 +26,8 @@ router = APIRouter(prefix="/procesamiento", tags=["Procesamiento"])
 
 # Integración de Google Drive API: Reemplazamos las rutas locales por IDs de carpetas/archivos
 DRIVE_ID_CONFIG = os.getenv("DRIVE_ID_ARCHIVO_CONFIGURACION", "").strip('"\'')
+# Vacío = solo local (CONFIG_WEB_EXCEL_PATH / backend/tools); no reutilizar ID de Configuracion.xlsx
+DRIVE_ID_CONFIG_WEB = os.getenv("DRIVE_ID_ARCHIVO_CONFIGURACION_WEB", "").strip('"\'') or None
 DRIVE_ID_CIERRECAJA = os.getenv("DRIVE_ID_CARPETA_CIERRECAJA", "").strip('"\'')
 DRIVE_ID_PROCESADOS = os.getenv("DRIVE_ID_CARPETA_PROCESADOS", "").strip('"\'')
 
@@ -43,19 +45,64 @@ async def check_drive_status():
             creds_path = os.path.normpath(os.path.join(base_dir, "config", creds_path))
             
         gdrive = GDriveService(creds_path)
-        
-        # Validar si puede leer el ID de CierreCaja
-        carpetas_conectadas = False
-        try:
+        service_email = getattr(gdrive.creds, "service_account_email", None)
+
+        def _probe(file_id: str | None) -> dict:
+            if not file_id:
+                return {"ok": False, "reason": "sin_id_en_env"}
+            try:
+                meta = (
+                    gdrive.service.files()
+                    .get(fileId=file_id, fields="id,name,mimeType")
+                    .execute()
+                )
+                return {"ok": True, "name": meta.get("name"), "mimeType": meta.get("mimeType")}
+            except Exception as exc:
+                return {"ok": False, "reason": str(exc)[:200]}
+
+        probes = {
+            "config_read": _probe(DRIVE_ID_CONFIG),
+            "config_web": _probe(DRIVE_ID_CONFIG_WEB),
+            "cierre_caja": _probe(DRIVE_ID_CIERRECAJA),
+            "procesados": _probe(DRIVE_ID_PROCESADOS),
+        }
+        res_list: list = []
+        if DRIVE_ID_CIERRECAJA:
             res_list = gdrive.list_files_in_folder(DRIVE_ID_CIERRECAJA)
-            carpetas_conectadas = True
-        except:
-            carpetas_conectadas = False
-            
+        carpetas_conectadas = bool(res_list)
+        drive_error = None
+        if DRIVE_ID_CIERRECAJA and not carpetas_conectadas:
+            drive_error = probes["cierre_caja"].get("reason") or "carpeta vacía o sin acceso"
+
+        from app.services.file_store_service import get_upload_base
+
+        local_web = (os.getenv("CONFIG_WEB_EXCEL_PATH") or "").strip().strip('"\'')
+        local_read = (os.getenv("CONFIG_EXCEL_PATH") or "").strip().strip('"\'')
+        tools_web = os.path.normpath(
+            os.path.join(base_dir, "backend", "tools", "ConfiguracionWeb.xlsx")
+        )
+
         return {
             "drive_connected": carpetas_conectadas,
-            "config_exists": bool(DRIVE_ID_CONFIG),  # Podría validarse con una metadata request si quisiéramos
-            "is_config_open": False # Ya no aplica en la nube (la API sobreescribe)
+            "config_exists": bool(DRIVE_ID_CONFIG),
+            "is_config_open": False,
+            "upload_base": str(get_upload_base().resolve()),
+            "drive_error": drive_error,
+            "service_account_email": service_email,
+            "drive_probes": probes,
+            "local_config": {
+                "CONFIG_EXCEL_PATH": {"path": local_read, "exists": os.path.isfile(local_read)},
+                "CONFIG_WEB_EXCEL_PATH": {"path": local_web, "exists": os.path.isfile(local_web)},
+                "backend_tools_ConfiguracionWeb": {
+                    "path": tools_web,
+                    "exists": os.path.isfile(tools_web),
+                },
+            },
+            "modo_recomendado": (
+                "local"
+                if not probes["config_web"].get("ok") and os.path.isfile(local_web or tools_web)
+                else "drive"
+            ),
         }
     except Exception as e:
         return {"drive_connected": False, "config_exists": False, "error": str(e)}
@@ -87,11 +134,13 @@ def get_legacy_service():
     return LegacyService(
         gdrive_service=gdrive,
         drive_id_config=DRIVE_ID_CONFIG,
+        drive_id_config_web=DRIVE_ID_CONFIG_WEB,
         drive_id_ventas=DRIVE_ID_CIERRECAJA,
         drive_id_procesados=DRIVE_ID_PROCESADOS,
         bq_project_id=os.getenv("BQ_PROJECT_ID"),
         bq_dataset=os.getenv("BQ_DATASET"),
-        bq_creds_path=creds_path
+        bq_creds_path=creds_path,
+        bq_table_sales=os.getenv("BQ_TABLE_SALES"),
     )
 
 @router.get("/legacy/archivos")
@@ -114,6 +163,10 @@ async def legacy_consolidar(
     modo_rango: str = "semana_actual",
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
+    dry_run: bool = Query(
+        False,
+        description="Simula consolidación: informe completo sin escribir CSV en _consolidados",
+    ),
 ):
     """Consolida pendientes por locatario en cierre_caja/{loc}/_consolidados según rango."""
     service = get_legacy_service()
@@ -121,6 +174,7 @@ async def legacy_consolidar(
         modo_rango=modo_rango,
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
+        dry_run=dry_run,
     )
 
 @router.post("/legacy/asociar")

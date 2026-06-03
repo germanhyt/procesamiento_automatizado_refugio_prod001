@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
+import chardet
 import pandas as pd
 
 from app.core.constants import (
@@ -40,6 +41,91 @@ _HASH_SUFFIX_RE = re.compile(r"_(\d{8})_(\d{6})$", re.IGNORECASE)
 
 def get_upload_base() -> Path:
     return Path(DEFAULT_UPLOAD_BASE)
+
+
+def _excel_engine_from_magic(path: Path) -> str | None:
+    """openpyxl = ZIP (xlsx); xlrd = OLE (xls)."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(8)
+    except OSError:
+        return None
+    if len(head) >= 2 and head[:2] == b"PK":
+        return "openpyxl"
+    if len(head) >= 8 and head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return "xlrd"
+    return None
+
+
+def read_excel_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
+    """
+    Lee una hoja de un libro Excel (.xlsx / .xls) probando motores por contenido.
+    Usado para Configuracion.xlsx (BaseCarga, Activas, etc.).
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"No existe: {path}")
+    if path.stat().st_size < 128:
+        raise ValueError(
+            f"El archivo está vacío o corrupto ({path.stat().st_size} bytes): {path.name}"
+        )
+    ext = path.suffix.lower()
+    if ext not in (".xlsx", ".xls"):
+        raise ValueError(f"Se esperaba .xlsx o .xls, recibido: {ext}")
+    magic = _excel_engine_from_magic(path)
+    candidates: list[str] = []
+    for eng in (magic, "openpyxl" if ext == ".xlsx" else "xlrd", "openpyxl", "xlrd"):
+        if eng and eng not in candidates:
+            candidates.append(eng)
+    last_err = ""
+    for eng in candidates:
+        try:
+            return pd.read_excel(path, sheet_name=sheet_name, engine=eng)
+        except Exception as exc:
+            last_err = str(exc)
+            logger.debug("read_excel_sheet %s/%s engine=%s: %s", path.name, sheet_name, eng, exc)
+    raise ValueError(
+        f"No se pudo leer la hoja '{sheet_name}' de {path.name}: {last_err}"
+    )
+
+
+def read_report_file_dataframe(path: Path) -> tuple[pd.DataFrame | None, str | None]:
+    """
+    Lee un reporte de cierre (.csv, .xlsx, .xls).
+    Elige motor Excel por contenido (no solo extensión) para evitar
+    «Excel file format cannot be determined, you must specify an engine manually».
+    """
+    if not path.is_file():
+        return None, "archivo_no_encontrado"
+    ext = path.suffix.lower()
+    if ext in (".xlsx", ".xls"):
+        magic = _excel_engine_from_magic(path)
+        candidates: list[str] = []
+        for eng in (magic, "openpyxl" if ext == ".xlsx" else "xlrd", "openpyxl", "xlrd"):
+            if eng and eng not in candidates:
+                candidates.append(eng)
+        last_err = ""
+        for eng in candidates:
+            try:
+                return pd.read_excel(path, engine=eng), None
+            except Exception as exc:
+                last_err = str(exc)
+                logger.debug("read_report_file_dataframe %s engine=%s: %s", path.name, eng, exc)
+        try:
+            with path.open("rb") as f:
+                raw = f.read(65536)
+            enc = chardet.detect(raw).get("encoding") or "latin-1"
+            return pd.read_csv(path, sep=None, engine="python", encoding=enc), None
+        except Exception as exc2:
+            return None, f"error_lectura:{last_err or exc2}"
+    if ext == ".csv":
+        try:
+            with path.open("rb") as f:
+                raw = f.read(65536)
+            enc = chardet.detect(raw).get("encoding") or "latin-1"
+            return pd.read_csv(path, sep=None, engine="python", encoding=enc), None
+        except Exception as exc:
+            return None, f"error_lectura:{exc}"
+    return None, "extension_no_soportada"
 
 
 def _ahora_lima() -> datetime:

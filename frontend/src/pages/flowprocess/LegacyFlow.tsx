@@ -29,6 +29,8 @@ import {
 import { LOCATARIOS } from '@/constants/locatarios';
 import AppSelect from '@/components/ui/AppSelect';
 import ProcessingStatusBadges from '@/components/procesamiento/ProcessingStatusBadges';
+import ConsolidacionResultModal from '@/components/procesamiento/ConsolidacionResultModal';
+import type { ConsolidacionResponse } from '@/services/consolidacionTypes';
 import type { LocatarioArchivos } from '@/services/fuentesService';
 import {
     fetchArchivosCierreCaja,
@@ -79,6 +81,14 @@ interface CierreCajaFile {
 interface NegocioOption {
     value: string;
     label: string;
+}
+
+function conteoArchivosCierre(g: LocatarioArchivos) {
+    return {
+        pendientes: g.pendientes?.length ?? 0,
+        consolidados: g.consolidados?.length ?? 0,
+        backup: g.backup?.length ?? 0,
+    };
 }
 
 function PendientesDayChips({ period, registrados }: { period: string[]; registrados: string[] }) {
@@ -189,6 +199,9 @@ const LegacyFlow: React.FC = () => {
     const [disparoBusy, setDisparoBusy] = useState(false);
     const [isEnvioN8nModalOpen, setIsEnvioN8nModalOpen] = useState(false);
 
+    const [consolidacionResult, setConsolidacionResult] = useState<ConsolidacionResponse | null>(null);
+    const [isConsolidacionModalOpen, setIsConsolidacionModalOpen] = useState(false);
+
     const [fsPreviewOpen, setFsPreviewOpen] = useState(false);
     const [fsPreviewTitle, setFsPreviewTitle] = useState('');
     const [fsPreviewLoading, setFsPreviewLoading] = useState(false);
@@ -262,7 +275,9 @@ const LegacyFlow: React.FC = () => {
 
     const refreshCierreModal = useCallback(async () => {
         const data = await fetchArchivosCierreCaja();
-        setPorLocatarioModal(data.por_locatario ?? []);
+        const list = data.por_locatario ?? [];
+        setPorLocatarioModal(list);
+        return list;
     }, []);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,24 +333,49 @@ const LegacyFlow: React.FC = () => {
         }
     };
 
-    const runConsolidacion = async () => {
+    const runConsolidacion = async (dryRun = false) => {
         if (modoRango === 'rango_libre' && (!procesoFechaIni || !procesoFechaFin)) {
             Swal.fire({ title: 'Rango', text: 'Indica fecha inicio y fin.', icon: 'warning', background: '#111', color: '#fff' });
             return;
         }
-        setIsProcessing('Consolidación');
-        setLogs((prev) => ['⏳ Consolidación: cierre_caja → _consolidados por locatario...', ...prev]);
+        if (!dryRun) {
+            const confirm = await Swal.fire({
+                title: 'Consolidar reportes',
+                text: 'Se generará un CSV por local en _consolidados según el rango elegido.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Consolidar',
+                cancelButtonText: 'Cancelar',
+                background: '#111',
+                color: '#fff',
+                confirmButtonColor: '#14b8a6',
+            });
+            if (!confirm.isConfirmed) return;
+        }
+        setIsProcessing(dryRun ? 'Simulación' : 'Consolidación');
+        setLogs((prev) => [
+            dryRun
+                ? '⏳ Simulación de consolidación (sin escribir CSV)...'
+                : '⏳ Consolidación: cierre_caja → _consolidados por locatario...',
+            ...prev,
+        ]);
         try {
-            const res = await postLegacyConsolidar(modoRango, procesoFechaIni, procesoFechaFin);
-            const d = res.data;
+            const res = await postLegacyConsolidar(modoRango, procesoFechaIni, procesoFechaFin, dryRun);
+            const d = res.data as ConsolidacionResponse;
             if (d.success) {
+                const resumen = d.resumen;
                 const msg =
                     d.registros_total != null
-                        ? `Total registros: ${d.registros_total}. Etiqueta: ${d.etiqueta ?? ''}`
+                        ? `${dryRun ? '[Simulación] ' : ''}Total registros: ${d.registros_total}. Etiqueta: ${d.etiqueta ?? ''}${
+                              resumen
+                                  ? ` · OK: ${resumen.ok}, observaciones: ${resumen.omitidos + resumen.parciales}, sin carpeta: ${resumen.sin_carpeta}`
+                                  : ''
+                          }`
                         : d.message || 'Completado';
-                setLogs((prev) => [`✅ Consolidación: ${msg}`, ...prev]);
-                Swal.fire({ title: 'Consolidación OK', text: msg, icon: 'success', background: '#111', color: '#fff', confirmButtonColor: '#2dd4bf' });
-                fetchFiles();
+                setLogs((prev) => [`✅ ${dryRun ? 'Simulación' : 'Consolidación'}: ${msg}`, ...prev]);
+                setConsolidacionResult(d);
+                setIsConsolidacionModalOpen(true);
+                if (!dryRun) fetchFiles();
             } else throw new Error(d.error);
         } catch (e: any) {
             const msg = e.response?.data?.error ?? e.message;
@@ -430,7 +470,7 @@ const LegacyFlow: React.FC = () => {
             const d = res.data;
             if (d.success) {
                 const filas = typeof d.filas_insertadas === 'number' ? d.filas_insertadas : undefined;
-                const msg = d.message ?? (filas != null ? `Filas insertadas en stg_silver_raw: ${filas}` : 'Sincronización completada');
+                const msg = d.message ?? (filas != null ? `Filas insertadas en BigQuery: ${filas}` : 'Sincronización completada');
                 setLogs((prev) => [`✅ BigQuery: ${msg}`, ...prev]);
                 Swal.fire({
                     title: 'BigQuery',
@@ -562,15 +602,21 @@ const LegacyFlow: React.FC = () => {
         setIsFilesModalOpen(true);
         setFilesModalLoading(true);
         setFilesModalTab('cierre');
-        setExpandedCierreLocs({});
         setExpandedProcesadosLocs({});
         setSelectedBackupFiles({});
         setSelectedRestoreFiles({});
         setFilesSearchTerm('');
         try {
-            await refreshCierreModal();
+            const list = await refreshCierreModal();
+            const expanded: Record<string, boolean> = {};
+            for (const g of list) {
+                const { pendientes, consolidados, backup } = conteoArchivosCierre(g);
+                if (pendientes + consolidados + backup > 0) expanded[g.locatario] = true;
+            }
+            setExpandedCierreLocs(expanded);
         } catch {
             setPorLocatarioModal([]);
+            setExpandedCierreLocs({});
         }
         try {
             const fechas = await fetchProcesadosFechas();
@@ -1200,6 +1246,34 @@ const LegacyFlow: React.FC = () => {
     return (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 h-full">
             <div className="xl:col-span-8 space-y-8">
+                <div className="bg-app-card border border-app-border rounded-[28px] p-5 space-y-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">Guía del proceso</p>
+                    <ol className="text-[10px] text-app-muted space-y-1.5 list-decimal pl-4 leading-relaxed">
+                        <li>
+                            <strong className="text-app-text">Subir reportes</strong> (página Fuentes o botón Subir) → quedan en{' '}
+                            <span className="text-emerald-500">Pendientes</span>.
+                        </li>
+                        <li>
+                            <strong className="text-app-text">Consolidar</strong> (paso 1) → genera CSV en{' '}
+                            <span className="text-amber-400">Consolidados</span> (carpeta _consolidados).
+                        </li>
+                        <li>
+                            <strong className="text-app-text">Asociar</strong> (paso 2) → vincula consolidados con negocios en{' '}
+                            <span className="text-sky-400">ConfiguracionWeb.xlsx</span>.
+                        </li>
+                        <li>
+                            <strong className="text-app-text">Procesar ventas</strong> (paso 3) → escribe sales_df en ConfiguracionWeb.
+                        </li>
+                        <li>
+                            <strong className="text-app-text">BigQuery</strong> (paso 4) → append en stg_sales_silver (capa silver).
+                        </li>
+                    </ol>
+                    <p className="text-[9px] text-app-muted">
+                        En <strong className="text-app-text">Gestionar archivos</strong> verá las tres zonas por local. Los resultados finales van a{' '}
+                        <strong className="text-app-text">Procesados</strong> tras cargar ventas.
+                    </p>
+                </div>
+
                 {/* Rango para consolidar / asociar */}
                 <div className="bg-app-card border border-app-border rounded-[28px] p-6 space-y-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1256,19 +1330,39 @@ const LegacyFlow: React.FC = () => {
                     )}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 xl:gap-4">
-                    <StepButton icon={<ShieldCheck />} title="0. Limpieza" desc="Verificación" onClick={runLimpiezaConfirm} loading={false} />
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 xl:gap-4">
                     <StepButton
                         icon={<Layers />}
                         title="1. Consolidar"
-                        desc="→ _consolidados (opcional)"
-                        onClick={runConsolidacion}
+                        desc="Pendientes → CSV consolidados"
+                        onClick={() => void runConsolidacion(false)}
                         loading={isProcessing === 'Consolidación'}
                     />
-                    <StepButton icon={<FileCode />} title="2. Convertir" desc="XLSX → CSV (opcional)" onClick={runConvertir} loading={isProcessing === 'Conversión'} />
-                    <StepButton icon={<Link />} title="3. Asociar" desc="Fuzzy FileStore" onClick={runAsociacion} loading={isProcessing === 'Asociación'} />
-                    <StepButton icon={<Database />} title="4. Proces. Ventas" desc="sales_df" onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
-                    <StepButton icon={<CloudSync />} title="5. Proces. Nube" desc="BigQuery" onClick={runBigQuery} loading={isProcessing === 'BigQuery'} />
+                    <StepButton icon={<Link />} title="2. Asociar" desc="Consolidados → Activas" onClick={runAsociacion} loading={isProcessing === 'Asociación'} />
+                    <StepButton icon={<Database />} title="3. Ventas" desc="→ ConfiguracionWeb" onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
+                    <StepButton icon={<CloudSync />} title="4. BigQuery" desc="Excel → stg_sales_silver" onClick={runBigQuery} loading={isProcessing === 'BigQuery'} />
+                    <StepButton
+                        icon={<FileCode />}
+                        title="Extra: Convertir"
+                        desc="XLSX → CSV (opcional)"
+                        onClick={runConvertir}
+                        loading={isProcessing === 'Conversión'}
+                        isExtra
+                    />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 px-1 -mt-2">
+                    <button
+                        type="button"
+                        onClick={() => void runConsolidacion(true)}
+                        disabled={isProcessing === 'Simulación' || isProcessing === 'Consolidación'}
+                        className="text-[9px] font-black uppercase tracking-widest text-app-accent border border-app-accent-muted rounded-xl px-3 py-2 hover:bg-app-accent-muted-bg disabled:opacity-50"
+                    >
+                        {isProcessing === 'Simulación' ? 'Simulando…' : 'Simular consolidación (sin guardar)'}
+                    </button>
+                    <span className="text-[9px] text-app-muted max-w-md leading-snug">
+                        Revisa por local y por archivo por qué se procesó o no, antes de escribir CSV.
+                    </span>
                 </div>
 
                 <label className="flex items-start gap-2 mt-3 px-1 cursor-pointer select-none max-w-xl">
@@ -1473,7 +1567,7 @@ const LegacyFlow: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+                        className="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xl"
                         onClick={() => setIsFilesModalOpen(false)}
                     >
                         <motion.div
@@ -1485,7 +1579,7 @@ const LegacyFlow: React.FC = () => {
                         >
                             <div className="p-6 border-b border-app-border flex items-center justify-between flex-wrap gap-2">
                                 <h3 className="text-sm font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
-                                    <FolderOpen size={20} /> Gestionar archivos (cierre_caja / procesados)
+                                    <FolderOpen size={20} /> Gestionar archivos
                                 </h3>
                                 <button
                                     type="button"
@@ -1510,8 +1604,19 @@ const LegacyFlow: React.FC = () => {
                                     className={`px-4 py-2 text-[10px] font-black uppercase rounded-t-lg ${filesModalTab === 'procesados' ? 'bg-teal-500/20 text-teal-400' : 'text-app-muted'
                                         }`}
                                 >
-                                    Procesados
+                                    Procesados (histórico)
                                 </button>
+                            </div>
+                            <div className="px-6 pt-3 flex flex-wrap gap-3 text-[9px] text-app-muted border-b border-app-border pb-3">
+                                <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Pendientes (reportes subidos)
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400" /> Consolidados (paso 1)
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-sky-500" /> Respaldo
+                                </span>
                             </div>
                             <div className="p-6 overflow-y-auto flex-1 space-y-6">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
@@ -1547,16 +1652,23 @@ const LegacyFlow: React.FC = () => {
                                             </div>
                                         ) : (
                                             <div className="space-y-6">
-                                                {porLocatarioModal.map((grupo) => (
+                                                {porLocatarioModal.map((grupo) => {
+                                                    const counts = conteoArchivosCierre(grupo);
+                                                    return (
                                                     <div key={grupo.locatario} className="bg-app-input rounded-2xl border border-app-border p-4">
                                                         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleCierreLoc(grupo.locatario)}
-                                                                className="flex items-center gap-2 text-[10px] font-black uppercase text-teal-500"
+                                                                className="flex items-center gap-2 text-[10px] font-black uppercase text-teal-500 text-left"
                                                             >
-                                                                <ChevronRight size={14} className={`transition-transform ${expandedCierreLocs[grupo.locatario] ? 'rotate-90' : ''}`} />
-                                                                {grupo.locatario}
+                                                                <ChevronRight size={14} className={`transition-transform shrink-0 ${expandedCierreLocs[grupo.locatario] ? 'rotate-90' : ''}`} />
+                                                                <span>
+                                                                    {grupo.locatario}
+                                                                    <span className="block text-[8px] font-medium text-app-muted normal-case mt-0.5">
+                                                                        {counts.pendientes} pend. · {counts.consolidados} cons. · {counts.backup} resp.
+                                                                    </span>
+                                                                </span>
                                                             </button>
                                                             <button
                                                                 type="button"
@@ -1704,10 +1816,14 @@ const LegacyFlow: React.FC = () => {
                                                                         ));
                                                                     })()}
                                                         </ul>
-                                                        {grupo.consolidados?.length ? (
+                                                        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 mb-4">
                                                             <div className="flex items-center justify-between mb-2">
-                                                                <p className="text-[8px] font-bold text-app-muted uppercase">_consolidados</p>
-                                                                {selectedCountByZona(grupo.locatario, 'consolidado') > 0 ? (
+                                                                <p className="text-[9px] font-black text-amber-400/90 uppercase tracking-widest">
+                                                                    Consolidados
+                                                                </p>
+                                                                {counts.consolidados === 0 ? (
+                                                                    <span className="text-[8px] text-app-muted italic">Vacío — ejecute paso 1 Consolidar</span>
+                                                                ) : (selectedCountByZona(grupo.locatario, 'consolidado') > 0) ? (
                                                                     <span className="flex flex-wrap items-center gap-2">
                                                                         <button
                                                                             type="button"
@@ -1752,11 +1868,17 @@ const LegacyFlow: React.FC = () => {
                                                                     </span>
                                                                 ) : null}
                                                             </div>
-                                                        ) : null}
-                                                                <ul className="space-y-2">
-                                                                    {(() => {
-                                                                        const consolidadosVisible = filterBySearch(grupo.consolidados || []);
-                                                                        return consolidadosVisible.map((nombre, index) => (
+                                                            <ul className="space-y-2">
+                                                                {(() => {
+                                                                    const consolidadosVisible = filterBySearch(grupo.consolidados || []);
+                                                                    if (consolidadosVisible.length === 0) {
+                                                                        return (
+                                                                            <li className="text-[9px] text-app-muted py-2 italic">
+                                                                                Sin archivos en _consolidados
+                                                                            </li>
+                                                                        );
+                                                                    }
+                                                                    return consolidadosVisible.map((nombre, index) => (
                                                                 <li
                                                                     key={`c-${nombre}`}
                                                                     className="flex items-center justify-between py-2 border-b border-app-border last:border-0 text-[10px]"
@@ -1837,12 +1959,13 @@ const LegacyFlow: React.FC = () => {
                                                                         </button>
                                                                     </span>
                                                                 </li>
-                                                                        ));
-                                                                    })()}
-                                                                </ul>
+                                                                    ));
+                                                                })()}
+                                                            </ul>
+                                                        </div>
                                                                 {grupo.backup?.length ? (
                                                                     <div className="flex items-center justify-between mt-4 mb-2">
-                                                                        <p className="text-[8px] font-bold text-app-muted uppercase">backup_no_consolidados</p>
+                                                                        <p className="text-[8px] font-bold text-app-muted uppercase">Respaldo (backup_no_consolidados)</p>
                                                                         {selectedRestoreNames(grupo.locatario).length > 0 ? (
                                                                             <span className="flex flex-wrap items-center gap-2">
                                                                                 <button
@@ -1962,7 +2085,8 @@ const LegacyFlow: React.FC = () => {
                                                             </>
                                                         ) : null}
                                                     </div>
-                                                ))}
+                                                    );
+                                                })}
                                                 {porLocatarioModal.length === 0 && !filesModalLoading && (
                                                     <p className="text-app-muted text-sm text-center py-8">No hay archivos en cierre_caja.</p>
                                                 )}
@@ -2672,11 +2796,15 @@ const LegacyFlow: React.FC = () => {
                                         <h3 className="text-sm font-black uppercase tracking-widest">
                                             Vista previa: {previewType === 'sales' ? 'sales_df' : 'Realizadas'}
                                         </h3>
-                                        <p className="text-[10px] text-app-muted">
-                                            Configuracion.xlsx (Drive)
+                                        <p className="text-[10px] text-app-muted truncate max-w-md" title={previewData?.config_source}>
+                                            {previewData?.config_source
+                                                ? previewData.config_source.replace(/\\/g, '/').split('/').slice(-3).join('/')
+                                                : 'ConfiguracionWeb.xlsx'}
                                             {previewType === 'sales' && previewData?.total_rows != null
-                                                ? ` · Mostrando ${previewData?.data?.length ?? 0} / ${previewData.total_rows}`
-                                                : ''}
+                                                ? ` · ${previewData?.data?.length ?? 0} / ${previewData.total_rows}`
+                                                : previewData?.total_rows != null
+                                                  ? ` · ${previewData.total_rows} fila(s)`
+                                                  : ''}
                                         </p>
                                     </div>
                                 </div>
@@ -2762,6 +2890,15 @@ const LegacyFlow: React.FC = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <ConsolidacionResultModal
+                open={isConsolidacionModalOpen}
+                data={consolidacionResult}
+                onClose={() => {
+                    setIsConsolidacionModalOpen(false);
+                    setConsolidacionResult(null);
+                }}
+            />
         </div>
     );
 };

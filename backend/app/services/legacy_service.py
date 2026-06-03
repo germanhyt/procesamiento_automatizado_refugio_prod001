@@ -15,9 +15,19 @@ from fuzzywuzzy import fuzz
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-from app.core.constants import FILE_STORE_SUB_CONSOLIDADOS, get_locatario_code_from_full
+from app.core.constants import FILE_STORE_SUB_CONSOLIDADOS, LOCATARIOS, get_locatario_code_from_full
 
 logger = logging.getLogger(__name__)
+
+# Motivos de omisión / estado en consolidación (código → texto operativo)
+_CONSOL_SKIP_LEGIBLE: dict[str, str] = {
+    "sin_carpeta": "No hay carpeta ni archivos en cierre_caja para este local.",
+    "sin_base_carga": "Falta una fila en la hoja BaseCarga (Configuración) para el código del local.",
+    "sin_pendientes": "No hay archivos pendientes en la carpeta del local.",
+    "solo_consolidados": "No hay pendientes; ya existen archivos en _consolidados (revisar si corresponde reprocesar).",
+    "sin_filas_validas": "Ningún pendiente generó ventas con Monto > 0 y Fecha válida.",
+    "sin_registros_en_rango_fecha": "Se extrajeron ventas, pero ninguna cae en el rango de fechas elegido.",
+}
 
 
 def _activar_cargar(val) -> bool:
@@ -38,20 +48,39 @@ def _activar_cargar(val) -> bool:
 
 
 class LegacyService:
-    def __init__(self, gdrive_service, drive_id_config: str, drive_id_ventas: str, drive_id_procesados: str, bq_project_id: str, bq_dataset: str, bq_creds_path: str):
+    def __init__(
+        self,
+        gdrive_service,
+        drive_id_config: str,
+        drive_id_ventas: str,
+        drive_id_procesados: str,
+        bq_project_id: str,
+        bq_dataset: str,
+        bq_creds_path: str,
+        drive_id_config_web: str | None = None,
+        bq_table_sales: str | None = None,
+    ):
         self.gdrive = gdrive_service
-        self.drive_id_config = drive_id_config
+        self.drive_id_config_read = (drive_id_config or "").strip()
+        web_id = (drive_id_config_web or "").strip()
+        self.drive_id_config_write = web_id or None
+        self.drive_id_config = self.drive_id_config_read  # compat
         self.drive_id_ventas = drive_id_ventas
         self.drive_id_procesados = drive_id_procesados
-        
+
         self.bq_project_id = bq_project_id
         self.bq_dataset = bq_dataset
         self.bq_creds_path = bq_creds_path
-        
+        self.bq_table_sales = (bq_table_sales or os.getenv("BQ_TABLE_SALES") or "stg_sales_silver").strip()
+
         # Temp paths for local processing within Docker/VPS
         self.temp_dir = "/tmp/refugio_data"
         os.makedirs(self.temp_dir, exist_ok=True)
-        self.config_path = os.path.join(self.temp_dir, "Configuracion.xlsx")
+        # Lectura (BaseCarga, Negocios maestro): Configuracion.xlsx
+        self.config_read_path = os.path.join(self.temp_dir, "Configuracion.xlsx")
+        # Escritura (Activas, sales_df, Realizadas): ConfiguracionWeb.xlsx
+        self.config_write_path = os.path.join(self.temp_dir, "ConfiguracionWeb.xlsx")
+        self.config_path = self.config_read_path
         
         # Root path for scripts
         self.backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,15 +93,164 @@ class LegacyService:
             self.project_root = os.path.dirname(self.backend_dir)
             self.prediction_script = os.path.join(self.project_root, "prediction", "predictor_ventas_powerbi_clean.py")
 
-    def _download_config(self):
-        """Descarga el Config de Drive a la ruta temporal"""
-        if self.drive_id_config:
-            self.gdrive.download_file(self.drive_id_config, self.config_path)
+    def _local_config_candidates(self, *, web: bool = False) -> list[str]:
+        """Rutas locales si Drive falla."""
+        paths: list[str] = []
+        env_key = "CONFIG_WEB_EXCEL_PATH" if web else "CONFIG_EXCEL_PATH"
+        env_path = (os.getenv(env_key) or "").strip().strip('"\'')
+        if env_path:
+            paths.append(env_path)
+        root = os.path.dirname(self.backend_dir)
+        fname = "ConfiguracionWeb.xlsx" if web else "Configuracion.xlsx"
+        for rel in (
+            os.path.join(self.backend_dir, "tools", fname),
+            os.path.join(root, "config", fname),
+            os.path.join(self.backend_dir, "config", fname),
+        ):
+            paths.append(rel)
+        if web:
+            for rel in self._local_config_candidates(web=False):
+                if rel not in paths:
+                    paths.append(rel)
+        return paths
+
+    def _copy_local_config_fallback(self, dest_path: str, *, web: bool = False) -> bool:
+        for candidate in self._local_config_candidates(web=web):
+            if os.path.isfile(candidate) and os.path.getsize(candidate) >= 128:
+                shutil.copy2(candidate, dest_path)
+                logger.info("Configuración cargada desde copia local: %s -> %s", candidate, dest_path)
+                return True
+        return False
+
+    def _first_local_config_web_path(self) -> Path | None:
+        for candidate in self._local_config_candidates(web=True):
+            p = Path(candidate)
+            if p.is_file() and p.stat().st_size >= 128:
+                return p.resolve()
+        return None
+
+    def _resolve_config_web_read_path(self) -> Path:
+        """
+        Lectura alineada al proyecto: CONFIG_WEB_EXCEL_PATH / backend/tools/ConfiguracionWeb.xlsx.
+        Sin usar /tmp si existe copia local (consolidación, Negocios, preview inicial).
+        """
+        local = self._first_local_config_web_path()
+        if local:
+            return local
+        self._ensure_config_write_workbook()
+        return Path(self.config_write_path).resolve()
+
+    def _ensure_config_write_workbook(self) -> Path:
+        """
+        Copia operativa en /tmp/refugio_data/ConfiguracionWeb.xlsx para escritura (Activas, sales_df).
+        Sincroniza desde local si falta temp o el local es más reciente; si no, Drive.
+        """
+        os.makedirs(self.temp_dir, exist_ok=True)
+        local = self._first_local_config_web_path()
+        temp = Path(self.config_write_path)
+
+        if local is not None:
+            if not temp.is_file() or local.stat().st_mtime > temp.stat().st_mtime:
+                shutil.copy2(local, temp)
+                logger.info("ConfiguracionWeb operativa sincronizada desde %s → %s", local, temp)
+                return temp.resolve()
+
+        if temp.is_file() and temp.stat().st_size >= 128:
+            return temp.resolve()
+
+        if self.drive_id_config_write:
+            ok = self.gdrive.download_file(self.drive_id_config_write, str(temp))
+            if ok and temp.is_file() and temp.stat().st_size >= 128:
+                logger.info("ConfiguracionWeb operativa desde Drive → %s", temp)
+                return temp.resolve()
+            logger.warning(
+                "Descarga ConfiguracionWeb desde Drive falló (id=%s). Probando local…",
+                self.drive_id_config_write,
+            )
+
+        if self._copy_local_config_fallback(str(temp), web=True):
+            return temp.resolve()
+
+        raise ValueError(
+            "No se pudo obtener ConfiguracionWeb.xlsx. Use backend/tools/ConfiguracionWeb.xlsx "
+            "o CONFIG_WEB_EXCEL_PATH en .env."
+        )
+
+    def _resolve_config_web_workbook(self) -> Path:
+        """
+        Lectura de hojas web (sales_df, Realizadas, Activas): local si es la fuente más reciente;
+        si /tmp fue actualizado en la sesión (Asociar/Ventas), usa la copia operativa.
+        """
+        local = self._first_local_config_web_path()
+        temp = Path(self.config_write_path)
+        if temp.is_file() and temp.stat().st_size >= 128:
+            if local is None or temp.stat().st_mtime >= local.stat().st_mtime:
+                return temp.resolve()
+        if local:
+            return local
+        return self._ensure_config_write_workbook()
+
+    def _download_config_read(self) -> None:
+        """Descarga Configuracion.xlsx (lectura: BaseCarga, Negocios)."""
+        if self.drive_id_config_read:
+            ok = self.gdrive.download_file(self.drive_id_config_read, self.config_read_path)
+            if ok and os.path.isfile(self.config_read_path) and os.path.getsize(self.config_read_path) >= 128:
+                return
+            logger.warning("Descarga Configuracion.xlsx falló (id=%s). Probando local…", self.drive_id_config_read)
+        if self._copy_local_config_fallback(self.config_read_path, web=False):
+            return
+        size = os.path.getsize(self.config_read_path) if os.path.isfile(self.config_read_path) else 0
+        raise ValueError(
+            "No se pudo obtener Configuracion.xlsx (lectura). Revise DRIVE_ID_ARCHIVO_CONFIGURACION o "
+            f"config/Configuracion.xlsx. Tamaño en temp: {size} bytes."
+        )
+
+    def _download_config_write(self) -> None:
+        """Compat: asegura copia operativa en /tmp (ver _ensure_config_write_workbook)."""
+        self._ensure_config_write_workbook()
+
+    def _download_config(self) -> None:
+        """Compat: asegura copia operativa para lectura/escritura del flujo web."""
+        self._ensure_config_write_workbook()
+
+    def _read_config_sheet(
+        self,
+        sheet_name: str,
+        *,
+        from_web: bool = False,
+        operational: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Lee una hoja de ConfiguracionWeb.xlsx.
+        - operational=True: copia en /tmp (tras Asociar/Ventas).
+        - from_web=True o por defecto en hojas del flujo web: _resolve_config_web_workbook().
+        - from_web=False (legacy): mismo libro local primero (_resolve_config_web_read_path).
+        """
+        from app.services.file_store_service import read_excel_sheet
+
+        if operational:
+            path = self._ensure_config_write_workbook()
+        elif from_web:
+            path = self._resolve_config_web_workbook()
+        else:
+            path = self._resolve_config_web_read_path()
+        return read_excel_sheet(path, sheet_name)
+
+    def _resolve_config_path_for_mapping(self) -> Path:
+        """Alias: BaseCarga y mapeo usan el mismo libro local que el resto del módulo."""
+        return self._resolve_config_web_read_path()
+
+    def _read_base_carga_df(self) -> pd.DataFrame:
+        from app.services.file_store_service import read_excel_sheet
+
+        return read_excel_sheet(self._resolve_config_web_read_path(), "BaseCarga")
 
     def _upload_config(self):
-        """Sube el Config modificado de vuelta a Drive"""
-        if self.drive_id_config:
-            self.gdrive.update_file(self.drive_id_config, self.config_path)
+        """Sube ConfiguracionWeb.xlsx (resultados del procesamiento) a Drive."""
+        if not os.path.isfile(self.config_write_path) or os.path.getsize(self.config_write_path) < 128:
+            raise ValueError("No hay ConfiguracionWeb.xlsx local para subir a Drive.")
+        if self.drive_id_config_write:
+            self.gdrive.update_file(self.drive_id_config_write, self.config_write_path)
 
 
     # ==========================================
@@ -352,8 +530,7 @@ class LegacyService:
     async def obtener_negocios_lista(self) -> Dict[str, Any]:
         """Retorna la lista de negocios para el selector manual."""
         try:
-            self._download_config()
-            df = pd.read_excel(self.config_path, sheet_name="Negocios")
+            df = self._read_config_sheet("Negocios")
             negocios = df[["CodigoNegocio", "Descripcion"]].dropna().to_dict(orient="records")
             return {"success": True, "negocios": negocios}
         except Exception as e:
@@ -362,10 +539,9 @@ class LegacyService:
     async def guardar_asociacion_manual(self, archivo: str, codigo_negocio: str, fecha_inicio: str, fecha_fin: str) -> Dict[str, Any]:
         """Guarda manualmente una asociación en la hoja Activas."""
         try:
-            self._download_config()
-            # Leer Activas actual
+            self._ensure_config_write_workbook()
             try:
-                df_activas = pd.read_excel(self.config_path, sheet_name="Activas")
+                df_activas = self._read_config_sheet("Activas", operational=True)
             except:
                 df_activas = pd.DataFrame(columns=["CodigoNegocio", "RutaArchivo", "Cargar", "Añadir", "FechaInicio", "FechaFin"])
 
@@ -382,7 +558,7 @@ class LegacyService:
             df_activas = df_activas[df_activas["RutaArchivo"] != archivo]
             df_activas = pd.concat([df_activas, pd.DataFrame([nueva_fila])], ignore_index=True)
 
-            with pd.ExcelWriter(self.config_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            with pd.ExcelWriter(self.config_write_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                 df_activas.to_excel(writer, sheet_name="Activas", index=False)
 
             self._upload_config()
@@ -404,8 +580,8 @@ class LegacyService:
         from app.services.file_store_service import iter_cierre_caja_archivos_procesamiento, rango_desde_modo
 
         try:
-            self._download_config()
-            hoja_negocios = pd.read_excel(self.config_path, sheet_name="Negocios")
+            self._ensure_config_write_workbook()
+            hoja_negocios = self._read_config_sheet("Negocios")
             tiendas = hoja_negocios["Descripcion"].dropna().unique().tolist()
 
             by_loc: Dict[str, Dict[str, list]] = {}
@@ -510,7 +686,7 @@ class LegacyService:
 
             df_activas = pd.DataFrame(activas_rows)
 
-            with pd.ExcelWriter(self.config_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            with pd.ExcelWriter(self.config_write_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
                 df_asoc.to_excel(writer, sheet_name="Asociaciones", index=False)
                 df_activas.to_excel(writer, sheet_name="Activas", index=False)
 
@@ -688,20 +864,16 @@ class LegacyService:
            mueve también todos los .csv/.xlsx pendientes de ese locatario (riesgo si hay datos de otra semana).
         """
         try:
-            self._download_config()
+            wb_path = self._ensure_config_write_workbook()
 
-            # 0. Limpieza opcional
             if clear_data:
                 self._clear_sales_data()
 
-            # 1. Cargar configuraciones (Negocios con data_only para leer formulas como valores planos)
-            config_activas_df = pd.read_excel(self.config_path, sheet_name="Activas")
-            base_carga_df = pd.read_excel(self.config_path, sheet_name="BaseCarga")
-            
-            # --- MOTOR DE CAPTURA DE VALOR PLANO (FÓRMULAS EXCEL) ---
+            config_activas_df = self._read_config_sheet("Activas", operational=True)
+            base_carga_df = self._read_base_carga_df()
+
             try:
-                # Cargamos en modo data_only para capturar el resultado de la fórmula de 'Estado'
-                wb_data = openpyxl.load_workbook(self.config_path, data_only=True)
+                wb_data = openpyxl.load_workbook(str(wb_path), data_only=True)
                 ws_neg = wb_data["Negocios"]
                 neg_list = []
                 # Capturar cabeceras dinámicamente
@@ -714,11 +886,11 @@ class LegacyService:
                 logger.info("🎯 Estado de Negocios capturado exitosamente como Valor Plano.")
             except Exception as e_flat:
                 logger.error(f"Error capturando valores planos de formulas: {e_flat}")
-                negocios_df = pd.read_excel(self.config_path, sheet_name="Negocios")
-            
+                negocios_df = self._read_config_sheet("Negocios", operational=True)
+
             try:
-                Realizadas_df = pd.read_excel(self.config_path, sheet_name="Realizadas")
-            except:
+                Realizadas_df = self._read_config_sheet("Realizadas", operational=True)
+            except Exception:
                 Realizadas_df = pd.DataFrame()
 
             processed_dataframes = []
@@ -911,7 +1083,7 @@ class LegacyService:
                 self._update_excel_with_sales(final_df, config_activas_df, Realizadas_df)
                 self._upload_config()
 
-                msg = f"Se escribieron {len(final_df)} filas en sales_df (Configuracion.xlsx)."
+                msg = f"Se escribieron {len(final_df)} filas en sales_df (ConfiguracionWeb.xlsx)."
                 if pendientes_extra_movidos:
                     msg += f" Archivados además {len(pendientes_extra_movidos)} archivo(s) pendiente(s) en FileStore."
                 out: Dict[str, Any] = {
@@ -945,15 +1117,13 @@ class LegacyService:
         Sincroniza BigQuery basándose EXCLUSIVAMENTE en la hoja 'sales_df' del Excel.
         """
         try:
-            self._download_config()
-            
             creds = service_account.Credentials.from_service_account_file(self.bq_creds_path)
             client = bigquery.Client(credentials=creds, project=self.bq_project_id)
-            
-            logger.info(f"🚀 Leyendo hoja 'sales_df' de {self.config_path} para carga a BigQuery.")
+
+            logger.info("🚀 Leyendo hoja 'sales_df' de ConfiguracionWeb.xlsx para carga a BigQuery.")
 
             # 1. CARGAR DESDE EXCEL (Fuente de verdad según lógica original)
-            df_sales_excel = pd.read_excel(self.config_path, sheet_name="sales_df")
+            df_sales_excel = self._read_config_sheet("sales_df", from_web=True)
             filas_excel = int(len(df_sales_excel))
 
             # 2. Preprocesar para evitar errores de tipos en BQ
@@ -975,62 +1145,47 @@ class LegacyService:
                     "filas_insertadas": 0,
                 }
 
-            # 3. Filtrar columnas para stg_silver_raw
             columnas_bq = [
                 "Fecha", "Hora", "FechaHora", "CodigoTransaccion", "Producto", "Cliente",
                 "CodigoNegocio", "FechaCarga", "Estado", "Monto", "Cantidad",
                 "CodigoUbicacion", "FormaPago", "EstadoNegocio", "TipoNegocio", "Area"
             ]
             cols_existentes = [c for c in columnas_bq if c in df_sales_clean.columns]
-            df_final_bq = df_sales_clean[cols_existentes]
+            df_final_bq = df_sales_clean[cols_existentes].copy()
 
-            # 4. Filas JSON sin NaN (BigQuery interpreta ausentes/null en JSON como NULL)
-            rows_to_insert = []
-            for _, r in df_final_bq.iterrows():
-                clean: Dict[str, Any] = {}
-                for c in cols_existentes:
-                    v = r[c]
-                    if pd.isna(v):
-                        if c in ('Monto', 'Cantidad'):
-                            clean[c] = 0.0
-                        elif c == 'Estado':
-                            clean[c] = 0
-                        else:
-                            clean[c] = ''
-                        continue
-                    if c in ('Monto', 'Cantidad'):
-                        clean[c] = float(pd.to_numeric(v, errors='coerce') or 0.0)
-                    elif c == 'Estado':
-                        clean[c] = int(float(pd.to_numeric(v, errors='coerce') or 0))
-                    elif isinstance(v, (pd.Timestamp, datetime)):
-                        ts = pd.Timestamp(v)
-                        if c == 'Fecha':
-                            clean[c] = ts.strftime('%Y-%m-%d')
-                        elif c == 'Hora':
-                            clean[c] = ts.strftime('%H:%M:%S')
-                        else:
-                            clean[c] = ts.isoformat(sep=' ', timespec='seconds')
-                    else:
-                        s = str(v).strip()
-                        if s.lower() in ('nan', 'nat', 'none', '<na>'):
-                            clean[c] = ''
-                        else:
-                            clean[c] = s
-                rows_to_insert.append(clean)
+            table_sales_id = f"{self.bq_project_id}.{self.bq_dataset}.{self.bq_table_sales}"
+            try:
+                bq_table = client.get_table(table_sales_id)
+            except Exception as exc:
+                raise ValueError(
+                    f"La tabla BigQuery no existe: {table_sales_id}. "
+                    f"Cree la tabla o defina BQ_TABLE_SALES en .env (destino habitual: stg_sales_silver). "
+                    f"Detalle: {exc}"
+                ) from exc
 
-            table_sales_id = f"{self.bq_project_id}.{self.bq_dataset}.stg_silver_raw"
+            df_final_bq = self._cast_dataframe_to_bq_schema(df_final_bq, bq_table.schema)
 
-            errors = client.insert_rows_json(table_sales_id, rows_to_insert)
-
-            if errors:
-                raise Exception(f"Errores al insertar en BigQuery: {errors}")
-
-            filas_bq = len(rows_to_insert)
+            job_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+            )
+            load_job = client.load_table_from_dataframe(
+                df_final_bq, table_sales_id, job_config=job_config
+            )
+            load_job.result()
+            filas_bq = int(load_job.output_rows or len(df_final_bq))
+            logger.info(
+                "BQ: %s fila(s) añadidas a %s (Excel: %s, tras preprocess: %s)",
+                filas_bq,
+                table_sales_id,
+                filas_excel,
+                filas_tras_preprocess,
+            )
 
             # 2. Update Negocios & Categorias (Truncate con validación de contenido)
             for sheet in ["Negocios", "Categorias"]:
                 try:
-                    df_temp = pd.read_excel(self.config_path, sheet_name=sheet)
+                    df_temp = self._read_config_sheet(sheet)
                     df_temp = self._preprocess_bq_sales(df_temp)
                     
                     if df_temp.empty:
@@ -1038,9 +1193,11 @@ class LegacyService:
                         continue
 
                     table_ref_id = f"{self.bq_project_id}.{self.bq_dataset}.{sheet}"
+                    bq_ref_table = client.get_table(table_ref_id)
+                    df_temp = self._cast_dataframe_to_bq_schema(df_temp, bq_ref_table.schema)
                     job_config = bigquery.LoadJobConfig(
                         write_disposition="WRITE_TRUNCATE",
-                        autodetect=True
+                        autodetect=True,
                     )
                     client.load_table_from_dataframe(df_temp, table_ref_id, job_config=job_config).result()
                     logger.info(f"✅ Tabla '{sheet}' actualizada correctamente.")
@@ -1056,7 +1213,11 @@ class LegacyService:
             
             return {
                 "success": True,
-                "message": f"Sincronización BigQuery: {filas_bq} fila(s) insertadas en stg_silver_raw (Excel: {filas_excel}, tras preprocess: {filas_tras_preprocess}).",
+                "message": (
+                    f"Sincronización BigQuery: {filas_bq} fila(s) añadidas a {self.bq_table_sales} "
+                    f"(Excel: {filas_excel}, tras preprocess: {filas_tras_preprocess})."
+                ),
+                "bq_table": self.bq_table_sales,
                 "filas_insertadas": filas_bq,
                 "filas_leidas_excel": filas_excel,
                 "filas_tras_preprocess": filas_tras_preprocess,
@@ -1074,12 +1235,11 @@ class LegacyService:
         offset: filas a saltar hacia atrás desde el final para lazy load.
         """
         try:
-            self._download_config()
-
             limit = max(1, min(int(limit), 500))
             offset = max(0, int(offset))
 
-            df = pd.read_excel(self.config_path, sheet_name="sales_df")
+            config_path = self._resolve_config_web_workbook()
+            df = self._read_config_sheet("sales_df", from_web=True)
             n = len(df)
             if n == 0:
                 return {
@@ -1091,6 +1251,7 @@ class LegacyService:
                     "next_offset": 0,
                     "has_more": False,
                     "returned_count": 0,
+                    "config_source": str(config_path),
                 }
 
             end_idx = n - offset
@@ -1104,6 +1265,7 @@ class LegacyService:
                     "next_offset": offset,
                     "has_more": False,
                     "returned_count": 0,
+                    "config_source": str(config_path),
                 }
 
             start_idx = max(0, end_idx - limit)
@@ -1125,6 +1287,7 @@ class LegacyService:
                 "next_offset": next_offset,
                 "has_more": has_more,
                 "returned_count": returned,
+                "config_source": str(config_path),
             }
         except Exception as e:
             logger.error(f"Error en preview: {e}")
@@ -1133,10 +1296,8 @@ class LegacyService:
     async def get_realizadas_preview(self, limit: int = 100) -> Dict[str, Any]:
         """Obtiene una vista previa de la hoja Realizadas."""
         try:
-            self._download_config()
-            
-            df = pd.read_excel(self.config_path, sheet_name="Realizadas")
-            # Tomar los últimos registros
+            config_path = self._resolve_config_web_workbook()
+            df = self._read_config_sheet("Realizadas", from_web=True)
             preview_df = df.tail(limit).copy()
             
             # Convertir fechas a string para JSON de forma segura
@@ -1147,10 +1308,11 @@ class LegacyService:
             preview_df = preview_df.fillna("")
             
             return {
-                "success": True, 
+                "success": True,
                 "data": preview_df.to_dict(orient="records"),
                 "columns": preview_df.columns.tolist(),
-                "total_rows": len(df)
+                "total_rows": len(df),
+                "config_source": str(config_path),
             }
         except Exception as e:
             logger.error(f"Error en preview realizadas: {e}")
@@ -1159,17 +1321,335 @@ class LegacyService:
     # ==========================================
     # CONSOLIDACIÓN DESDE FILESTORE (por locatario → _consolidados)
     # ==========================================
+
+    @staticmethod
+    def _consolidacion_skip_legible(skip: str | None) -> str:
+        if not skip:
+            return ""
+        return _CONSOL_SKIP_LEGIBLE.get(skip, skip.replace("_", " "))
+
+    def _consolidacion_force_numeric(self, val) -> tuple[float, bool]:
+        """Normaliza Monto; devuelve (valor, True si se descartó por tope > 50000)."""
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return 0.0, False
+        try:
+            clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
+            clean_str = re.sub(r"[^0-9.]", "", clean_str)
+            if not clean_str or clean_str == ".":
+                return 0.0, False
+            num_val = float(clean_str)
+            if num_val > 50000:
+                return 0.0, True
+            return round(num_val, 4), False
+        except Exception:
+            return 0.0, False
+
+    def _consolidacion_leer_hoja(self, file_path: Path) -> tuple[pd.DataFrame | None, str | None]:
+        """Lee .xlsx, .xls o .csv (motor Excel por contenido del archivo)."""
+        from app.services.file_store_service import read_report_file_dataframe
+
+        return read_report_file_dataframe(file_path)
+
+    def _consolidacion_filas_tabla(self, file_path: Path) -> list[tuple[Any, ...]]:
+        """Filas crudas (sin encabezado pandas) para detección de layout."""
+        fn = file_path.name.lower()
+        rows: list[tuple[Any, ...]] = []
+        try:
+            if fn.endswith((".xlsx", ".xls")):
+                from app.services.file_store_service import read_report_file_dataframe
+
+                df, _ = read_report_file_dataframe(file_path)
+                if df is not None and not df.empty:
+                    rows.append(tuple(df.columns.astype(str)))
+                    for _, r in df.head(500).iterrows():
+                        rows.append(tuple(r.values))
+                    return rows
+            if not fn.endswith(".csv"):
+                return []
+            else:
+                import csv
+
+                with open(file_path, encoding="utf-8", errors="replace", newline="") as f:
+                    sample = f.read(4096)
+                    f.seek(0)
+                    try:
+                        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+                    except csv.Error:
+                        dialect = csv.excel
+                    reader = csv.reader(f, dialect)
+                    for row in reader:
+                        rows.append(tuple(row))
+                        if len(rows) > 500:
+                            break
+        except Exception:
+            return []
+        return rows
+
+    def _consolidacion_mapear_columnas_estandar(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Renombra columnas detectadas a Fecha, Monto, Producto, CodigoTransaccion, etc."""
+        rename: dict[Any, str] = {}
+        for col in df.columns:
+            n = str(col).strip().lower()
+            if "generación" in n or "generacion" in n:
+                continue
+            if n in ("fecha",) or n.startswith("fecha ") or n.startswith("fecha_"):
+                if "Fecha" not in rename.values():
+                    rename[col] = "Fecha"
+            elif "monto" in n or n in ("total", "importe", "venta"):
+                if "Monto" not in rename.values():
+                    rename[col] = "Monto"
+            elif "producto" in n:
+                if "Producto" not in rename.values():
+                    rename[col] = "Producto"
+            elif "transaccion" in n or n == "codigo transaccion":
+                if "CodigoTransaccion" not in rename.values():
+                    rename[col] = "CodigoTransaccion"
+            elif "cantidad" in n:
+                if "Cantidad" not in rename.values():
+                    rename[col] = "Cantidad"
+        if not rename:
+            return df
+        out = df.rename(columns=rename)
+        return out.loc[:, ~out.columns.duplicated()]
+
+    def _consolidacion_extraer_layout_fallback(
+        self, file_path: Path, codigo_bc: str
+    ) -> tuple[pd.DataFrame | None, str | None]:
+        from app.services.notificaciones_service import _buscar_fila_encabezado_fecha
+
+        rows = self._consolidacion_filas_tabla(file_path)
+        if not rows:
+            return None, "layout_fallback_vacio"
+        hit = _buscar_fila_encabezado_fecha(rows)
+        if hit is None:
+            return None, "layout_fallback_vacio"
+        h_idx, _ = hit
+        header = [str(c).strip() if c is not None else "" for c in rows[h_idx]]
+        data_rows = rows[h_idx + 1 :]
+        if not data_rows:
+            return None, "layout_fallback_vacio"
+        width = len(header)
+        normalized = []
+        for row in data_rows:
+            cells = list(row[:width]) + [None] * max(0, width - len(row))
+            normalized.append(cells[:width])
+        df = pd.DataFrame(normalized, columns=header)
+        df = self._consolidacion_mapear_columnas_estandar(df)
+        if "Fecha" not in df.columns or "Monto" not in df.columns:
+            return None, "layout_sin_columnas_fecha_monto"
+        if "Monto" in df.columns:
+            montos_anomalos = 0
+            new_montos = []
+            for v in df["Monto"]:
+                m, anom = self._consolidacion_force_numeric(v)
+                if anom:
+                    montos_anomalos += 1
+                new_montos.append(m)
+            df["Monto"] = new_montos
+        df = self._group_by_transaction(df, codigo_bc)
+        df = df[(df["Monto"] > 0) & df["Fecha"].notna()]
+        if df.empty:
+            return None, "layout_sin_ventas_validas"
+        df["CodigoNegocio"] = codigo_bc
+        return df, None
+
+    @staticmethod
+    def _parse_excel_cell_address(address: str) -> tuple[int, int]:
+        """
+        Convierte 'G2' / 'g2' a (fila, columna) 0-based sobre la grilla cruda del reporte.
+        Excel fila 2 → índice 1 (fila 1 del archivo = encabezado típico).
+        """
+        addr = str(address or "").strip().upper()
+        if not addr:
+            raise ValueError("celda vacía")
+        column_letters = "".join(filter(str.isalpha, addr))
+        row_digits = "".join(filter(str.isdigit, addr))
+        if not column_letters or not row_digits:
+            raise ValueError(f"celda inválida: {address}")
+        col_index = 0
+        for char in column_letters:
+            col_index = col_index * 26 + (ord(char) - ord("A") + 1)
+        return int(row_digits) - 1, col_index - 1
+
+    def _consolidacion_extraer_por_coordenadas(
+        self,
+        raw_rows: list[tuple[Any, ...]],
+        fila_bc: pd.Series,
+        column_names: list[str],
+    ) -> tuple[dict[str, list[Any]], int]:
+        """Lee columnas según celdas BaseCarga (p. ej. Fecha=A2, Monto=G2) en filas crudas."""
+        data: dict[str, list[Any]] = {col: [] for col in column_names}
+        coords_vacias = 0
+        for col in column_names:
+            cell_address = fila_bc.get(col)
+            if pd.isna(cell_address) or not str(cell_address).strip():
+                coords_vacias += 1
+                data[col] = []
+                continue
+            try:
+                r0, c0 = self._parse_excel_cell_address(str(cell_address))
+            except ValueError:
+                data[col] = []
+                continue
+            vals: list[Any] = []
+            for ri in range(r0, len(raw_rows)):
+                row = raw_rows[ri]
+                if c0 < len(row):
+                    vals.append(row[c0])
+                else:
+                    vals.append(None)
+            data[col] = vals
+        max_length = max((len(data[c]) for c in column_names), default=0)
+        for col in column_names:
+            if len(data[col]) < max_length:
+                data[col].extend([None] * (max_length - len(data[col])))
+        return data, coords_vacias
+
+    @staticmethod
+    def _consolidacion_recortar_filas_vacias(
+        data: dict[str, list[Any]], key_cols: tuple[str, ...] = ("Fecha", "Monto")
+    ) -> dict[str, list[Any]]:
+        """Quita filas finales sin Fecha ni Monto."""
+        max_len = max((len(data[c]) for c in data), default=0)
+        last = max_len - 1
+        while last >= 0:
+            tiene_dato = False
+            for col in key_cols:
+                if col not in data or last >= len(data[col]):
+                    continue
+                v = data[col][last]
+                if v is not None and str(v).strip().lower() not in ("", "nan", "none", "nat"):
+                    tiene_dato = True
+                    break
+            if tiene_dato:
+                break
+            last -= 1
+        trim = last + 1
+        return {col: data[col][:trim] for col in data}
+
+    @staticmethod
+    def _consolidacion_fechas_coordenadas_validas(df: pd.DataFrame) -> bool:
+        """False si la columna Fecha no parsea como fechas (p. ej. solo hora por celda mal ubicada)."""
+        if df is None or df.empty or "Fecha" not in df.columns:
+            return False
+        ts = pd.to_datetime(df["Fecha"], errors="coerce", format="mixed", dayfirst=True)
+        ok = int(ts.notna().sum())
+        return ok >= max(1, int(len(df) * 0.3))
+
+    def _consolidacion_aplicar_base_carga(
+        self,
+        file_path: Path,
+        fila_bc: pd.Series,
+        column_names: list[str],
+        codigo_bc: str,
+    ) -> tuple[pd.DataFrame | None, str | None, bool, int]:
+        """
+        Extrae ventas con coordenadas BaseCarga sobre la grilla cruda del reporte.
+        Retorna (df, motivo_fallo, usó_layout_fallback, montos_anomalos).
+        """
+        raw_rows = self._consolidacion_filas_tabla(file_path)
+        if not raw_rows:
+            return None, "archivo_vacio", False, 0
+
+        data, coords_vacias = self._consolidacion_extraer_por_coordenadas(
+            raw_rows, fila_bc, column_names
+        )
+        data = self._consolidacion_recortar_filas_vacias(data)
+        max_length = max((len(data[c]) for c in column_names), default=0)
+        processed_df = pd.DataFrame(data)
+        processed_df = processed_df.loc[:, ~processed_df.columns.str.contains("^Unnamed", na=False)]
+        if processed_df.empty or max_length == 0:
+            return None, "coordenadas_sin_datos", False, 0
+        montos_anomalos = 0
+        if "Monto" in processed_df.columns:
+            new_montos = []
+            for v in processed_df["Monto"]:
+                m, anom = self._consolidacion_force_numeric(v)
+                if anom:
+                    montos_anomalos += 1
+                new_montos.append(m)
+            processed_df["Monto"] = new_montos
+        processed_df = self._group_by_transaction(processed_df, codigo_bc)
+        processed_df = processed_df[(processed_df["Monto"] > 0) & processed_df["Fecha"].notna()]
+        if processed_df.empty:
+            motivo = "coordenadas_sin_datos" if coords_vacias == len(column_names) else "sin_monto_ni_fecha_validos"
+            return None, motivo, False, montos_anomalos
+        processed_df["CodigoNegocio"] = codigo_bc
+        return processed_df, None, False, montos_anomalos
+
+    @staticmethod
+    def _consolidacion_fechas_en_df(df: pd.DataFrame) -> tuple[str | None, str | None, list[str]]:
+        if df is None or df.empty or "Fecha" not in df.columns:
+            return None, None, []
+        ts = pd.to_datetime(df["Fecha"], errors="coerce", format="mixed", dayfirst=True).dt.normalize()
+        valid = ts.dropna()
+        if valid.empty:
+            return None, None, []
+        dmin = valid.min().date().isoformat()
+        dmax = valid.max().date().isoformat()
+        uniq = sorted({d.isoformat() for d in valid.dt.date.unique()})
+        return dmin, dmax, uniq[:20]
+
+    def _consolidacion_procesar_un_archivo(
+        self,
+        file_path: Path,
+        filename: str,
+        fila_bc: pd.Series,
+        column_names: list[str],
+        codigo_bc: str,
+    ) -> tuple[pd.DataFrame | None, dict[str, Any]]:
+        detalle: dict[str, Any] = {
+            "nombre": filename,
+            "estado": "omitido",
+            "motivo": "",
+            "filas": 0,
+            "layout_fallback": False,
+            "montos_anomalos": 0,
+        }
+        if not file_path.is_file():
+            detalle["motivo"] = "archivo_no_encontrado"
+            return None, detalle
+
+        processed_df, motivo, used_fb, montos_anom = self._consolidacion_aplicar_base_carga(
+            file_path, fila_bc, column_names, codigo_bc
+        )
+        detalle["montos_anomalos"] = montos_anom
+        if processed_df is not None and not self._consolidacion_fechas_coordenadas_validas(processed_df):
+            processed_df = None
+            motivo = "coordenadas_fecha_invalida"
+
+        if processed_df is None:
+            fb_df, fb_motivo = self._consolidacion_extraer_layout_fallback(file_path, codigo_bc)
+            if fb_df is not None:
+                processed_df = fb_df
+                detalle["layout_fallback"] = True
+                detalle["motivo"] = "layout_fallback_ok"
+            else:
+                detalle["motivo"] = fb_motivo or motivo or "coordenadas_sin_datos"
+                return None, detalle
+
+        detalle["estado"] = "ok"
+        detalle["filas"] = len(processed_df)
+        if detalle["motivo"] == "":
+            detalle["motivo"] = "ok"
+        fmin, fmax, _ = self._consolidacion_fechas_en_df(processed_df)
+        if fmin:
+            detalle["fecha_min"] = fmin
+            detalle["fecha_max"] = fmax
+        return processed_df, detalle
+
     async def consolidar_desde_filestore(
         self,
         modo_rango: str = "semana_actual",
         fecha_inicio: str | None = None,
         fecha_fin: str | None = None,
+        *,
+        dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
-        Por cada locatario: lee todos los pendientes, aplica BaseCarga, concatena y
-        filtra filas por la columna Fecha del reporte dentro de [rango_inicio, rango_fin]
-        (semana actual, última semana o rango libre). Luego deduplica y guarda CSV en
-        cierre_caja/{loc}/_consolidados/{etiqueta}.csv.
+        Por cada locatario: lee pendientes, aplica BaseCarga (o fallback por encabezado),
+        filtra por Fecha en el rango y escribe _consolidados/{etiqueta}.csv.
+        Incluye informe por local y por archivo; dry_run no escribe CSV.
         """
         try:
             from app.services.file_store_service import (
@@ -1179,29 +1659,27 @@ class LegacyService:
                 filtrar_filas_por_rango_fecha,
                 _dir_locatario_consolidados,
             )
-            from app.core.constants import FILE_STORE_CIERRE_CAJA, get_locatario_code_from_full
+            from app.core.constants import FILE_STORE_CIERRE_CAJA
 
-            self._download_config()
-            base_carga_df = pd.read_excel(self.config_path, sheet_name="BaseCarga")
+            try:
+                base_carga_df = self._read_base_carga_df()
+            except Exception as exc_cfg:
+                return {
+                    "success": False,
+                    "error": (
+                        f"No se pudo leer BaseCarga ({exc_cfg}). "
+                        "Use backend/tools/ConfiguracionWeb.xlsx o CONFIG_WEB_EXCEL_PATH; "
+                        "Drive es opcional si existe copia local."
+                    ),
+                }
             column_names = [c for c in base_carga_df.columns if c != "CodigoNegocio"]
 
             start_d, end_d, etiqueta = rango_desde_modo(modo_rango, fecha_inicio, fecha_fin)
             base = get_upload_base()
             items = list_cierre_caja_por_locatario()
-            if not items:
-                return {
-                    "success": True,
-                    "message": "Sin archivos en cierre_caja",
-                    "registros": 0,
-                    "registros_total": 0,
-                    "etiqueta": etiqueta,
-                    "rango_inicio": start_d.isoformat(),
-                    "rango_fin": end_d.isoformat(),
-                    "locatarios": [],
-                }
+            items_by_loc = {it["locatario"]: it for it in items}
 
             def _fila_base_carga(df: pd.DataFrame, codigo_bc: str) -> pd.Series | None:
-                """Match insensible a mayúsculas / espacios (Excel vs carpetas FileStore)."""
                 if df is None or df.empty or "CodigoNegocio" not in df.columns:
                     return None
                 target = str(codigo_bc or "").strip().upper()
@@ -1213,27 +1691,63 @@ class LegacyService:
                     return None
                 return df.loc[mask].iloc[0]
 
-            def force_numeric_safe(val):
-                if pd.isna(val):
-                    return 0.0
-                try:
-                    clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
-                    clean_str = re.sub(r"[^0-9.]", "", clean_str)
-                    if not clean_str or clean_str == ".":
-                        return 0.0
-                    num_val = float(clean_str)
-                    if num_val > 50000:
-                        return 0.0
-                    return round(num_val, 4)
-                except Exception:
-                    return 0.0
-
-            detalle_loc = []
+            detalle_loc: list[dict[str, Any]] = []
             total_reg = 0
+            resumen = {"ok": 0, "omitidos": 0, "parciales": 0, "sin_carpeta": 0}
 
-            for item in items:
-                codigo_negocio = item["locatario"]          # nombre completo de carpeta, ej: "A03_BARRIO_MANCORA"
-                codigo_bc = get_locatario_code_from_full(codigo_negocio)  # código corto en BaseCarga, ej: "A03"
+            def _append_locatario(entry: dict[str, Any]) -> None:
+                detalle_loc.append(entry)
+                estado = entry.get("estado", "omitido")
+                if estado == "ok":
+                    resumen["ok"] += 1
+                elif estado == "parcial":
+                    resumen["parciales"] += 1
+                elif estado == "sin_carpeta":
+                    resumen["sin_carpeta"] += 1
+                else:
+                    resumen["omitidos"] += 1
+
+            def _procesar_item(codigo_negocio: str, nombre_loc: str, item: dict | None) -> None:
+                nonlocal total_reg
+                try:
+                    _procesar_item_inner(codigo_negocio, nombre_loc, item)
+                except Exception as exc:
+                    logger.exception("Consolidar: error inesperado en %s", codigo_negocio)
+                    _append_locatario({
+                        "locatario": codigo_negocio,
+                        "nombre": nombre_loc,
+                        "codigo_bc": get_locatario_code_from_full(codigo_negocio),
+                        "archivos": 0,
+                        "archivos_ok": 0,
+                        "registros": 0,
+                        "estado": "omitido",
+                        "skip": "error_interno",
+                        "motivo": f"Error al procesar este local: {exc}",
+                        "archivos_detalle": [],
+                    })
+
+            def _procesar_item_inner(codigo_negocio: str, nombre_loc: str, item: dict | None) -> None:
+                nonlocal total_reg
+                codigo_bc = get_locatario_code_from_full(codigo_negocio)
+                base_entry: dict[str, Any] = {
+                    "locatario": codigo_negocio,
+                    "nombre": nombre_loc,
+                    "codigo_bc": codigo_bc,
+                    "archivos": 0,
+                    "archivos_ok": 0,
+                    "registros": 0,
+                    "archivos_detalle": [],
+                }
+
+                if item is None:
+                    _append_locatario({
+                        **base_entry,
+                        "estado": "sin_carpeta",
+                        "skip": "sin_carpeta",
+                        "motivo": self._consolidacion_skip_legible("sin_carpeta"),
+                    })
+                    return
+
                 fila_bc = _fila_base_carga(base_carga_df, codigo_bc)
                 if fila_bc is None:
                     logger.warning(
@@ -1241,115 +1755,148 @@ class LegacyService:
                         codigo_bc,
                         codigo_negocio,
                     )
-                    detalle_loc.append({
-                        "locatario": codigo_negocio,
-                        "codigo_bc": codigo_bc,
-                        "archivos": 0,
-                        "registros": 0,
+                    _append_locatario({
+                        **base_entry,
+                        "estado": "omitido",
                         "skip": "sin_base_carga",
+                        "motivo": self._consolidacion_skip_legible("sin_base_carga"),
                     })
-                    continue
+                    return
 
                 pendientes_all = list(item.get("pendientes") or [])
-                # Criterio de período: columna Fecha de cada venta (misma lógica que rango_libre).
-                # Incluir todos los pendientes evita perder días cuando el sufijo _YYYYMMDD_ es fecha
-                # de carga/subida y no coincide con el día de venta en el archivo.
+                consolidados_prev = list(item.get("consolidados") or [])
                 filenames = list(pendientes_all)
-                if not filenames:
-                    detalle_loc.append({"locatario": codigo_negocio, "archivos": 0, "registros": 0, "skip": "sin pendientes"})
-                    continue
+                base_entry["archivos"] = len(filenames)
 
-                processed_list = []
+                if not filenames:
+                    skip = "solo_consolidados" if consolidados_prev else "sin_pendientes"
+                    _append_locatario({
+                        **base_entry,
+                        "estado": "omitido",
+                        "skip": skip,
+                        "motivo": self._consolidacion_skip_legible(skip),
+                        "consolidados_previos": consolidados_prev[:10],
+                    })
+                    return
+
+                archivos_detalle: list[dict[str, Any]] = []
+                processed_list: list[pd.DataFrame] = []
                 for filename in filenames:
+                    file_path = base / FILE_STORE_CIERRE_CAJA / codigo_negocio / filename
                     try:
-                        file_path = base / FILE_STORE_CIERRE_CAJA / codigo_negocio / filename
-                        if not file_path.is_file():
-                            continue
-                        if str(filename).lower().endswith(".xlsx"):
-                            sheet = pd.read_excel(file_path)
-                        else:
-                            with open(file_path, "rb") as f:
-                                enc = chardet.detect(f.read())["encoding"] or "latin-1"
-                            sheet = pd.read_csv(file_path, sep=None, engine="python", encoding=enc)
-                        if sheet.empty:
-                            continue
-                        data = {col: [] for col in column_names}
-                        max_length = 0
-                        for col in column_names:
-                            try:
-                                cell_address = fila_bc.get(col)
-                                if pd.notna(cell_address):
-                                    r_idx, c_idx = self._excel_cell_to_csv_indices(str(cell_address))
-                                    col_vals = sheet.iloc[r_idx:, c_idx].tolist()
-                                    data[col] = col_vals
-                                    max_length = max(max_length, len(col_vals))
-                            except Exception:
-                                data[col] = []
-                        for col in column_names:
-                            if len(data[col]) < max_length:
-                                data[col].extend([None] * (max_length - len(data[col])))
-                        processed_df = pd.DataFrame(data)
-                        processed_df = processed_df.loc[:, ~processed_df.columns.str.contains("^Unnamed", na=False)]
-                        if processed_df.empty:
-                            continue
-                        if "Monto" in processed_df.columns:
-                            processed_df["Monto"] = processed_df["Monto"].apply(force_numeric_safe)
-                        processed_df = self._group_by_transaction(processed_df, codigo_bc)
-                        processed_df = processed_df[(processed_df["Monto"] > 0) & processed_df["Fecha"].notna()]
-                        if processed_df.empty:
-                            continue
-                        processed_df["CodigoNegocio"] = codigo_bc
-                        processed_list.append(processed_df)
-                        logger.info(f"Consolidar: {codigo_negocio} / {filename} -> {len(processed_df)} filas")
-                    except Exception as e:
-                        logger.warning(f"Error procesando {codigo_negocio}/{filename}: {e}")
-                        continue
+                        processed_df, ad = self._consolidacion_procesar_un_archivo(
+                            file_path, filename, fila_bc, column_names, codigo_bc
+                        )
+                        archivos_detalle.append(ad)
+                        if processed_df is not None:
+                            processed_list.append(processed_df)
+                            logger.info(
+                                "Consolidar: %s / %s -> %s filas",
+                                codigo_negocio,
+                                filename,
+                                len(processed_df),
+                            )
+                    except Exception as exc:
+                        logger.warning("Error procesando %s/%s: %s", codigo_negocio, filename, exc)
+                        archivos_detalle.append({
+                            "nombre": filename,
+                            "estado": "omitido",
+                            "motivo": f"error_lectura:{exc}",
+                            "filas": 0,
+                        })
+
+                base_entry["archivos_detalle"] = archivos_detalle
+                base_entry["archivos_ok"] = sum(1 for a in archivos_detalle if a.get("estado") == "ok")
 
                 if not processed_list:
-                    detalle_loc.append({"locatario": codigo_negocio, "archivos": len(filenames), "registros": 0, "skip": "sin filas válidas"})
-                    continue
+                    _append_locatario({
+                        **base_entry,
+                        "estado": "omitido",
+                        "skip": "sin_filas_validas",
+                        "motivo": self._consolidacion_skip_legible("sin_filas_validas"),
+                    })
+                    return
 
                 final = pd.concat(processed_list, ignore_index=True)
+                fmin_pre, fmax_pre, fechas_muestra = self._consolidacion_fechas_en_df(final)
                 before_dedup = len(final)
                 if "Fecha" in final.columns:
                     final = filtrar_filas_por_rango_fecha(final, start_d, end_d, col="Fecha")
                 if final.empty:
-                    detalle_loc.append({
-                        "locatario": codigo_negocio,
-                        "archivos": len(filenames),
-                        "registros": 0,
+                    _append_locatario({
+                        **base_entry,
+                        "estado": "omitido",
                         "skip": "sin_registros_en_rango_fecha",
+                        "motivo": self._consolidacion_skip_legible("sin_registros_en_rango_fecha"),
                         "rango_inicio": start_d.isoformat(),
                         "rango_fin": end_d.isoformat(),
+                        "fechas_detectadas_min": fmin_pre,
+                        "fechas_detectadas_max": fmax_pre,
+                        "fechas_detectadas_muestra": fechas_muestra,
                     })
-                    continue
+                    return
+
                 subset_cols = [c for c in ["Fecha", "CodigoNegocio", "Monto", "Producto"] if c in final.columns]
                 if subset_cols:
                     final = final.drop_duplicates(subset=subset_cols, keep="last")
                 duplicados_eliminados = before_dedup - len(final)
 
-                out_dir = _dir_locatario_consolidados(base, codigo_negocio)
-                out_dir.mkdir(parents=True, exist_ok=True)
-                safe_tag = re.sub(r"[^\w\-]+", "_", etiqueta)
-                out_path = out_dir / f"{safe_tag}.csv"
-                final.to_csv(out_path, index=False, sep=";")
+                estado_loc = "ok" if base_entry["archivos_ok"] == len(filenames) else "parcial"
+                out_rel: str | None = None
+                if not dry_run:
+                    out_dir = _dir_locatario_consolidados(base, codigo_negocio)
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    safe_tag = re.sub(r"[^\w\-]+", "_", etiqueta)
+                    out_path = out_dir / f"{safe_tag}.csv"
+                    final.to_csv(out_path, index=False, sep=";")
+                    out_rel = str(out_path.relative_to(base))
+                    logger.info("Consolidado por locatario: %s (%s registros)", out_path, len(final))
+
                 total_reg += len(final)
-                detalle_loc.append({
-                    "locatario": codigo_negocio,
-                    "archivos": len(filenames),
+                fmin_out, fmax_out, _ = self._consolidacion_fechas_en_df(final)
+                _append_locatario({
+                    **base_entry,
+                    "estado": estado_loc,
+                    "motivo": "Consolidado correctamente."
+                    if estado_loc == "ok"
+                    else f"Consolidado con {len(filenames) - base_entry['archivos_ok']} archivo(s) sin aportar datos.",
                     "registros": len(final),
                     "duplicados_eliminados": duplicados_eliminados,
-                    "archivo": str(out_path.relative_to(base)),
+                    "archivo": out_rel,
+                    "escrito": not dry_run,
+                    "fechas_en_consolidado_min": fmin_out,
+                    "fechas_en_consolidado_max": fmax_out,
                 })
-                logger.info(f"Consolidado por locatario: {out_path} ({len(final)} registros)")
+
+            for loc in LOCATARIOS:
+                codigo_negocio = loc["codigo"]
+                nombre_loc = loc["name"]
+                _procesar_item(codigo_negocio, nombre_loc, items_by_loc.get(codigo_negocio))
+
+            # Carpetas en disco que no están en el catálogo LOCATARIOS
+            catalog_codes = {loc["codigo"] for loc in LOCATARIOS}
+            for codigo_negocio, item in items_by_loc.items():
+                if codigo_negocio in catalog_codes:
+                    continue
+                _procesar_item(codigo_negocio, codigo_negocio, item)
+
+            config_src = ""
+            try:
+                config_src = str(self._resolve_config_path_for_mapping())
+            except ValueError:
+                pass
 
             return {
                 "success": True,
+                "dry_run": dry_run,
                 "etiqueta": etiqueta,
                 "rango_inicio": start_d.isoformat(),
                 "rango_fin": end_d.isoformat(),
                 "registros_total": total_reg,
+                "resumen": resumen,
                 "locatarios": detalle_loc,
+                "config_basecarga": config_src,
+                "message": "Simulación (sin escribir CSV)." if dry_run else None,
             }
         except Exception as e:
             logger.error(f"Error en consolidar_desde_filestore: {e}")
@@ -1504,21 +2051,13 @@ class LegacyService:
             return f"Error en predictor: {str(e)}"
 
     def _excel_cell_to_csv_indices(self, cell_address: str) -> Tuple[int, int]:
-        """Convierte direcciones como 'B5' o 'AA10' a índices (fila, col) de 0 base para CSV."""
+        """
+        Compat carga ventas (DataFrame con cabecera pandas): fila Excel N → iloc N-2.
+        La consolidación usa _parse_excel_cell_address sobre grilla cruda.
+        """
         try:
-            # Limpiar la dirección por si viene con espacios o caracteres extraños
-            address = str(cell_address).strip().upper()
-            column_letters = ''.join(filter(str.isalpha, address))
-            row_number = ''.join(filter(str.isdigit, address))
-            
-            column_index = 0
-            for char in column_letters:
-                column_index = column_index * 26 + (ord(char) - ord('A') + 1)
-            
-            # En CSV, la fila 1 es el encabezado (0), la 2 son datos. 
-            # Si el Excel dice B5, en el CSV (leído por pandas) suele ser la fila 3 o 4 
-            # dependiendo de si hay encabezados. Ajustamos a -2 para compensar.
-            return int(row_number) - 2, column_index - 1
+            row_0, col_0 = self._parse_excel_cell_address(cell_address)
+            return max(0, row_0 - 1), col_0
         except Exception as e:
             logger.error(f"Error convirtiendo coordenada {cell_address}: {e}")
             return 0, 0
@@ -1526,7 +2065,8 @@ class LegacyService:
     def _clear_sales_data(self):
         """Limpia las hojas de resultados para un inicio desde cero."""
         try:
-            with pd.ExcelWriter(self.config_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            self._ensure_config_write_workbook()
+            with pd.ExcelWriter(self.config_write_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                 # 1. Limpiar sales_df manteniendo la cabecera original
                 pd.DataFrame(columns=["CodigoNegocio","Fecha","Monto", "Estado", "FormaPago", "CodigoUbicacion", "EstadoNegocio", "TipoNegocio", "Area", "FechaCarga"]).to_excel(writer, sheet_name="sales_df", index=False)
                 
@@ -1553,7 +2093,7 @@ class LegacyService:
 
             # 2. Actualizar sales_df
             try:
-                existing_sales = pd.read_excel(self.config_path, sheet_name="sales_df")
+                existing_sales = pd.read_excel(self.config_write_path, sheet_name="sales_df", engine="openpyxl")
             except:
                 existing_sales = pd.DataFrame(columns=columnas_sales_df)
             
@@ -1602,7 +2142,7 @@ class LegacyService:
                 final_realizadas = pd.concat([realizadas[columnas_realizadas], nuevas_realizadas], ignore_index=True)
 
             # 4. Escritura Atómica en Excel
-            with pd.ExcelWriter(self.config_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            with pd.ExcelWriter(self.config_write_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                 final_sales.to_excel(writer, sheet_name="sales_df", index=False)
                 final_realizadas.to_excel(writer, sheet_name="Realizadas", index=False)
                 # Limpiar Activas (CORREGIDO: 'activ' -> 'activas')
@@ -1612,6 +2152,40 @@ class LegacyService:
         except Exception as e:
             logger.error(f"Error crítico en sincronización de hojas: {e}")
             raise e
+
+    @staticmethod
+    def _bq_cell_as_string(value: Any) -> str:
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return ""
+        if isinstance(value, (float, np.floating)):
+            if value == int(value):
+                return str(int(value))
+            return str(value).strip()
+        if isinstance(value, (int, np.integer)):
+            return str(int(value))
+        s = str(value).strip()
+        return "" if s.lower() in ("nan", "none", "nat", "<na>") else s
+
+    @classmethod
+    def _cast_dataframe_to_bq_schema(cls, df: pd.DataFrame, schema) -> pd.DataFrame:
+        """Alinea dtypes del DataFrame al esquema BigQuery (pyarrow exige STRING sin float64)."""
+        string_types = {"STRING"}
+        float_types = {"FLOAT", "FLOAT64", "NUMERIC", "BIGNUMERIC"}
+        int_types = {"INTEGER", "INT64"}
+        schema_map = {f.name: (f.field_type or "").upper() for f in schema}
+
+        out = df.copy()
+        for col in out.columns:
+            bq_type = schema_map.get(col)
+            if not bq_type:
+                continue
+            if bq_type in string_types:
+                out[col] = out[col].map(cls._bq_cell_as_string)
+            elif bq_type in float_types:
+                out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+            elif bq_type in int_types:
+                out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).astype("Int64")
+        return out
 
     def _preprocess_bq_sales(self, df):
         """
@@ -1658,13 +2232,17 @@ class LegacyService:
                 h = df_proc['Hora'].astype(str).str.strip()
                 df_proc['FechaHora'] = (f + ' ' + h).str.strip()
 
-            # 5. Asegurar tipos finales (líneas 136-140 original)
-            for col in df_proc.columns:
-                if df_proc[col].dtype == 'int64':
-                    df_proc[col] = df_proc[col].astype('float64')
-                elif df_proc[col].dtype == 'object':
-                    # Limpieza final de strings
-                    df_proc[col] = df_proc[col].astype(str).str.replace('nan', '').replace('None', '').replace('NaT', '')
+            # 5. Tipos finales: solo métricas numéricas a float (no convertir códigos/fechas a float)
+            for col in ('Monto', 'Cantidad', 'cantidad', 'Area'):
+                if col in df_proc.columns:
+                    df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0.0)
+            for col in df_proc.select_dtypes(include=['object']).columns:
+                df_proc[col] = (
+                    df_proc[col].astype(str).str.replace('nan', '', regex=False)
+                    .replace('None', '', regex=False).replace('NaT', '', regex=False)
+                )
+            if 'CodigoUbicacion' in df_proc.columns and pd.api.types.is_numeric_dtype(df_proc['CodigoUbicacion']):
+                df_proc['CodigoUbicacion'] = df_proc['CodigoUbicacion'].map(self._bq_cell_as_string)
 
             # 6. Limpieza específica de campos (líneas 141-160 original)
             if 'Producto' in df_proc.columns:
