@@ -8,7 +8,14 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import AppSelect from '@/components/ui/AppSelect';
+import { ORDER_STATUS } from '@/constants/delivery';
 import type { AdminCancelIn, DriverArrival, Order } from '@/services/deliveryService';
+
+const ORDER_TERMINAL_STATUSES: readonly string[] = [
+    ORDER_STATUS.ENTREGADO,
+    ORDER_STATUS.CANCELADO,
+    ORDER_STATUS.DEVOLUCION,
+];
 import { deliveryService } from '@/services/deliveryService';
 import { orderStatusBadgeClass } from '@/constants/delivery';
 
@@ -78,6 +85,13 @@ export type DeliveryAdminTableProps = {
     admin: {
         markDevolucion: {
             mutate: (id: number, opts?: { onSuccess?: () => void; onError?: () => void }) => void;
+            isPending: boolean;
+        };
+        forceEntregado: {
+            mutate: (
+                args: { orderId: number; payload: { reason: string; note?: string } },
+                opts?: { onSuccess?: () => void; onError?: () => void }
+            ) => void;
             isPending: boolean;
         };
         cancel: {
@@ -283,8 +297,54 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 header: () => <span className="block w-full text-center">Acciones</span>,
                 cell: ({ row }) => {
                     const o = row.original;
+                    const isTerminal = ORDER_TERMINAL_STATUSES.includes(o.estado);
                     return (
                         <div className="flex flex-wrap gap-1 justify-center">
+                            {!isTerminal ? (
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const reason = await promptText({
+                                            title: 'Cerrar como entregado (sin match)',
+                                            label: 'Motivo (obligatorio)',
+                                            placeholder: 'Ej: retiro en mostrador sin registro en kiosk…',
+                                            required: true,
+                                        });
+                                        if (!reason) return;
+                                        const note = await promptText({
+                                            title: 'Cerrar como entregado',
+                                            label: 'Nota (opcional)',
+                                            placeholder: 'Detalle adicional para auditoría…',
+                                            required: false,
+                                        });
+                                        const ok = await confirm({
+                                            title: 'Confirmar entrega forzada',
+                                            text: `¿Cerrar como ENTREGADO el pedido ${o.codigo_pedido}? No requiere conductor matcheado.${
+                                                o.matched_driver_arrival_id
+                                                    ? ' Si hay match activo, el conductor pasará a DESPACHADO.'
+                                                    : ''
+                                            }`,
+                                            confirmText: 'Entregar',
+                                            confirmColor: 'var(--app-success)',
+                                        });
+                                        if (!ok) return;
+                                        admin.forceEntregado.mutate(
+                                            { orderId: o.id, payload: { reason, note: note || undefined } },
+                                            {
+                                                onSuccess: () =>
+                                                    void toast({ icon: 'success', title: 'Pedido cerrado como entregado' }),
+                                                onError: () =>
+                                                    void toast({ icon: 'error', title: 'No se pudo cerrar como entregado' }),
+                                            }
+                                        );
+                                    }}
+                                    disabled={admin.forceEntregado.isPending}
+                                    className="px-2 py-1 rounded-lg bg-app-success text-white text-[9px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+                                    title="Cierre manual sin exigir match en kiosk"
+                                >
+                                    Entregar
+                                </button>
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={async () => {
@@ -300,7 +360,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                         onError: () => void toast({ icon: 'error', title: 'No se pudo marcar' }),
                                     });
                                 }}
-                                disabled={admin.markDevolucion.isPending}
+                                disabled={admin.markDevolucion.isPending || isTerminal}
                                 className="px-2 py-1 rounded-lg bg-app-delivery text-white text-[9px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
                             >
                                 Devol.
@@ -336,7 +396,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                         }
                                     );
                                 }}
-                                disabled={admin.cancel.isPending}
+                                disabled={admin.cancel.isPending || o.estado === ORDER_STATUS.ENTREGADO}
                                 className="px-2 py-1 rounded-lg bg-app-danger text-white text-[9px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
                             >
                                 Cancel.

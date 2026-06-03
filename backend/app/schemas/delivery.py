@@ -352,6 +352,18 @@ class AdminUnlockIn(AdminNoteIn):
     pass
 
 
+class AdminForceEntregadoIn(AdminNoteIn):
+    """Cierre manual como ENTREGADO sin exigir driver matcheado (auditoría)."""
+
+    reason: str
+
+    @validator("reason", pre=True)
+    def _reason_required(cls, v):
+        if v is None or not str(v).strip():
+            raise ValueError("Motivo obligatorio")
+        return str(v).strip()
+
+
 class RunnerPushRegisterIn(BaseModel):
     """Registro de token Expo Push para la app Runner (interna)."""
 

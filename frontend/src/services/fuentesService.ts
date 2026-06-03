@@ -70,6 +70,36 @@ export function zipCierreCajaUrl(locatario?: string): string {
     return q ? `${FUENTES_BASE}/zip?${q}` : `${FUENTES_BASE}/zip`;
 }
 
+/** Descarga varios archivos de cierre_caja en un ZIP (POST /fuentes/zip-selection). */
+export async function downloadFuentesZipSelection(params: {
+    locatarioCodigo: string;
+    zona: 'pendiente' | 'consolidado' | 'backup';
+    filenames: string[];
+}): Promise<void> {
+    if (!params.filenames.length) return;
+    const formData = new FormData();
+    formData.append('locatario_codigo', params.locatarioCodigo);
+    formData.append('zona', params.zona);
+    params.filenames.forEach((name) => formData.append('filenames', name));
+    const res = await axios.post<Blob>(`${FUENTES_BASE}/zip-selection`, formData, {
+        responseType: 'blob',
+    });
+    const safeLoc = params.locatarioCodigo.replace(/[/\\?%*:|"<>]/g, '_');
+    const safeName = `cierre_caja_${safeLoc}_${params.zona}_seleccion.zip`;
+    const url = URL.createObjectURL(res.data);
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = safeName;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
 export function downloadFuentesUrl(params: {
     origen: 'cierre' | 'procesados';
     locatario_codigo: string;
@@ -139,6 +169,20 @@ export async function deleteFuentesArchivo(
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+}
+
+export async function deleteFuentesArchivosBulk(
+    token: string | null,
+    params: { locatarioCodigo: string; zona: 'pendiente' | 'consolidado' | 'backup'; filenames: string[] }
+): Promise<{ ok: boolean; deleted: string[]; requested: string[]; missing: string[]; zona: string }> {
+    const formData = new FormData();
+    formData.append('locatario_codigo', params.locatarioCodigo);
+    formData.append('zona', params.zona);
+    params.filenames.forEach((name) => formData.append('filenames', name));
+    const res = await axios.post(`${FUENTES_BASE}/eliminar-bulk`, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.data;
 }
 
 export async function moveFuentesToBackup(

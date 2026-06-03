@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     AdminCancelIn,
+    AdminForceEntregadoIn,
     AdminUnlockIn,
     RestaurantCreateIn,
     RestaurantUpdateIn,
@@ -105,6 +106,12 @@ export function useAdminActions() {
         onSuccess: invalidate,
     });
 
+    const forceEntregado = useMutation({
+        mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminForceEntregadoIn }) =>
+            deliveryService.adminForceEntregado(token as string, orderId, payload),
+        onSuccess: invalidate,
+    });
+
     const cancel = useMutation({
         mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminCancelIn }) =>
             deliveryService.adminCancelOrder(token as string, orderId, payload),
@@ -117,7 +124,7 @@ export function useAdminActions() {
         onSuccess: invalidate,
     });
 
-    return { markDevolucion, cancel, unlock };
+    return { markDevolucion, forceEntregado, cancel, unlock };
 }
 
 export function useAdminRestaurants(open: boolean) {

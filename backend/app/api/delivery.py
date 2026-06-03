@@ -60,6 +60,7 @@ from app.schemas.delivery import (
     ManualMatchIn,
     AdminCancelIn,
     AdminUnlockIn,
+    AdminForceEntregadoIn,
     OrderOut,
     DriverArrivalOut,
     RestaurantOut,
@@ -1630,6 +1631,75 @@ async def admin_mark_devolucion(
     db.commit()
     db.refresh(order)
     await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "admin_mark_devolucion"})
+    return _load_order_dict(db, order.id)
+
+
+@router.post("/admin/orders/{order_id}/force-entregado", response_model=OrderOut)
+async def admin_force_entregado(
+    order_id: int,
+    payload: AdminForceEntregadoIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cierra el pedido como ENTREGADO sin exigir driver matcheado.
+    Si ya hay match activo, despacha al conductor igual que el flujo runner.
+    Requiere motivo (auditoría). Solo `delivery:admin`.
+    """
+    _require_permission(current_user, "delivery:admin")
+    apply_timeouts(db)
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order.estado in [ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO, ORDER_STATUS_DEVOLUCION]:
+        raise HTTPException(status_code=400, detail="Pedido no puede cerrarse como entregado por estado")
+
+    arrival = (
+        db.query(DriverArrival)
+        .filter(DriverArrival.matched_order_id == order.id)
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+
+    now = _utcnow()
+    had_match = arrival is not None
+    order.estado = ORDER_STATUS_ENTREGADO
+    order.estado_changed_at = now
+    order.entregado_at = now
+    order.locked_by_runner_id = None
+    if arrival and arrival.estado == DRIVER_STATUS_EN_MATCH:
+        arrival.estado = DRIVER_STATUS_DESPACHADO
+        arrival.estado_changed_at = now
+        arrival.despachado_at = now
+
+    db.commit()
+    db.refresh(order)
+    await _emit(
+        EVENT_ORDER_UPDATED,
+        {
+            "order_id": order.id,
+            "estado": order.estado,
+            "source": "admin_force_entregado",
+            "reason": payload.reason,
+            "note": payload.note,
+            "without_match": not had_match,
+            "admin_user_id": current_user.id,
+        },
+    )
+    if arrival and arrival.estado == DRIVER_STATUS_DESPACHADO:
+        await _emit(
+            EVENT_DRIVER_UPDATED,
+            {
+                "driver_arrival_id": arrival.id,
+                "estado": arrival.estado,
+                "source": "admin_force_entregado",
+            },
+        )
     return _load_order_dict(db, order.id)
 
 

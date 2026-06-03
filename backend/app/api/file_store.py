@@ -39,6 +39,29 @@ router = APIRouter(prefix="/fuentes", tags=["Fuentes de datos"])
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
 
+def _normalize_cierre_zona(zona: str) -> str:
+    z = (zona or "").strip().lower()
+    if z in ("consolidado", "consolidados", "_consolidados"):
+        return "consolidado"
+    if z in ("backup", "respaldo", "backup_no_consolidados"):
+        return "backup"
+    if z == "pendiente":
+        return "pendiente"
+    raise HTTPException(status_code=400, detail="zona debe ser pendiente, consolidado o backup")
+
+
+def _cierre_file_path(base: Path, loc: str, zona: str, filename: str) -> Path:
+    fn = Path((filename or "").strip()).name
+    if not fn:
+        raise HTTPException(status_code=400, detail="filename inválido")
+    z = _normalize_cierre_zona(zona)
+    if z == "consolidado":
+        return _dir_locatario_consolidados(base, loc) / fn
+    if z == "backup":
+        return _dir_locatario_backup(base, loc) / fn
+    return _dir_locatario_pendientes(base, loc) / fn
+
+
 def _zip_cierre_caja_tree(base: Path, zf: zipfile.ZipFile, locatario: str | None) -> None:
     """Añade cierre_caja al zip; si locatario, solo esa carpeta."""
     cc = _dir_cierre_caja(base)
@@ -239,6 +262,44 @@ async def fuentes_descargar_zip(
     )
 
 
+@router.post("/zip-selection")
+async def fuentes_descargar_zip_seleccion(
+    locatario_codigo: str = Form(...),
+    zona: str = Form(...),
+    filenames: list[str] = Form(...),
+):
+    """
+    ZIP con archivos seleccionados de un locatario en cierre_caja (pendiente, consolidado o backup).
+    """
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    clean_names = list(dict.fromkeys(Path((f or "").strip()).name for f in filenames if (f or "").strip()))
+    if not clean_names:
+        raise HTTPException(status_code=400, detail="filenames es requerido")
+    z = _normalize_cierre_zona(zona)
+    base = get_upload_base()
+    buffer = io.BytesIO()
+    added = 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in clean_names:
+            path = _cierre_file_path(base, loc, z, name)
+            if not path.is_file():
+                continue
+            arc = Path(FILE_STORE_CIERRE_CAJA) / loc / z / name
+            zf.write(path, str(arc))
+            added += 1
+    if added == 0:
+        raise HTTPException(status_code=404, detail="No hay archivos para comprimir")
+    buffer.seek(0)
+    zip_name = f"{FILE_STORE_CIERRE_CAJA}_{loc}_{z}_seleccion.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_name}"},
+    )
+
+
 @router.get("/download")
 async def fuentes_descargar_archivo(
     origen: str,
@@ -263,15 +324,7 @@ async def fuentes_descargar_archivo(
 
     base = get_upload_base()
     if o == "cierre":
-        z = (zona or "").strip().lower()
-        if z in ("consolidado", "consolidados", "_consolidados"):
-            path = _dir_locatario_consolidados(base, loc) / fn
-        elif z in ("backup", "respaldo", "backup_no_consolidados"):
-            path = _dir_locatario_backup(base, loc) / fn
-        elif z == "pendiente":
-            path = _dir_locatario_pendientes(base, loc) / fn
-        else:
-            raise HTTPException(status_code=400, detail="zona debe ser pendiente, consolidado o backup")
+        path = _cierre_file_path(base, loc, zona or "", fn)
     elif o == "procesados":
         raw_f = (fecha or "").strip()
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_f):
@@ -344,15 +397,46 @@ async def fuentes_eliminar_archivo(
     """
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Solo superuser puede eliminar archivos")
-    z = (zona or "pendiente").strip().lower()
-    if z in ("consolidado", "consolidados", "_consolidados"):
-        z = "consolidado"
-    elif z != "pendiente":
-        raise HTTPException(status_code=400, detail="zona debe ser pendiente o consolidado")
-    ok = delete_file(locatario_codigo.strip(), filename, zona=z)
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    fn = Path((filename or "").strip()).name
+    if not fn:
+        raise HTTPException(status_code=400, detail="filename inválido")
+    z = _normalize_cierre_zona(zona or "pendiente")
+    ok = delete_file(loc, fn, zona=z)
     if not ok:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return {"ok": True}
+
+
+@router.post("/eliminar-bulk")
+async def fuentes_eliminar_bulk(
+    locatario_codigo: str = Form(...),
+    zona: str = Form(...),
+    filenames: list[str] = Form(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina varios archivos de un locatario en pendiente, consolidado o backup."""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo superuser puede eliminar archivos")
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    clean_names = list(dict.fromkeys(Path((f or "").strip()).name for f in filenames if (f or "").strip()))
+    if not clean_names:
+        raise HTTPException(status_code=400, detail="filenames es requerido")
+    z = _normalize_cierre_zona(zona)
+    deleted: list[str] = []
+    missing: list[str] = []
+    for name in clean_names:
+        if delete_file(loc, name, zona=z):
+            deleted.append(name)
+        else:
+            missing.append(name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No se eliminó ningún archivo")
+    return {"ok": True, "deleted": deleted, "requested": clean_names, "missing": missing, "zona": z}
 
 
 @router.post("/mover-backup")

@@ -9,12 +9,6 @@ from app.models.agenda_deportiva import (  # noqa: F401
     AgendaSlide,
     AgendaTrack,
 )
-from app.models.sisa_reservas import (  # noqa: F401
-    SisaReservaMesa,
-    SisaReservaRegistro,
-    SisaReservaZona,
-    SisaReservasNotificacionesConfig,
-)
 from app.core.security import get_password_hash
 import sys
 
@@ -36,8 +30,6 @@ def init():
         {"name": "Gestionar Comercial", "codename": "comercial:manage", "module": "comercial"},
         {"name": "Ver Documentos GCB", "codename": "documentos_gcb:view", "module": "documentos_gcb"},
         {"name": "Gestionar Documentos GCB", "codename": "documentos_gcb:manage", "module": "documentos_gcb"},
-        {"name": "Ver Reservas Sisa", "codename": "sisa_reservas:view", "module": "sisa_reservas"},
-        {"name": "Gestionar Reservas Sisa", "codename": "sisa_reservas:manage", "module": "sisa_reservas"},
         {"name": "Ver Agenda Deportiva", "codename": "agenda_deportiva:view", "module": "agenda_deportiva"},
         {"name": "Gestionar Agenda Deportiva", "codename": "agenda_deportiva:manage", "module": "agenda_deportiva"},
     ]

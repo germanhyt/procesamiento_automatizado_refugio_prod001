@@ -110,6 +110,11 @@ export interface AdminUnlockIn {
     note?: string | null;
 }
 
+export interface AdminForceEntregadoIn {
+    reason: string;
+    note?: string | null;
+}
+
 function authHeaders(token: string | null) {
     return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -165,6 +170,15 @@ export const deliveryService = {
 
     async adminMarkDevolucion(token: string, orderId: number) {
         const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/mark-devolucion`, null, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async adminForceEntregado(token: string, orderId: number, payload: AdminForceEntregadoIn) {
+        const res = await axios.post<Order>(
+            `${API_URL}/delivery/admin/orders/${orderId}/force-entregado`,
+            payload,
+            { headers: authHeaders(token) }
+        );
         return res.data;
     },
 

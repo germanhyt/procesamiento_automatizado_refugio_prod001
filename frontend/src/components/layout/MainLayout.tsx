@@ -18,9 +18,6 @@ import {
     Moon,
     CalendarRange,
     ChevronDown,
-    ClipboardList,
-    LayoutGrid,
-    BarChart3,
     Database,
     MonitorPlay,
 } from 'lucide-react';
@@ -36,7 +33,6 @@ type MenuThemeKey =
     | 'delivery'
     | 'comercial'
     | 'documentos'
-    | 'sisa_reservas'
     | 'agenda_deportiva';
 
 interface MenuLeafItem {
@@ -121,39 +117,6 @@ const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
             },
         ],
     },
-    {
-        id: 'sisa-reservas',
-        label: 'Reservas Sisa',
-        icon: <CalendarRange size={18} />,
-        permission: 'sisa_reservas:view',
-        themeKey: 'sisa_reservas',
-        children: [
-            {
-                id: 'sisa-reservas-reservas',
-                path: '/sisa-reservas/reservas',
-                label: 'Reservas',
-                icon: <ClipboardList size={16} />,
-                permission: 'sisa_reservas:view',
-                themeKey: 'sisa_reservas',
-            },
-            {
-                id: 'sisa-reservas-plano',
-                path: '/sisa-reservas/plano',
-                label: 'Plano',
-                icon: <LayoutGrid size={16} />,
-                permission: 'sisa_reservas:view',
-                themeKey: 'sisa_reservas',
-            },
-            {
-                id: 'sisa-reservas-dashboard',
-                path: '/sisa-reservas/dashboard',
-                label: 'Dashboard',
-                icon: <BarChart3 size={16} />,
-                permission: 'sisa_reservas:view',
-                themeKey: 'sisa_reservas',
-            },
-        ],
-    },
 ];
 
 type ModuleTheme = {
@@ -205,13 +168,6 @@ const MODULE_THEMES: Record<MenuThemeKey, ModuleTheme> = {
         accentMuted: 'var(--app-documentos-accent-muted)',
         accentMutedBg: 'var(--app-documentos-accent-muted-bg)',
         accentStrong: 'var(--app-documentos-accent-strong)',
-        textOnAccent: '#f8f3ee',
-    },
-    sisa_reservas: {
-        accent: 'var(--app-sisa-reservas-accent)',
-        accentMuted: 'var(--app-sisa-reservas-accent-muted)',
-        accentMutedBg: 'var(--app-sisa-reservas-accent-muted-bg)',
-        accentStrong: 'var(--app-sisa-reservas-accent-strong)',
         textOnAccent: '#f8f3ee',
     },
     agenda_deportiva: {
@@ -284,15 +240,11 @@ const MainLayout: React.FC = () => {
     }, [user]);
 
     const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-        'sisa-reservas': true,
         'procesamiento-data': true,
         'agenda-deportiva': true,
     });
 
     useEffect(() => {
-        if (location.pathname.startsWith('/sisa-reservas')) {
-            setOpenGroups((p) => ({ ...p, 'sisa-reservas': true }));
-        }
         if (location.pathname.startsWith('/agenda-deportiva')) {
             setOpenGroups((p) => ({ ...p, 'agenda-deportiva': true }));
         }

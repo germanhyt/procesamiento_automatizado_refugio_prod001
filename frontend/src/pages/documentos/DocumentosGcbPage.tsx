@@ -190,7 +190,7 @@ const DocumentosGcbPage: React.FC = () => {
                             type="button"
                             onClick={() => setRegisterOpen(true)}
                             className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-input px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover transition-colors"
-                            style={{ backgroundColor: 'var(--app-sisa-reservas-accent-strong)' }}
+                            style={{ backgroundColor: 'var(--app-documentos-accent-strong)' }}
                         >
                             <Plus size={15} />
                             Nuevo documento
