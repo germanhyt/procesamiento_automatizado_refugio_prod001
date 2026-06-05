@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -51,8 +51,22 @@ from app.services.agenda_deportiva_service import (
     save_slide_file,
     validate_programacion_fechas,
 )
+from app.services.agenda_deportiva_ws import (
+    EVENT_MUSICA_UPDATED,
+    EVENT_PROGRAMACION_UPDATED,
+    broadcast_agenda_event,
+    handle_agenda_public_ws,
+)
 
 router = APIRouter(prefix="/agenda-deportiva", tags=["Agenda Deportiva"])
+
+
+def _notify_programacion_updated(background_tasks: BackgroundTasks) -> None:
+    background_tasks.add_task(broadcast_agenda_event, EVENT_PROGRAMACION_UPDATED, {})
+
+
+def _notify_musica_updated(background_tasks: BackgroundTasks) -> None:
+    background_tasks.add_task(broadcast_agenda_event, EVENT_MUSICA_UPDATED, {})
 
 
 def _upload_http_error(exc: ValueError) -> HTTPException:
@@ -121,6 +135,12 @@ def _get_track_or_404(db: Session, track_id: int) -> AgendaTrack:
 
 
 # --- Público (cartelera) ---
+
+
+@router.websocket("/public/ws")
+async def public_ws(websocket: WebSocket):
+    """Broadcast en tiempo real para pantallas kiosk (sin autenticación)."""
+    await handle_agenda_public_ws(websocket)
 
 
 @router.get("/public/programacion", response_model=AgendaPublicProgramacionOut)
@@ -278,6 +298,7 @@ def get_config(
 @router.patch("/config", response_model=AgendaConfigOut)
 def patch_config(
     body: AgendaConfigPatch,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -286,6 +307,7 @@ def patch_config(
     row.playlist_publica_habilitada = body.playlist_publica_habilitada
     db.commit()
     db.refresh(row)
+    _notify_musica_updated(background_tasks)
     return row
 
 
@@ -310,6 +332,7 @@ def list_programaciones(
 @router.post("/programaciones", response_model=AgendaProgramacionOut, status_code=status.HTTP_201_CREATED)
 def create_programacion(
     body: AgendaProgramacionCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -331,6 +354,7 @@ def create_programacion(
     db.add(row)
     db.commit()
     db.refresh(row)
+    _notify_programacion_updated(background_tasks)
     return _get_programacion_or_404(db, row.id)
 
 
@@ -348,6 +372,7 @@ def get_programacion(
 def update_programacion(
     programacion_id: int,
     body: AgendaProgramacionUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -371,12 +396,14 @@ def update_programacion(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     db.commit()
+    _notify_programacion_updated(background_tasks)
     return _get_programacion_or_404(db, row.id)
 
 
 @router.delete("/programaciones/{programacion_id}", response_model=ActionResponse)
 def delete_programacion(
     programacion_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -386,12 +413,14 @@ def delete_programacion(
         delete_physical_file(slide.archivo_ruta)
     db.delete(row)
     db.commit()
+    _notify_programacion_updated(background_tasks)
     return ActionResponse(ok=True, detail="Programación eliminada")
 
 
 @router.post("/programaciones/{programacion_id}/activar", response_model=AgendaProgramacionOut)
 def activar_programacion(
     programacion_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -399,6 +428,7 @@ def activar_programacion(
     row = _get_programacion_or_404(db, programacion_id)
     row.activa = True
     db.commit()
+    _notify_programacion_updated(background_tasks)
     return _get_programacion_or_404(db, row.id)
 
 
@@ -412,6 +442,7 @@ def activar_programacion(
 )
 async def upload_slide(
     programacion_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     alt_text: Optional[str] = Form(None),
     db: Session = Depends(get_db),
@@ -444,6 +475,7 @@ async def upload_slide(
     db.add(row)
     db.commit()
     db.refresh(row)
+    _notify_programacion_updated(background_tasks)
     return row
 
 
@@ -451,6 +483,7 @@ async def upload_slide(
 def update_slide(
     slide_id: int,
     body: AgendaSlideUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -462,12 +495,14 @@ def update_slide(
         row.habilitada = body.habilitada
     db.commit()
     db.refresh(row)
+    _notify_programacion_updated(background_tasks)
     return row
 
 
 @router.delete("/slides/{slide_id}", response_model=ActionResponse)
 def delete_slide(
     slide_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -476,6 +511,7 @@ def delete_slide(
     delete_physical_file(row.archivo_ruta)
     db.delete(row)
     db.commit()
+    _notify_programacion_updated(background_tasks)
     return ActionResponse(ok=True, detail="Slide eliminado")
 
 
@@ -483,6 +519,7 @@ def delete_slide(
 def reorder_programacion_slides(
     programacion_id: int,
     body: AgendaSlideReorder,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -499,6 +536,7 @@ def reorder_programacion_slides(
         .order_by(AgendaSlide.orden)
         .all()
     )
+    _notify_programacion_updated(background_tasks)
     return rows
 
 
@@ -516,6 +554,7 @@ def list_tracks(
 
 @router.post("/tracks", response_model=AgendaTrackOut, status_code=status.HTTP_201_CREATED)
 async def upload_track(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     titulo: Optional[str] = Form(None),
     publica: bool = Form(False),
@@ -547,6 +586,7 @@ async def upload_track(
     db.add(row)
     db.commit()
     db.refresh(row)
+    _notify_musica_updated(background_tasks)
     return row
 
 
@@ -554,6 +594,7 @@ async def upload_track(
 def update_track(
     track_id: int,
     body: AgendaTrackUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -567,12 +608,14 @@ def update_track(
         row.publica = body.publica
     db.commit()
     db.refresh(row)
+    _notify_musica_updated(background_tasks)
     return row
 
 
 @router.delete("/tracks/{track_id}", response_model=ActionResponse)
 def delete_track(
     track_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -581,12 +624,14 @@ def delete_track(
     delete_physical_file(row.archivo_ruta)
     db.delete(row)
     db.commit()
+    _notify_musica_updated(background_tasks)
     return ActionResponse(ok=True, detail="Track eliminado")
 
 
 @router.patch("/tracks/reorder", response_model=List[AgendaTrackOut])
 def reorder_tracks_endpoint(
     body: AgendaTrackReorder,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -596,4 +641,5 @@ def reorder_tracks_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
+    _notify_musica_updated(background_tasks)
     return db.query(AgendaTrack).order_by(AgendaTrack.orden).all()
