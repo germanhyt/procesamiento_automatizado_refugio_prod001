@@ -212,3 +212,30 @@ export async function restoreFuentesFromBackup(
     });
     return res.data;
 }
+
+export async function restoreFuentesFromProcesados(
+    token: string | null,
+    params: {
+        fecha: string;
+        locatarioCodigo: string;
+        filenames: string[];
+        destino?: 'pendiente' | 'consolidado';
+    }
+): Promise<{
+    ok: boolean;
+    moved: string[];
+    requested: string[];
+    missing: string[];
+    fecha: string;
+    destino: string;
+}> {
+    const formData = new FormData();
+    formData.append('fecha', params.fecha);
+    formData.append('locatario_codigo', params.locatarioCodigo);
+    formData.append('destino', params.destino ?? 'pendiente');
+    params.filenames.forEach((name) => formData.append('filenames', name));
+    const res = await axios.post(`${FUENTES_BASE}/restaurar-procesados`, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.data;
+}

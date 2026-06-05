@@ -24,6 +24,7 @@ import {
     Eye,
     BellRing,
     Webhook,
+    Undo2,
 } from 'lucide-react';
 
 import { LOCATARIOS } from '@/constants/locatarios';
@@ -44,6 +45,7 @@ import {
     downloadFuentesUrl,
     moveFuentesToBackup,
     restoreFuentesFromBackup,
+    restoreFuentesFromProcesados,
     downloadFuentesZipSelection,
 } from '@/services/fuentesService';
 import type { ModoRango } from '@/services/legacyService';
@@ -154,10 +156,12 @@ const LegacyFlow: React.FC = () => {
     const [expandedProcesadosLocs, setExpandedProcesadosLocs] = useState<Record<string, boolean>>({});
     const [selectedBackupFiles, setSelectedBackupFiles] = useState<Record<string, boolean>>({});
     const [selectedRestoreFiles, setSelectedRestoreFiles] = useState<Record<string, boolean>>({});
+    const [selectedProcesadosFiles, setSelectedProcesadosFiles] = useState<Record<string, boolean>>({});
     const [filesSearchTerm, setFilesSearchTerm] = useState('');
     /** Índice ancla en la lista visible (por locatario+zona o locatario backup) para Mayús+clic */
     const selectionAnchorBackupRef = useRef<Record<string, number>>({});
     const selectionAnchorRestoreRef = useRef<Record<string, number>>({});
+    const selectionAnchorProcesadosRef = useRef<Record<string, number>>({});
     const shiftKeyDownRef = useRef(false);
 
     useEffect(() => {
@@ -173,6 +177,8 @@ const LegacyFlow: React.FC = () => {
             shiftKeyDownRef.current = false;
             selectionAnchorBackupRef.current = {};
             selectionAnchorRestoreRef.current = {};
+            selectionAnchorProcesadosRef.current = {};
+            setSelectedProcesadosFiles({});
         };
     }, [isFilesModalOpen]);
 
@@ -647,6 +653,8 @@ const LegacyFlow: React.FC = () => {
         setProcesadosFechaSel(fecha);
         setFilesModalLoading(true);
         setExpandedProcesadosLocs({});
+        setSelectedProcesadosFiles({});
+        selectionAnchorProcesadosRef.current = {};
         try {
             const arch = await fetchProcesadosArchivos(fecha);
             setProcesadosGrupos(arch.grupos ?? []);
@@ -1003,6 +1011,106 @@ const LegacyFlow: React.FC = () => {
         } catch (err: any) {
             Swal.fire({
                 title: 'Error al eliminar',
+                text: err.response?.data?.detail ?? err.message,
+                icon: 'error',
+                background: '#111',
+                color: '#fff',
+            });
+        }
+    };
+
+    const procesadosKey = (locatario: string, filename: string) => `${locatario}::${filename}`;
+
+    const handleProcesadosCheckboxMouseDown = (
+        e: React.MouseEvent,
+        locatario: string,
+        visibleNames: string[],
+        index: number,
+        filename: string
+    ) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const itemKey = procesadosKey(locatario, filename);
+        const anchorIndex = selectionAnchorProcesadosRef.current[locatario];
+
+        if (isShiftSelect(e) && anchorIndex !== undefined && visibleNames[anchorIndex] !== undefined) {
+            const lo = Math.min(anchorIndex, index);
+            const hi = Math.max(anchorIndex, index);
+            setSelectedProcesadosFiles((prev) => {
+                const next = { ...prev };
+                for (let i = lo; i <= hi; i++) {
+                    next[procesadosKey(locatario, visibleNames[i])] = true;
+                }
+                return next;
+            });
+            return;
+        }
+
+        setSelectedProcesadosFiles((prev) => ({ ...prev, [itemKey]: !prev[itemKey] }));
+        selectionAnchorProcesadosRef.current[locatario] = index;
+    };
+
+    const selectedProcesadosNames = (locatario: string) =>
+        Object.entries(selectedProcesadosFiles)
+            .filter(([k, v]) => v && k.startsWith(`${locatario}::`))
+            .map(([k]) => k.split('::')[1])
+            .filter(Boolean);
+
+    const selectedCountProcesados = (locatario: string) => selectedProcesadosNames(locatario).length;
+
+    const restoreFromProcesados = async (locatario: string, filenames: string[], mode: 'single' | 'bulk') => {
+        if (!filenames.length || !procesadosFechaSel) return;
+        const confirm = await Swal.fire({
+            title: 'Volver a cierre_caja',
+            text:
+                mode === 'single'
+                    ? `¿Mover ${filenames[0]} de procesados a pendientes?`
+                    : `¿Mover ${filenames.length} archivo(s) de procesados a pendientes?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#22c55e',
+            background: '#111',
+            color: '#fff',
+        });
+        if (!confirm.isConfirmed) return;
+        try {
+            const jwt = localStorage.getItem('token');
+            const res = await restoreFuentesFromProcesados(jwt, {
+                fecha: procesadosFechaSel,
+                locatarioCodigo: locatario,
+                filenames,
+                destino: 'pendiente',
+            });
+            const movedCount = Array.isArray(res.moved) ? res.moved.length : 0;
+            const missingCount = Array.isArray(res.missing) ? res.missing.length : 0;
+            setLogs((prev) => [
+                `↩️ Procesados → cierre ${locatario} (${procesadosFechaSel}): ${movedCount}${missingCount ? `, omitidos ${missingCount}` : ''}`,
+                ...prev,
+            ]);
+            if (mode === 'bulk') {
+                const prefix = `${locatario}::`;
+                setSelectedProcesadosFiles((prev) => {
+                    const next = { ...prev };
+                    Object.keys(next).forEach((k) => {
+                        if (k.startsWith(prefix)) delete next[k];
+                    });
+                    return next;
+                });
+            } else {
+                const only = filenames[0];
+                setSelectedProcesadosFiles((prev) => {
+                    const next = { ...prev };
+                    delete next[procesadosKey(locatario, only)];
+                    return next;
+                });
+            }
+            await refreshCierreModal();
+            await loadProcesadosFecha(procesadosFechaSel);
+        } catch (err: any) {
+            Swal.fire({
+                title: 'Error',
                 text: err.response?.data?.detail ?? err.message,
                 icon: 'error',
                 background: '#111',
@@ -2123,53 +2231,109 @@ const LegacyFlow: React.FC = () => {
                                                             {g.locatario}
                                                         </button>
                                                         {expandedProcesadosLocs[g.locatario] ? (
-                                                            <ul className="text-[10px] text-app-muted space-y-1">
-                                                                {filterBySearch(g.archivos).map((a) => (
-                                                                <li
-                                                                    key={a}
-                                                                    className="flex items-center justify-between gap-2 py-0.5 border-b border-app-border/50 last:border-0"
-                                                                >
-                                                                    <span className="truncate text-app-text">{a}</span>
-                                                                    {procesadosFechaSel ? (
+                                                            <>
+                                                                {procesadosFechaSel && selectedCountProcesados(g.locatario) > 0 ? (
+                                                                    <div className="flex flex-wrap items-center gap-2 mb-2">
                                                                         <button
                                                                             type="button"
                                                                             onClick={() =>
-                                                                                window.open(
-                                                                                    downloadFuentesUrl({
-                                                                                        origen: 'procesados',
-                                                                                        locatario_codigo: g.locatario,
-                                                                                        filename: a,
-                                                                                        fecha: procesadosFechaSel,
-                                                                                    }),
-                                                                                    '_blank'
+                                                                                void restoreFromProcesados(
+                                                                                    g.locatario,
+                                                                                    selectedProcesadosNames(g.locatario),
+                                                                                    'bulk'
                                                                                 )
                                                                             }
-                                                                            className="p-1 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400 shrink-0"
-                                                                            title="Descargar"
+                                                                            className="text-[8px] font-black uppercase text-emerald-400 hover:text-emerald-300"
                                                                         >
-                                                                            <Download size={14} />
+                                                                            Volver a cierre seleccionados ({selectedCountProcesados(g.locatario)})
                                                                         </button>
-                                                                    ) : null}
-                                                                    {procesadosFechaSel ? (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() =>
-                                                                                void openFileStorePreview(`${procesadosFechaSel} · ${g.locatario} · ${a}`, {
-                                                                                    origen: 'procesados',
-                                                                                    locatario: g.locatario,
-                                                                                    filename: a,
-                                                                                    fecha: procesadosFechaSel,
-                                                                                })
-                                                                            }
-                                                                            className="p-1 rounded-lg text-app-muted hover:bg-teal-500/20 hover:text-teal-400 shrink-0"
-                                                                            title="Vista previa"
-                                                                        >
-                                                                            <Eye size={14} />
-                                                                        </button>
-                                                                    ) : null}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
+                                                                    </div>
+                                                                ) : null}
+                                                                <ul className="text-[10px] text-app-muted space-y-1">
+                                                                    {(() => {
+                                                                        const archivosVisible = filterBySearch(g.archivos);
+                                                                        return archivosVisible.map((a, index) => (
+                                                                            <li
+                                                                                key={a}
+                                                                                className="flex items-center justify-between gap-2 py-0.5 border-b border-app-border/50 last:border-0"
+                                                                            >
+                                                                                <label
+                                                                                    className="flex items-center gap-2 text-app-text min-w-0 cursor-pointer select-none"
+                                                                                    title="Clic para marcar; Mayús+clic para seleccionar un rango"
+                                                                                    onMouseDown={(e) =>
+                                                                                        handleProcesadosCheckboxMouseDown(
+                                                                                            e,
+                                                                                            g.locatario,
+                                                                                            archivosVisible,
+                                                                                            index,
+                                                                                            a
+                                                                                        )
+                                                                                    }
+                                                                                >
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        readOnly
+                                                                                        tabIndex={-1}
+                                                                                        checked={!!selectedProcesadosFiles[procesadosKey(g.locatario, a)]}
+                                                                                        className="accent-teal-500 pointer-events-none"
+                                                                                    />
+                                                                                    <span className="truncate">{a}</span>
+                                                                                </label>
+                                                                                {procesadosFechaSel ? (
+                                                                                    <span className="flex items-center gap-1 shrink-0">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() =>
+                                                                                                void restoreFromProcesados(g.locatario, [a], 'single')
+                                                                                            }
+                                                                                            className="p-1 rounded-lg text-app-muted hover:bg-emerald-500/20 hover:text-emerald-400"
+                                                                                            title="Volver a cierre_caja (pendientes)"
+                                                                                        >
+                                                                                            <Undo2 size={14} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() =>
+                                                                                                window.open(
+                                                                                                    downloadFuentesUrl({
+                                                                                                        origen: 'procesados',
+                                                                                                        locatario_codigo: g.locatario,
+                                                                                                        filename: a,
+                                                                                                        fecha: procesadosFechaSel,
+                                                                                                    }),
+                                                                                                    '_blank'
+                                                                                                )
+                                                                                            }
+                                                                                            className="p-1 rounded-lg text-app-muted hover:bg-blue-500/20 hover:text-blue-400"
+                                                                                            title="Descargar"
+                                                                                        >
+                                                                                            <Download size={14} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() =>
+                                                                                                void openFileStorePreview(
+                                                                                                    `${procesadosFechaSel} · ${g.locatario} · ${a}`,
+                                                                                                    {
+                                                                                                        origen: 'procesados',
+                                                                                                        locatario: g.locatario,
+                                                                                                        filename: a,
+                                                                                                        fecha: procesadosFechaSel,
+                                                                                                    }
+                                                                                                )
+                                                                                            }
+                                                                                            className="p-1 rounded-lg text-app-muted hover:bg-teal-500/20 hover:text-teal-400"
+                                                                                            title="Vista previa"
+                                                                                        >
+                                                                                            <Eye size={14} />
+                                                                                        </button>
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </li>
+                                                                        ));
+                                                                    })()}
+                                                                </ul>
+                                                            </>
                                                         ) : null}
                                                     </div>
                                                 ))}

@@ -30,6 +30,7 @@ from app.services.file_store_service import (
     _dir_locatario_backup,
     move_to_backup,
     restore_from_backup,
+    restore_from_procesados,
 )
 from app.api.auth import get_current_user
 from app.models.auth import User
@@ -493,3 +494,47 @@ async def fuentes_restaurar_backup(
     moved = restore_from_backup(loc, clean_names, destino=d)
     missing = [n for n in clean_names if not any(p.endswith(f"/{n}") or p.endswith(f"\\{n}") for p in moved)]
     return {"ok": True, "moved": moved, "requested": clean_names, "missing": missing, "destino": d}
+
+
+@router.post("/restaurar-procesados")
+async def fuentes_restaurar_procesados(
+    fecha: str = Form(...),
+    locatario_codigo: str = Form(...),
+    filenames: list[str] = Form(...),
+    destino: str = Form("pendiente"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve archivos de procesados/{fecha}/{locatario}/ a cierre_caja (pendiente o consolidado).
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo superuser puede restaurar archivos desde procesados")
+    raw_f = (fecha or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_f):
+        raise HTTPException(status_code=400, detail="fecha inválida (use YYYY-MM-DD)")
+    loc = (locatario_codigo or "").strip()
+    if not loc:
+        raise HTTPException(status_code=400, detail="locatario_codigo es requerido")
+    d = (destino or "pendiente").strip().lower()
+    if d in ("consolidado", "consolidados", "_consolidados"):
+        d = "consolidado"
+    elif d != "pendiente":
+        raise HTTPException(status_code=400, detail="destino debe ser pendiente o consolidado")
+    clean_names = list(dict.fromkeys(Path((f or "").strip()).name for f in filenames if (f or "").strip()))
+    if not clean_names:
+        raise HTTPException(status_code=400, detail="filenames es requerido")
+    try:
+        moved = restore_from_procesados(raw_f, loc, clean_names, destino=d)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    missing = [n for n in clean_names if not any(p.endswith(f"/{n}") or p.endswith(f"\\{n}") for p in moved)]
+    if not moved:
+        raise HTTPException(status_code=404, detail="No se restauró ningún archivo")
+    return {
+        "ok": True,
+        "moved": moved,
+        "requested": clean_names,
+        "missing": missing,
+        "fecha": raw_f,
+        "destino": d,
+    }

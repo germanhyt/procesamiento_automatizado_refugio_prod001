@@ -563,6 +563,71 @@ def move_to_backup(locatario_codigo: str, filenames: list[str], *, zona: str = "
     return moved
 
 
+def restore_from_procesados(
+    fecha: str,
+    locatario_codigo: str,
+    filenames: list[str],
+    *,
+    destino: str = "pendiente",
+) -> list[str]:
+    """
+    Mueve archivos desde procesados/{YYYY-MM-DD}/{locatario}/ hacia cierre_caja (pendientes o _consolidados).
+    """
+    raw_f = fecha.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_f):
+        raise ValueError("fecha inválida (use YYYY-MM-DD)")
+    loc = locatario_codigo.strip()
+    if not loc or ".." in loc or "/" in loc or "\\" in loc:
+        raise ValueError("Locatario inválido")
+    d = (destino or "pendiente").strip().lower()
+    if d in ("consolidado", "consolidados", "_consolidados"):
+        d = "consolidado"
+    elif d != "pendiente":
+        raise ValueError("destino debe ser pendiente o consolidado")
+
+    base = get_upload_base()
+    src_root = (base / FILE_STORE_PROCESADOS / raw_f / loc).resolve()
+    if not src_root.is_dir():
+        return []
+
+    dest_dir = (
+        _dir_locatario_consolidados(base, loc)
+        if d == "consolidado"
+        else _dir_locatario_pendientes(base, loc)
+    )
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    moved: list[str] = []
+    for fn in filenames:
+        safe_name = os.path.basename(fn)
+        if not safe_name:
+            continue
+        src = (src_root / safe_name).resolve()
+        try:
+            src.relative_to(src_root)
+        except ValueError:
+            continue
+        if not src.is_file():
+            continue
+        dest = dest_dir / safe_name
+        if dest.exists():
+            stem = dest.stem
+            ext = dest.suffix
+            ts = _ahora_lima().strftime("%Y%m%d_%H%M%S")
+            dest = dest_dir / f"{stem}_{ts}{ext}"
+        shutil.move(str(src), str(dest))
+        moved.append(str(dest.relative_to(base)))
+
+    try:
+        if src_root.is_dir() and not any(src_root.iterdir()):
+            src_root.rmdir()
+            day_dir = src_root.parent
+            if day_dir.is_dir() and not any(day_dir.iterdir()):
+                day_dir.rmdir()
+    except OSError:
+        pass
+    return moved
+
+
 def restore_from_backup(locatario_codigo: str, filenames: list[str], *, destino: str = "pendiente") -> list[str]:
     """
     Restaura archivos desde backup_no_consolidados hacia pendientes o consolidados.
