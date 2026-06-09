@@ -14,6 +14,11 @@ from app.core.agenda_deportiva_constants import (
     AGENDA_ARCHIVO_TIPO_MUSIC,
     AGENDA_ARCHIVO_TIPO_SLIDE,
     AGENDA_ARCHIVO_TIPOS,
+    AGENDA_CATEGORIA_LUGARES,
+    AGENDA_CATEGORIA_LUGAR_PLAY_BAR,
+    AGENDA_MODO_DAY,
+    AGENDA_MODO_MONTH,
+    AGENDA_MODO_WEEK,
     PERMISSION_AGENDA_MANAGE,
     PERMISSION_AGENDA_VIEW,
 )
@@ -25,6 +30,7 @@ from app.schemas.agenda_deportiva import (
     AgendaConfigOut,
     AgendaConfigPatch,
     AgendaProgramacionCreate,
+    AgendaProgramacionDuplicateRequest,
     AgendaProgramacionOut,
     AgendaProgramacionUpdate,
     AgendaPublicMusicaOut,
@@ -43,13 +49,16 @@ from app.services.agenda_deportiva_service import (
     get_or_create_config,
     next_slide_orden,
     next_track_orden,
+    month_range_for_date,
     reorder_slides,
     reorder_tracks,
     resolve_file_path,
     resolve_programacion_activa,
     save_music_file,
     save_slide_file,
+    fecha_lima_hoy,
     validate_programacion_fechas,
+    week_range_for_date,
 )
 from app.services.agenda_deportiva_ws import (
     EVENT_MUSICA_UPDATED,
@@ -134,6 +143,39 @@ def _get_track_or_404(db: Session, track_id: int) -> AgendaTrack:
     return row
 
 
+def _programaciones_activas_para_fecha(db: Session, target: date) -> list[AgendaProgramacion]:
+    """Retorna todas las programaciones activas para la fecha priorizando modo DAY > WEEK > MONTH."""
+    base_q = db.query(AgendaProgramacion).filter(
+        AgendaProgramacion.activa.is_(True),
+        AgendaProgramacion.fecha_inicio <= target,
+        AgendaProgramacion.fecha_fin >= target,
+    )
+
+    day_rows = base_q.filter(AgendaProgramacion.modo == AGENDA_MODO_DAY).order_by(AgendaProgramacion.id.asc()).all()
+    if day_rows:
+        return day_rows
+
+    week_rows = base_q.filter(AgendaProgramacion.modo == AGENDA_MODO_WEEK).order_by(AgendaProgramacion.id.asc()).all()
+    if week_rows:
+        return week_rows
+
+    month_rows = base_q.filter(AgendaProgramacion.modo == AGENDA_MODO_MONTH).order_by(AgendaProgramacion.id.asc()).all()
+    if month_rows:
+        return month_rows
+
+    return []
+
+
+def _fechas_por_modo(modo: str, fecha_referencia: date) -> tuple[date, date]:
+    if modo == AGENDA_MODO_DAY:
+        return fecha_referencia, fecha_referencia
+    if modo == AGENDA_MODO_WEEK:
+        return week_range_for_date(fecha_referencia)
+    if modo == AGENDA_MODO_MONTH:
+        return month_range_for_date(fecha_referencia)
+    return fecha_referencia, fecha_referencia
+
+
 # --- Público (cartelera) ---
 
 
@@ -147,34 +189,60 @@ async def public_ws(websocket: WebSocket):
 def public_programacion(
     request: Request,
     fecha: Optional[date] = None,
+    categoria_lugar: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    prog = resolve_programacion_activa(db, fecha)
-    if not prog:
+    when = fecha or fecha_lima_hoy()
+    categoria_norm = (categoria_lugar or "").strip().lower()
+    if categoria_norm and categoria_norm not in AGENDA_CATEGORIA_LUGARES:
+        raise HTTPException(status_code=400, detail="categoria_lugar inválida")
+
+    programaciones = _programaciones_activas_para_fecha(db, when)
+    if categoria_norm:
+        programaciones = [p for p in programaciones if (p.categoria_lugar or "").strip().lower() == categoria_norm]
+
+    if not programaciones:
         return AgendaPublicProgramacionOut(slides=[])
 
-    slides = (
+    programacion_ids = [p.id for p in programaciones]
+    programacion_por_id = {p.id: p for p in programaciones}
+
+    slide_rows = (
         db.query(AgendaSlide)
         .filter(
-            AgendaSlide.programacion_id == prog.id,
+            AgendaSlide.programacion_id.in_(programacion_ids),
             AgendaSlide.habilitada.is_(True),
         )
-        .order_by(AgendaSlide.orden)
+        .order_by(AgendaSlide.programacion_id.asc(), AgendaSlide.orden.asc(), AgendaSlide.id.asc())
         .all()
     )
 
+    if len(programaciones) == 1:
+        prog_ref = programaciones[0]
+        modo = prog_ref.modo
+        titulo = prog_ref.titulo
+        fecha_inicio = prog_ref.fecha_inicio
+        fecha_fin = prog_ref.fecha_fin
+    else:
+        modos = {p.modo for p in programaciones}
+        modo = next(iter(modos)) if len(modos) == 1 else None
+        titulo = None
+        fecha_inicio = min(p.fecha_inicio for p in programaciones)
+        fecha_fin = max(p.fecha_fin for p in programaciones)
+
     return AgendaPublicProgramacionOut(
-        modo=prog.modo,
-        titulo=prog.titulo,
-        fecha_inicio=prog.fecha_inicio,
-        fecha_fin=prog.fecha_fin,
+        modo=modo,
+        titulo=titulo,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
         slides=[
             AgendaPublicSlideOut(
                 orden=s.orden,
                 url=_public_archivo_url(request, AGENDA_ARCHIVO_TIPO_SLIDE, s.id),
                 alt=(s.alt_text or s.archivo_nombre_original),
+                categoria_lugar=programacion_por_id.get(s.programacion_id).categoria_lugar if programacion_por_id.get(s.programacion_id) else None,
             )
-            for s in slides
+            for s in slide_rows
         ],
     )
 
@@ -345,6 +413,7 @@ def create_programacion(
 
     row = AgendaProgramacion(
         titulo=(body.titulo.strip() if body.titulo else None),
+        categoria_lugar=body.categoria_lugar,
         modo=body.modo,
         fecha_inicio=body.fecha_inicio,
         fecha_fin=fecha_fin,
@@ -381,6 +450,8 @@ def update_programacion(
 
     if body.titulo is not None:
         row.titulo = body.titulo.strip() or None
+    if body.categoria_lugar is not None:
+        row.categoria_lugar = body.categoria_lugar
     if body.modo is not None:
         row.modo = body.modo
     if body.fecha_inicio is not None:
@@ -396,6 +467,43 @@ def update_programacion(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     db.commit()
+    _notify_programacion_updated(background_tasks)
+    return _get_programacion_or_404(db, row.id)
+
+
+@router.post(
+    "/programaciones/{programacion_id}/duplicar",
+    response_model=AgendaProgramacionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def duplicate_programacion(
+    programacion_id: int,
+    body: AgendaProgramacionDuplicateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_manage(current_user)
+    source = _get_programacion_or_404(db, programacion_id)
+    modo = body.modo or source.modo
+    fecha_inicio, fecha_fin = _fechas_por_modo(modo, body.fecha_referencia)
+    try:
+        validate_programacion_fechas(modo, fecha_inicio, fecha_fin)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    row = AgendaProgramacion(
+        titulo=source.titulo,
+        categoria_lugar=source.categoria_lugar,
+        modo=modo,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        activa=source.activa,
+        created_by_id=current_user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
     _notify_programacion_updated(background_tasks)
     return _get_programacion_or_404(db, row.id)
 
@@ -557,11 +665,15 @@ async def upload_track(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     titulo: Optional[str] = Form(None),
+    categoria_lugar: str = Form(AGENDA_CATEGORIA_LUGAR_PLAY_BAR),
     publica: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _require_manage(current_user)
+    categoria_normalizada = (categoria_lugar or "").strip().lower()
+    if categoria_normalizada not in AGENDA_CATEGORIA_LUGARES:
+        raise HTTPException(status_code=400, detail="categoria_lugar inválida")
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Archivo vacío")
@@ -578,6 +690,7 @@ async def upload_track(
     name = (titulo or file.filename or "Track").strip() or "Track"
     row = AgendaTrack(
         titulo=name,
+        categoria_lugar=categoria_normalizada,
         orden=next_track_orden(db),
         habilitada=True,
         publica=publica,
@@ -602,6 +715,8 @@ def update_track(
     row = _get_track_or_404(db, track_id)
     if body.titulo is not None:
         row.titulo = body.titulo.strip() or row.titulo
+    if body.categoria_lugar is not None:
+        row.categoria_lugar = body.categoria_lugar
     if body.habilitada is not None:
         row.habilitada = body.habilitada
     if body.publica is not None:

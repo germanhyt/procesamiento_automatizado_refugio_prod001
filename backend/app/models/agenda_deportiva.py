@@ -31,6 +31,7 @@ class AgendaProgramacion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(255), nullable=True)
+    categoria_lugar = Column(String(64), nullable=False, default="play bar", index=True)
     modo = Column(String(8), nullable=False, index=True)
     fecha_inicio = Column(Date, nullable=False, index=True)
     fecha_fin = Column(Date, nullable=False, index=True)
@@ -79,6 +80,7 @@ class AgendaTrack(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(255), nullable=False)
+    categoria_lugar = Column(String(64), nullable=False, default="play bar", index=True)
     orden = Column(Integer, nullable=False, unique=True)
     archivo_nombre_original = Column(String(255), nullable=False)
     archivo_ruta = Column(String(512), nullable=False)

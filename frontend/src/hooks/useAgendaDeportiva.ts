@@ -73,6 +73,11 @@ export function useAgendaMutations() {
                 agendaDeportivaService.updateProgramacion(t, args.id, args.payload),
             onSuccess: (_, vars) => invalidateProgramacion(vars.id),
         }),
+        duplicateProgramacion: useMutation({
+            mutationFn: (args: { id: number; payload: { fecha_referencia: string; modo?: AgendaProgramacionCreatePayload['modo'] } }) =>
+                agendaDeportivaService.duplicateProgramacion(t, args.id, args.payload),
+            onSuccess: invalidateAll,
+        }),
         deleteProgramacion: useMutation({
             mutationFn: (id: number) => agendaDeportivaService.deleteProgramacion(t, id),
             onSuccess: invalidateAll,
@@ -105,14 +110,25 @@ export function useAgendaMutations() {
             onSuccess: (_, vars) => invalidateProgramacion(vars.programacionId),
         }),
         uploadTrack: useMutation({
-            mutationFn: (args: { file: File; titulo?: string; publica?: boolean }) =>
-                agendaDeportivaService.uploadTrack(t, args.file, args.titulo, args.publica ?? false),
+            mutationFn: (args: { file: File; titulo?: string; categoria_lugar: AgendaProgramacionCreatePayload['categoria_lugar']; publica?: boolean }) =>
+                agendaDeportivaService.uploadTrack(
+                    t,
+                    args.file,
+                    args.titulo,
+                    args.categoria_lugar,
+                    args.publica ?? false
+                ),
             onSuccess: invalidateAll,
         }),
         updateTrack: useMutation({
             mutationFn: (args: {
                 trackId: number;
-                payload: { titulo?: string; habilitada?: boolean; publica?: boolean };
+                payload: {
+                    titulo?: string;
+                    categoria_lugar?: AgendaProgramacionCreatePayload['categoria_lugar'];
+                    habilitada?: boolean;
+                    publica?: boolean;
+                };
             }) => agendaDeportivaService.updateTrack(t, args.trackId, args.payload),
             onSuccess: invalidateAll,
         }),

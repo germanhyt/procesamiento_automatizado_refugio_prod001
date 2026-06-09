@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.agenda_deportiva_constants import (
     AGENDA_MODO_DAY,
+    AGENDA_MODO_MONTH,
     AGENDA_MODO_WEEK,
     AGENDA_MUSIC_EXTENSIONS,
     AGENDA_MUSIC_MAX_SIZE_MB,
@@ -127,7 +128,7 @@ def pick_programacion_for_date(
     programaciones: list[AgendaProgramacion],
     target: date,
 ) -> Optional[AgendaProgramacion]:
-    """Prioridad: DAY del día > WEEK que contenga la fecha; solo activas."""
+    """Prioridad: DAY del día > WEEK > MONTH; solo activas."""
     day_matches = [
         p
         for p in programaciones
@@ -143,6 +144,14 @@ def pick_programacion_for_date(
     ]
     if week_matches:
         return sorted(week_matches, key=lambda p: (p.fecha_inicio, p.id), reverse=True)[0]
+
+    month_matches = [
+        p
+        for p in programaciones
+        if p.activa and p.modo == AGENDA_MODO_MONTH and p.fecha_inicio <= target <= p.fecha_fin
+    ]
+    if month_matches:
+        return sorted(month_matches, key=lambda p: (p.fecha_inicio, p.id), reverse=True)[0]
 
     return None
 
@@ -300,6 +309,13 @@ def validate_programacion_fechas(modo: str, fecha_inicio: date, fecha_fin: date)
         span = (fecha_fin - fecha_inicio).days
         if span != 6:
             raise ValueError("En modo WEEK, el rango debe abarcar exactamente 7 días (lunes a domingo)")
+    if modo == AGENDA_MODO_MONTH:
+        if fecha_inicio.day != 1:
+            raise ValueError("En modo MONTH, fecha_inicio debe ser el primer día del mes")
+        siguiente_mes = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+        ultimo_dia = siguiente_mes - timedelta(days=1)
+        if fecha_fin != ultimo_dia:
+            raise ValueError("En modo MONTH, fecha_fin debe ser el último día del mes")
 
 
 def week_range_for_date(target: date) -> tuple[date, date]:
@@ -307,3 +323,11 @@ def week_range_for_date(target: date) -> tuple[date, date]:
     lunes = target - timedelta(days=target.weekday())
     domingo = lunes + timedelta(days=6)
     return lunes, domingo
+
+
+def month_range_for_date(target: date) -> tuple[date, date]:
+    """Devuelve (primer_dia, ultimo_dia) del mes que contiene target."""
+    inicio = target.replace(day=1)
+    siguiente_mes = (inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+    fin = siguiente_mes - timedelta(days=1)
+    return inicio, fin

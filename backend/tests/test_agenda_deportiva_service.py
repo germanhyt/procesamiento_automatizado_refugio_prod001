@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.agenda_deportiva_constants import AGENDA_MODO_DAY, AGENDA_MODO_WEEK
+from app.core.agenda_deportiva_constants import AGENDA_MODO_DAY, AGENDA_MODO_MONTH, AGENDA_MODO_WEEK
 from app.services.agenda_deportiva_service import (
+    month_range_for_date,
     pick_programacion_for_date,
     validate_programacion_fechas,
     week_range_for_date,
@@ -50,6 +51,18 @@ def test_pick_programacion_usa_week_si_no_hay_day():
     assert picked.id == 2
 
 
+def test_pick_programacion_usa_month_si_no_hay_day_ni_week():
+    target = date(2026, 5, 28)
+    month = _prog(
+        modo=AGENDA_MODO_MONTH,
+        inicio=date(2026, 5, 1),
+        fin=date(2026, 5, 31),
+        pid=3,
+    )
+    picked = pick_programacion_for_date([month], target)
+    assert picked.id == 3
+
+
 def test_pick_programacion_ignora_inactivas():
     target = date(2026, 5, 28)
     inactive = _prog(modo=AGENDA_MODO_DAY, inicio=target, fin=target, activa=False, pid=1)
@@ -71,8 +84,25 @@ def test_validate_programacion_week_requiere_7_dias():
         validate_programacion_fechas(AGENDA_MODO_WEEK, lunes, date(2026, 5, 30))
 
 
+def test_validate_programacion_month_requiere_mes_completo():
+    inicio = date(2026, 5, 1)
+    fin = date(2026, 5, 31)
+    validate_programacion_fechas(AGENDA_MODO_MONTH, inicio, fin)
+    with pytest.raises(ValueError, match="MONTH"):
+        validate_programacion_fechas(AGENDA_MODO_MONTH, date(2026, 5, 2), fin)
+    with pytest.raises(ValueError, match="MONTH"):
+        validate_programacion_fechas(AGENDA_MODO_MONTH, inicio, date(2026, 5, 30))
+
+
 def test_week_range_for_date():
     target = date(2026, 5, 28)  # jueves
     lunes, domingo = week_range_for_date(target)
     assert lunes == date(2026, 5, 25)
     assert domingo == date(2026, 5, 31)
+
+
+def test_month_range_for_date():
+    target = date(2026, 2, 18)
+    inicio, fin = month_range_for_date(target)
+    assert inicio == date(2026, 2, 1)
+    assert fin == date(2026, 2, 28)

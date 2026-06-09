@@ -2,6 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Music, Trash2, Upload } from 'lucide-react';
 import Swal from 'sweetalert2';
 
+import {
+    AGENDA_CATEGORIA_LUGAR_OPTIONS,
+    AGENDA_CATEGORIA_LUGAR_PLAY_BAR,
+    type AgendaCategoriaLugar,
+} from '@/constants/agendaDeportiva';
+import AppSelect from '@/components/ui/AppSelect';
 import { PERMISSION_AGENDA_MANAGE } from '@/constants/agendaDeportiva';
 import { useAuth } from '@/context/AuthContext';
 import { useAgendaConfig, useAgendaMutations, useAgendaTracks } from '@/hooks/useAgendaDeportiva';
@@ -20,6 +26,7 @@ const AgendaMusicaPage: React.FC = () => {
     const { patchConfig, uploadTrack, updateTrack, deleteTrack, reorderTracks } = useAgendaMutations();
 
     const [titulo, setTitulo] = useState('');
+    const [categoriaLugar, setCategoriaLugar] = useState<AgendaCategoriaLugar>(AGENDA_CATEGORIA_LUGAR_PLAY_BAR);
     const [publica, setPublica] = useState(false);
     const [file, setFile] = useState<File | null>(null);
 
@@ -42,9 +49,15 @@ const AgendaMusicaPage: React.FC = () => {
     const handleUpload = async () => {
         if (!file) return;
         try {
-            await uploadTrack.mutateAsync({ file, titulo: titulo.trim() || undefined, publica });
+            await uploadTrack.mutateAsync({
+                file,
+                titulo: titulo.trim() || undefined,
+                categoria_lugar: categoriaLugar,
+                publica,
+            });
             setFile(null);
             setTitulo('');
+            setCategoriaLugar(AGENDA_CATEGORIA_LUGAR_PLAY_BAR);
             setPublica(false);
         } catch (error) {
             void Swal.fire({ icon: 'error', title: 'Error', text: apiErrorDetail(error) });
@@ -162,6 +175,22 @@ const AgendaMusicaPage: React.FC = () => {
                                 placeholder="Nombre del track"
                             />
                         </label>
+                        <label className="space-y-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">
+                                Categoría lugar
+                            </span>
+                            <AppSelect<AgendaCategoriaLugar>
+                                options={AGENDA_CATEGORIA_LUGAR_OPTIONS}
+                                value={
+                                    AGENDA_CATEGORIA_LUGAR_OPTIONS.find((o) => o.value === categoriaLugar) ??
+                                    AGENDA_CATEGORIA_LUGAR_OPTIONS[0]
+                                }
+                                onChange={(option) =>
+                                    setCategoriaLugar(option?.value ?? AGENDA_CATEGORIA_LUGAR_PLAY_BAR)
+                                }
+                                isSearchable={false}
+                            />
+                        </label>
                     </div>
                     <label className="inline-flex items-center gap-2 text-sm text-app-text cursor-pointer">
                         <input
@@ -213,6 +242,7 @@ const AgendaMusicaPage: React.FC = () => {
                             <p className="text-sm font-medium text-app-text truncate">{track.titulo}</p>
                             <p className="text-xs text-app-muted">
                                 {formatDocumentSize(track.tamano_bytes)} ·{' '}
+                                {track.categoria_lugar} ·{' '}
                                 {track.habilitada ? 'Habilitado' : 'Deshabilitado'} ·{' '}
                                 {track.publica ? 'Público' : 'Solo admin'}
                             </p>

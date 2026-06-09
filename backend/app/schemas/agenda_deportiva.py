@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, validator
 
-from app.core.agenda_deportiva_constants import AGENDA_MODOS
+from app.core.agenda_deportiva_constants import AGENDA_CATEGORIA_LUGARES, AGENDA_MODOS
 
 
 class AgendaConfigOut(BaseModel):
@@ -21,6 +21,7 @@ class AgendaConfigPatch(BaseModel):
 
 class AgendaProgramacionCreate(BaseModel):
     titulo: Optional[str] = Field(None, max_length=255)
+    categoria_lugar: str = Field(..., max_length=64)
     modo: str
     fecha_inicio: date
     fecha_fin: Optional[date] = None
@@ -33,6 +34,15 @@ class AgendaProgramacionCreate(BaseModel):
             raise ValueError(f"modo debe ser uno de: {', '.join(sorted(AGENDA_MODOS))}")
         return upper
 
+    @validator("categoria_lugar")
+    def validate_categoria_lugar(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in AGENDA_CATEGORIA_LUGARES:
+            raise ValueError(
+                f"categoria_lugar debe ser una de: {', '.join(sorted(AGENDA_CATEGORIA_LUGARES))}"
+            )
+        return normalized
+
     @validator("fecha_fin", always=True)
     def default_fecha_fin(cls, value: Optional[date], values) -> date:
         if value is not None:
@@ -42,6 +52,7 @@ class AgendaProgramacionCreate(BaseModel):
 
 class AgendaProgramacionUpdate(BaseModel):
     titulo: Optional[str] = Field(None, max_length=255)
+    categoria_lugar: Optional[str] = Field(None, max_length=64)
     modo: Optional[str] = None
     fecha_inicio: Optional[date] = None
     fecha_fin: Optional[date] = None
@@ -55,6 +66,17 @@ class AgendaProgramacionUpdate(BaseModel):
         if upper not in AGENDA_MODOS:
             raise ValueError(f"modo debe ser uno de: {', '.join(sorted(AGENDA_MODOS))}")
         return upper
+
+    @validator("categoria_lugar")
+    def validate_categoria_lugar(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in AGENDA_CATEGORIA_LUGARES:
+            raise ValueError(
+                f"categoria_lugar debe ser una de: {', '.join(sorted(AGENDA_CATEGORIA_LUGARES))}"
+            )
+        return normalized
 
 
 class AgendaSlideOut(BaseModel):
@@ -85,6 +107,7 @@ class AgendaSlideReorder(BaseModel):
 class AgendaTrackOut(BaseModel):
     id: int
     titulo: str
+    categoria_lugar: str
     orden: int
     archivo_nombre_original: str
     mime_type: str
@@ -100,8 +123,20 @@ class AgendaTrackOut(BaseModel):
 
 class AgendaTrackUpdate(BaseModel):
     titulo: Optional[str] = Field(None, max_length=255)
+    categoria_lugar: Optional[str] = Field(None, max_length=64)
     habilitada: Optional[bool] = None
     publica: Optional[bool] = None
+
+    @validator("categoria_lugar")
+    def validate_categoria_lugar(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in AGENDA_CATEGORIA_LUGARES:
+            raise ValueError(
+                f"categoria_lugar debe ser una de: {', '.join(sorted(AGENDA_CATEGORIA_LUGARES))}"
+            )
+        return normalized
 
 
 class AgendaTrackReorder(BaseModel):
@@ -111,6 +146,7 @@ class AgendaTrackReorder(BaseModel):
 class AgendaProgramacionOut(BaseModel):
     id: int
     titulo: Optional[str] = None
+    categoria_lugar: str
     modo: str
     fecha_inicio: date
     fecha_fin: date
@@ -127,6 +163,7 @@ class AgendaPublicSlideOut(BaseModel):
     orden: int
     url: str
     alt: str
+    categoria_lugar: Optional[str] = None
 
 
 class AgendaPublicProgramacionOut(BaseModel):
@@ -151,3 +188,17 @@ class AgendaPublicMusicaOut(BaseModel):
 class ActionResponse(BaseModel):
     ok: bool
     detail: str
+
+
+class AgendaProgramacionDuplicateRequest(BaseModel):
+    fecha_referencia: date
+    modo: Optional[str] = None
+
+    @validator("modo")
+    def validate_modo(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        upper = value.strip().upper()
+        if upper not in AGENDA_MODOS:
+            raise ValueError(f"modo debe ser uno de: {', '.join(sorted(AGENDA_MODOS))}")
+        return upper

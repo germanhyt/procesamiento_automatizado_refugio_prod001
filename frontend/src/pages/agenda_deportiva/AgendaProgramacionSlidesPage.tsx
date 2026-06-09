@@ -160,7 +160,7 @@ const AgendaProgramacionSlidesPage: React.FC = () => {
                 <h1 className="text-lg font-black uppercase tracking-tight text-app-text">{title}</h1>
                 <p className="text-xs text-app-muted mt-1">
                     {prog.modo} · {formatAgendaRango(prog.fecha_inicio, prog.fecha_fin)} ·{' '}
-                    {prog.activa ? 'Activa' : 'Inactiva'}
+                    {prog.activa ? 'Activa' : 'Inactiva'} · {prog.categoria_lugar}
                 </p>
             </div>
 

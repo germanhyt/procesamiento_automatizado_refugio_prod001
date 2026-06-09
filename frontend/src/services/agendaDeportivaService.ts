@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import type { AgendaModo } from '@/constants/agendaDeportiva';
+import type { AgendaCategoriaLugar, AgendaModo } from '@/constants/agendaDeportiva';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
 
@@ -25,6 +25,7 @@ export interface AgendaSlide {
 export interface AgendaProgramacion {
     id: number;
     titulo: string | null;
+    categoria_lugar: AgendaCategoriaLugar;
     modo: AgendaModo;
     fecha_inicio: string;
     fecha_fin: string;
@@ -37,6 +38,7 @@ export interface AgendaProgramacion {
 export interface AgendaTrack {
     id: number;
     titulo: string;
+    categoria_lugar: AgendaCategoriaLugar;
     orden: number;
     archivo_nombre_original: string;
     mime_type: string;
@@ -49,6 +51,7 @@ export interface AgendaTrack {
 
 export type AgendaProgramacionCreatePayload = {
     titulo?: string;
+    categoria_lugar: AgendaCategoriaLugar;
     modo: AgendaModo;
     fecha_inicio: string;
     fecha_fin?: string;
@@ -57,6 +60,7 @@ export type AgendaProgramacionCreatePayload = {
 
 export type AgendaProgramacionUpdatePayload = Partial<{
     titulo: string | null;
+    categoria_lugar: AgendaCategoriaLugar;
     modo: AgendaModo;
     fecha_inicio: string;
     fecha_fin: string;
@@ -124,6 +128,19 @@ export const agendaDeportivaService = {
         return res.data;
     },
 
+    async duplicateProgramacion(
+        token: string,
+        id: number,
+        payload: { fecha_referencia: string; modo?: AgendaModo }
+    ) {
+        const res = await axios.post<AgendaProgramacion>(
+            `${API_URL}/agenda-deportiva/programaciones/${id}/duplicar`,
+            payload,
+            { headers: authHeaders(token) }
+        );
+        return res.data;
+    },
+
     async deleteProgramacion(token: string, id: number) {
         await axios.delete(`${API_URL}/agenda-deportiva/programaciones/${id}`, {
             headers: authHeaders(token),
@@ -184,10 +201,17 @@ export const agendaDeportivaService = {
         return res.data;
     },
 
-    async uploadTrack(token: string, file: File, titulo?: string, publica = false) {
+    async uploadTrack(
+        token: string,
+        file: File,
+        titulo: string | undefined,
+        categoria_lugar: AgendaCategoriaLugar,
+        publica = false
+    ) {
         const form = new FormData();
         form.append('file', file);
         if (titulo) form.append('titulo', titulo);
+        form.append('categoria_lugar', categoria_lugar);
         form.append('publica', String(publica));
         const res = await axios.post<AgendaTrack>(`${API_URL}/agenda-deportiva/tracks`, form, {
             headers: authHeaders(token),
@@ -198,7 +222,7 @@ export const agendaDeportivaService = {
     async updateTrack(
         token: string,
         trackId: number,
-        payload: { titulo?: string; habilitada?: boolean; publica?: boolean }
+        payload: { titulo?: string; categoria_lugar?: AgendaCategoriaLugar; habilitada?: boolean; publica?: boolean }
     ) {
         const res = await axios.patch<AgendaTrack>(`${API_URL}/agenda-deportiva/tracks/${trackId}`, payload, {
             headers: authHeaders(token),

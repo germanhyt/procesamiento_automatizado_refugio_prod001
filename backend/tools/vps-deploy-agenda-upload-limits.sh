@@ -52,7 +52,15 @@ else
   echo ">>> Añadido client_max_body_size 30m;"
 fi
 
-echo ">>> Validando Nginx..."
+cd "${ROOT_DIR}"
+echo ">>> Reconstruyendo backend (y frontend si hay cambios)..."
+docker compose build datarefugio_backend datarefugio_frontend
+docker compose up -d datarefugio_backend datarefugio_frontend
+
+echo ">>> Patch BD agenda deportiva (idempotente)..."
+docker compose exec -T datarefugio_backend python patch_db_agenda_deportiva.py
+
+echo ">>> Recargando Nginx (evita 502 tras recrear contenedores)..."
 if command -v nginx >/dev/null 2>&1; then
   sudo nginx -t
   sudo nginx -s reload
@@ -64,13 +72,5 @@ elif docker ps --format '{{.Names}}' | grep -qE 'nginx|proxy'; then
 else
   echo "WARN: nginx no encontrado en host ni contenedor; aplica reload manualmente"
 fi
-
-cd "${ROOT_DIR}"
-echo ">>> Reconstruyendo backend (y frontend si hay cambios)..."
-docker compose build datarefugio_backend datarefugio_frontend
-docker compose up -d datarefugio_backend datarefugio_frontend
-
-echo ">>> Patch BD agenda deportiva (idempotente)..."
-docker compose exec -T datarefugio_backend python patch_db_agenda_deportiva.py
 
 echo ">>> Listo. Prueba subir un track desde la agenda deportiva."

@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarRange, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarRange, ChevronRight, Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 import {
-    AGENDA_MODO_DAY,
+    AGENDA_MODO_OPTIONS,
+    agendaModoLabel,
     formatAgendaRango,
     PERMISSION_AGENDA_MANAGE,
 } from '@/constants/agendaDeportiva';
 import { useAgendaMutations, useAgendaProgramaciones } from '@/hooks/useAgendaDeportiva';
 import AgendaProgramacionFormModal from '@/pages/agenda_deportiva/AgendaProgramacionFormModal';
-import { apiErrorDetail } from '@/services/agendaDeportivaService';
+import { apiErrorDetail, type AgendaProgramacion } from '@/services/agendaDeportivaService';
 import { userHasCodename } from '@/utils/documentosGcbUtils';
 import { useAuth } from '@/context/AuthContext';
 
@@ -18,9 +19,11 @@ const AgendaProgramacionesPage: React.FC = () => {
     const { user } = useAuth();
     const canManage = userHasCodename(user, PERMISSION_AGENDA_MANAGE);
     const [modalOpen, setModalOpen] = useState(false);
+    const [editingRow, setEditingRow] = useState<AgendaProgramacion | null>(null);
 
     const listQuery = useAgendaProgramaciones();
-    const { createProgramacion, deleteProgramacion, activarProgramacion } = useAgendaMutations();
+    const { createProgramacion, updateProgramacion, deleteProgramacion, activarProgramacion, duplicateProgramacion } =
+        useAgendaMutations();
 
     const rows = listQuery.data ?? [];
 
@@ -33,6 +36,23 @@ const AgendaProgramacionesPage: React.FC = () => {
                 title: 'Programación creada',
                 text: `ID ${created.id}. Ahora puedes subir imágenes.`,
                 timer: 2200,
+                showConfirmButton: false,
+            });
+        } catch (error) {
+            void Swal.fire({ icon: 'error', title: 'Error', text: apiErrorDetail(error) });
+        }
+    };
+
+    const handleEdit = async (payload: Parameters<typeof createProgramacion.mutateAsync>[0]) => {
+        if (!editingRow) return;
+        try {
+            await updateProgramacion.mutateAsync({ id: editingRow.id, payload });
+            setEditingRow(null);
+            setModalOpen(false);
+            void Swal.fire({
+                icon: 'success',
+                title: 'Programación actualizada',
+                timer: 1800,
                 showConfirmButton: false,
             });
         } catch (error) {
@@ -65,6 +85,49 @@ const AgendaProgramacionesPage: React.FC = () => {
         }
     };
 
+    const handleDuplicar = async (id: number, modoActual: Parameters<typeof duplicateProgramacion.mutateAsync>[0]['payload']['modo']) => {
+        const now = new Date().toISOString().slice(0, 10);
+        const optionsHtml = AGENDA_MODO_OPTIONS.map(
+            (item) =>
+                `<option value="${item.value}" ${item.value === modoActual ? 'selected' : ''}>${item.label}</option>`
+        ).join('');
+        const result = await Swal.fire({
+            title: 'Duplicar programación',
+            html: `
+                <div style="display:grid;gap:10px;text-align:left;">
+                  <label style="font-size:12px;">Modo</label>
+                  <select id="agenda-dup-modo" class="swal2-input" style="margin:0;">${optionsHtml}</select>
+                  <label style="font-size:12px;">Fecha de referencia</label>
+                  <input id="agenda-dup-fecha" type="date" class="swal2-input" style="margin:0;" value="${now}" />
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Duplicar',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+                const fecha = (document.getElementById('agenda-dup-fecha') as HTMLInputElement | null)?.value;
+                const modo = (document.getElementById('agenda-dup-modo') as HTMLSelectElement | null)?.value;
+                if (!fecha || !modo) {
+                    Swal.showValidationMessage('Completa modo y fecha');
+                    return null;
+                }
+                return { fecha_referencia: fecha, modo };
+            },
+        });
+        if (!result.isConfirmed || !result.value) return;
+        try {
+            await duplicateProgramacion.mutateAsync({ id, payload: result.value });
+            void Swal.fire({
+                icon: 'success',
+                title: 'Programación duplicada',
+                timer: 1800,
+                showConfirmButton: false,
+            });
+        } catch (error) {
+            void Swal.fire({ icon: 'error', title: 'Error', text: apiErrorDetail(error) });
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -82,7 +145,7 @@ const AgendaProgramacionesPage: React.FC = () => {
                     <div>
                         <h1 className="text-lg font-black uppercase tracking-tight text-app-text">Programaciones</h1>
                         <p className="text-[10px] text-app-muted uppercase tracking-widest">
-                            Imágenes ordenadas · modo día o semana
+                            Imágenes ordenadas · modo día, semana o mes
                         </p>
                     </div>
                 </div>
@@ -98,7 +161,10 @@ const AgendaProgramacionesPage: React.FC = () => {
                     {canManage && (
                         <button
                             type="button"
-                            onClick={() => setModalOpen(true)}
+                            onClick={() => {
+                                setEditingRow(null);
+                                setModalOpen(true);
+                            }}
                             className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest text-black"
                             style={{ backgroundColor: 'var(--app-agenda-accent)' }}
                         >
@@ -125,7 +191,7 @@ const AgendaProgramacionesPage: React.FC = () => {
             <div className="grid gap-3">
                 {rows.map((row) => {
                     const label = row.titulo || formatAgendaRango(row.fecha_inicio, row.fecha_fin);
-                    const modoLabel = row.modo === AGENDA_MODO_DAY ? 'Día' : 'Semana';
+                    const modoLabel = agendaModoLabel(row.modo);
                     return (
                         <div
                             key={row.id}
@@ -160,6 +226,7 @@ const AgendaProgramacionesPage: React.FC = () => {
                                 <p className="text-xs text-app-muted mt-0.5">
                                     {formatAgendaRango(row.fecha_inicio, row.fecha_fin)}
                                 </p>
+                                <p className="text-xs text-app-muted mt-0.5">Lugar: {row.categoria_lugar}</p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 {canManage && !row.activa && (
@@ -186,6 +253,29 @@ const AgendaProgramacionesPage: React.FC = () => {
                                 {canManage && (
                                     <button
                                         type="button"
+                                        onClick={() => {
+                                            setEditingRow(row);
+                                            setModalOpen(true);
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded-xl border border-app-border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-muted hover:bg-app-card-hover"
+                                    >
+                                        <Pencil size={14} />
+                                        Editar
+                                    </button>
+                                )}
+                                {canManage && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDuplicar(row.id, row.modo)}
+                                        className="inline-flex items-center gap-1 rounded-xl border border-app-border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-muted hover:bg-app-card-hover"
+                                    >
+                                        <Copy size={14} />
+                                        Duplicar
+                                    </button>
+                                )}
+                                {canManage && (
+                                    <button
+                                        type="button"
                                         onClick={() => handleDelete(row.id, label)}
                                         className="p-2 rounded-xl border border-app-border text-app-danger hover:bg-app-danger-muted"
                                         aria-label="Eliminar"
@@ -201,9 +291,26 @@ const AgendaProgramacionesPage: React.FC = () => {
 
             <AgendaProgramacionFormModal
                 open={modalOpen}
-                onClose={() => setModalOpen(false)}
-                onSubmit={handleCreate}
-                busy={createProgramacion.isPending}
+                onClose={() => {
+                    setModalOpen(false);
+                    setEditingRow(null);
+                }}
+                onSubmit={editingRow ? handleEdit : handleCreate}
+                busy={createProgramacion.isPending || updateProgramacion.isPending}
+                title={editingRow ? 'Editar programación' : 'Nueva programación'}
+                submitLabel={editingRow ? 'Actualizar' : 'Crear'}
+                initialData={
+                    editingRow
+                        ? {
+                              titulo: editingRow.titulo,
+                              categoria_lugar: editingRow.categoria_lugar,
+                              modo: editingRow.modo,
+                              fecha_inicio: editingRow.fecha_inicio,
+                              fecha_fin: editingRow.fecha_fin,
+                              activa: editingRow.activa,
+                          }
+                        : null
+                }
             />
         </div>
     );
