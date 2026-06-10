@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import AppSelect from '@/components/ui/AppSelect';
 import DeliveryAdminTable from '@/pages/delivery/DeliveryAdminTable';
 import DeliveryKioskAppsModal from '@/pages/delivery/DeliveryKioskAppsModal';
+import DeliveryMetricsModal from '@/pages/delivery/DeliveryMetricsModal';
 import DeliveryRestaurantsModal from '@/pages/delivery/DeliveryRestaurantsModal';
 import { useDeliveryWS } from '@/hooks/useDeliveryWS';
 import {
@@ -35,6 +36,27 @@ function minutesSince(iso: string | null | undefined) {
     const ts = Date.parse(iso);
     if (Number.isNaN(ts)) return null;
     return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+
+function formatRegistrationDateTime(iso: string | null | undefined) {
+    if (!iso) return '—';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString('es-PE', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+}
+
+function runnerAssignedLabel(order: Pick<Order, 'locked_by_runner_id' | 'locked_by_runner_username'>) {
+    if (order.locked_by_runner_username?.trim()) return order.locked_by_runner_username.trim();
+    if (order.locked_by_runner_id != null) return `Runner #${order.locked_by_runner_id}`;
+    return 'Sin asignar';
 }
 
 function formatDriverDocumentSuffix(d: DriverArrival): string {
@@ -73,6 +95,7 @@ const DeliveryPanel: React.FC = () => {
     const [matchModalOrder, setMatchModalOrder] = useState<Pick<Order, 'id' | 'codigo_pedido' | 'restaurant_nombre'> | null>(null);
     const [selectedMatchDriver, setSelectedMatchDriver] = useState<{ value: number; label: string } | null>(null);
     const [restaurantsModalOpen, setRestaurantsModalOpen] = useState(false);
+    const [metricsModalOpen, setMetricsModalOpen] = useState(false);
 
     const platformOptions = useMemo(() => {
         const set = new Set<string>();
@@ -227,6 +250,15 @@ const DeliveryPanel: React.FC = () => {
                 </div>
                 <div className="flex gap-2">
 
+                    {canAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => setMetricsModalOpen(true)}
+                            className="px-4 py-2 rounded-xl bg-app-delivery text-white hover:bg-app-delivery-strong border border-app-delivery-muted text-[10px] font-black uppercase tracking-widest"
+                        >
+                            Métricas
+                        </button>
+                    )}
                     {canAdmin && (
                         <button
                             type="button"
@@ -402,24 +434,20 @@ const DeliveryPanel: React.FC = () => {
                                                             {o.plataforma}
                                                             {o.numero_bolsas ? ` · bolsas: ${o.numero_bolsas}` : ''}
                                                             {o?.restaurant_nombre ? ` · ${o?.restaurant_nombre}` : ''}
+                                                        </p>
+                                                        <p className="text-[10px] font-mono text-app-muted">
+                                                            Registro: {formatRegistrationDateTime(o.created_at)}
                                                             {minutesSince(o.created_at) !== null ? ` · ${minutesSince(o.created_at)}m` : ''}
                                                         </p>
                                                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                                                             <span className={orderStatusBadgeClass(o.estado)}>{o.estado}</span>
-                                                            {o.locked_by_runner_id ? (
-                                                                <span
-                                                                    className="px-2 py-1 rounded-lg border border-app-border bg-app-surface text-[9px] text-zinc-300 max-w-[200px] truncate"
-                                                                    title={
-                                                                        o.locked_by_runner_username
-                                                                        ?? undefined
-                                                                    }
-                                                                >
-                                                                    Bloqueado por:{' '}
-                                                                    <span className="font-semibold text-app-text">
-                                                                        {o.locked_by_runner_username?.trim() ?? `usuario #${o?.locked_by_runner_id}`}
-                                                                    </span>
-                                                                </span>
-                                                            ) : null}
+                                                            <span
+                                                                className="px-2 py-1 rounded-lg border border-app-border bg-app-surface text-[9px] text-zinc-300 max-w-[240px] truncate"
+                                                                title={runnerAssignedLabel(o)}
+                                                            >
+                                                                Runner asignado:{' '}
+                                                                <span className="font-semibold text-app-text">{runnerAssignedLabel(o)}</span>
+                                                            </span>
                                                             {o.matched_driver_arrival_id ? (
                                                                 <span className="px-2 py-1 rounded-lg border border-app-delivery-muted bg-app-delivery-muted-bg text-[9px] font-mono text-app-delivery">
                                                                     DRIVER MATCHEADO ✅
@@ -559,6 +587,20 @@ const DeliveryPanel: React.FC = () => {
             )}
 
             {/* Modal Match manual con AppSelect */}
+            <DeliveryMetricsModal
+                open={metricsModalOpen}
+                onClose={() => setMetricsModalOpen(false)}
+                orders={adminOrders.data ?? []}
+                drivers={drivers.data ?? []}
+                isLoading={adminOrders.isLoading || drivers.isLoading}
+                isError={adminOrders.isError || drivers.isError}
+                onRefresh={() => {
+                    adminOrders.refetch();
+                    drivers.refetch();
+                    orders.refetch();
+                }}
+            />
+
             <DeliveryRestaurantsModal open={restaurantsModalOpen} onClose={() => setRestaurantsModalOpen(false)} toast={toast} />
 
             <DeliveryKioskAppsModal

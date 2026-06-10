@@ -27,6 +27,21 @@ function diffMinutes(from: string | null | undefined, to: string | null | undefi
     return String(Math.max(0, Math.floor((b - a) / 60000)));
 }
 
+function formatRegistrationDateTime(value: string | null | undefined): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString('es-PE', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+}
+
 /** Desde registro en kiosk hasta atención/match; si falta `atendido_at`, usa ahora (caso borde / refresco). */
 function kioskWaitMinutes(o: Order): string {
     const da = o.matched_driver_arrival;
@@ -129,6 +144,8 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     authToken,
 }) => {
     const [codigoFilter, setCodigoFilter] = useState('');
+    const [platformFilter, setPlatformFilter] = useState('ALL');
+    const [localFilter, setLocalFilter] = useState('ALL');
     const [photoViewer, setPhotoViewer] = useState<{ title: string; objectUrl: string } | null>(null);
     const [photoLoading, setPhotoLoading] = useState(false);
     const [driverDetailsForOrder, setDriverDetailsForOrder] = useState<Order | null>(null);
@@ -160,11 +177,29 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
         [authToken, toast, closePhotoViewer]
     );
 
+    const platformOptions = useMemo(() => {
+        const list = Array.from(new Set(orders.map((order) => order.plataforma?.trim()).filter(Boolean) as string[])).sort((a, b) =>
+            a.localeCompare(b)
+        );
+        return [{ value: 'ALL', label: 'Todas' }, ...list.map((value) => ({ value, label: value }))];
+    }, [orders]);
+
+    const localOptions = useMemo(() => {
+        const list = Array.from(
+            new Set(orders.map((order) => order.restaurant_nombre?.trim()).filter(Boolean) as string[])
+        ).sort((a, b) => a.localeCompare(b));
+        return [{ value: 'ALL', label: 'Todos' }, ...list.map((value) => ({ value, label: value }))];
+    }, [orders]);
+
     const filtered = useMemo(() => {
         const q = codigoFilter.trim().toLowerCase();
-        if (!q) return orders;
-        return orders.filter((o) => o.codigo_pedido.toLowerCase().includes(q));
-    }, [orders, codigoFilter]);
+        return orders.filter((o) => {
+            if (platformFilter !== 'ALL' && o.plataforma !== platformFilter) return false;
+            if (localFilter !== 'ALL' && (o.restaurant_nombre?.trim() || '') !== localFilter) return false;
+            if (q && !o.codigo_pedido.toLowerCase().includes(q)) return false;
+            return true;
+        });
+    }, [orders, codigoFilter, platformFilter, localFilter]);
 
     const columns = useMemo(
         () => [
@@ -176,6 +211,15 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
             columnHelper.accessor('codigo_pedido', {
                 header: 'Código',
                 cell: (info) => <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>,
+            }),
+            columnHelper.accessor('created_at', {
+                id: 'created_at',
+                header: 'Registro',
+                cell: (info) => (
+                    <span className="text-[10px] font-mono text-app-muted whitespace-nowrap">
+                        {formatRegistrationDateTime(info.getValue())}
+                    </span>
+                ),
             }),
             columnHelper.display({
                 id: 'restaurant_nombre',
@@ -198,6 +242,20 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 cell: (info) => (
                     <span className={orderStatusBadgeClass(info.getValue())}>{info.getValue()}</span>
                 ),
+            }),
+            columnHelper.display({
+                id: 'runner_asignado',
+                header: 'Runner',
+                cell: ({ row }) => {
+                    const username = row.original.locked_by_runner_username?.trim();
+                    if (username) {
+                        return <span className="text-[10px] text-app-text truncate max-w-[130px] block">{username}</span>;
+                    }
+                    if (row.original.locked_by_runner_id != null) {
+                        return <span className="text-[10px] text-app-muted font-mono">Runner #{row.original.locked_by_runner_id}</span>;
+                    }
+                    return <span className="text-[10px] text-app-muted">Sin asignar</span>;
+                },
             }),
             columnHelper.display({
                 id: 'driver_label',
@@ -459,6 +517,26 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                     {/* <p className="text-[10px] font-mono text-app-muted">Registros con paginación · orden descendente · trazabilidad</p> */}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-muted shrink-0">Plataforma</label>
+                        <AppSelect
+                            options={platformOptions}
+                            value={platformOptions.find((option) => option.value === platformFilter) ?? platformOptions[0]}
+                            onChange={(option) => option && setPlatformFilter(option.value)}
+                            size="sm"
+                            className="min-w-[140px]"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-muted shrink-0">Local</label>
+                        <AppSelect
+                            options={localOptions}
+                            value={localOptions.find((option) => option.value === localFilter) ?? localOptions[0]}
+                            onChange={(option) => option && setLocalFilter(option.value)}
+                            size="sm"
+                            className="min-w-[180px]"
+                        />
+                    </div>
                     <div className="flex items-center gap-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-app-muted shrink-0">Estado</label>
                         <AppSelect

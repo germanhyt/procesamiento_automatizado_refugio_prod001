@@ -61,7 +61,6 @@ function isMenuGroup(entry: TopLevelMenuEntry): entry is MenuGroupItem {
 }
 
 const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
-    { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage', themeKey: 'users' },
     { id: 'documentos-gcb', path: '/documentos-gcb', label: 'Documentos GCB', icon: <FileText size={18} />, permission: 'documentos_gcb:view', themeKey: 'documentos' },
     { id: 'powerbi', path: '/powerbi', label: 'Dashboard Refugio', icon: <LayoutDashboard size={18} />, permission: 'dashboard:view', themeKey: 'dashboard' },
     {
@@ -117,6 +116,7 @@ const TOP_LEVEL_MENU: TopLevelMenuEntry[] = [
             },
         ],
     },
+    { id: 'users', path: '/users', label: 'Gestión de Usuarios', icon: <Users size={18} />, permission: 'users:manage', themeKey: 'users' },
 ];
 
 type ModuleTheme = {
@@ -209,15 +209,17 @@ const MainLayout: React.FC = () => {
     const { theme, toggleTheme } = useTheme();
     const [sidebarOpen, setSidebarOpen] = useState(true); // desktop collapse/expand
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false); // mobile drawer
-    const [isMobile, setIsMobile] = useState(false);
+    const [isBelowLg, setIsBelowLg] = useState(false);
 
     useEffect(() => {
-        const mq = window.matchMedia('(max-width: 639px)'); // <sm
-        const onChange = () => setIsMobile(mq.matches);
+        const mq = window.matchMedia('(max-width: 1023px)'); // <lg
+        const onChange = () => setIsBelowLg(mq.matches);
         onChange();
         mq.addEventListener?.('change', onChange);
         return () => mq.removeEventListener?.('change', onChange);
     }, []);
+
+    const sidebarExpanded = !isBelowLg && sidebarOpen;
 
     const hasPermission = (codename: string) => {
         if (!user) return false;
@@ -239,19 +241,7 @@ const MainLayout: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
-    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-        'procesamiento-data': true,
-        'agenda-deportiva': true,
-    });
-
-    useEffect(() => {
-        if (location.pathname.startsWith('/agenda-deportiva')) {
-            setOpenGroups((p) => ({ ...p, 'agenda-deportiva': true }));
-        }
-        if (location.pathname === '/legacy') {
-            setOpenGroups((p) => ({ ...p, 'procesamiento-data': true }));
-        }
-    }, [location.pathname]);
+    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
     const breadcrumbMeta = useMemo(() => {
         for (const e of visibleMenu) {
@@ -335,10 +325,10 @@ const MainLayout: React.FC = () => {
                                     type="button"
                                     onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
                                     className={`w-full flex items-center transition-all duration-200 group relative overflow-hidden rounded-2xl px-6 py-4 gap-4 sidebar-module-button ${isActive
-                                            ? 'sidebar-module-button--active'
-                                            : item.disabled
-                                                ? 'opacity-40 cursor-not-allowed grayscale'
-                                                : ''
+                                        ? 'sidebar-module-button--active'
+                                        : item.disabled
+                                            ? 'opacity-40 cursor-not-allowed grayscale'
+                                            : ''
                                         }`}
                                     style={getModuleButtonVars(item.themeKey)}
                                 >
@@ -357,7 +347,7 @@ const MainLayout: React.FC = () => {
                             );
                         }
                         const g = entry;
-                        const groupOpen = openGroups[g.id] !== false;
+                        const groupOpen = openGroups[g.id] === true;
                         return (
                             <div key={g.id} className="space-y-2">
                                 <button
@@ -425,12 +415,12 @@ const MainLayout: React.FC = () => {
             {/* Desktop sidebar */}
             <motion.aside
                 initial={false}
-                animate={{ width: sidebarOpen ? 315 : 80 }}
+                animate={{ width: sidebarExpanded ? 315 : 80 }}
                 className="hidden sm:flex flex-col relative z-30 h-full transition-all duration-300 ease-in-out shadow-2xl border-r"
                 style={{ backgroundColor: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
             >
                 <div
-                    className={`flex items-center gap-5 transition-all duration-300 ${sidebarOpen ? 'p-8 mb-4' : 'p-0 h-24 mb-4 justify-center'
+                    className={`flex items-center gap-5 transition-all duration-300 ${sidebarExpanded ? 'p-8 mb-4' : 'p-0 h-24 mb-4 justify-center'
                         }`}
                 >
                     <button
@@ -445,7 +435,7 @@ const MainLayout: React.FC = () => {
                             className="w-14 h-14 rounded-full border-2 object-cover relative shadow-inner"
                             style={{ borderColor: 'var(--app-accent-muted)', boxShadow: 'inset 0 0 18px var(--app-accent-muted)' }}
                         />
-                        {sidebarOpen && (
+                        {sidebarExpanded && (
                             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="overflow-hidden text-left relative">
                                 <h2 className="text-sm font-black tracking-tighter uppercase leading-none">Refugio</h2>
                                 <p className="text-[10px] text-app-accent font-mono tracking-[0.2em] mt-1">Data</p>
@@ -465,7 +455,7 @@ const MainLayout: React.FC = () => {
                                     type="button"
                                     onClick={() => !item.disabled && item.path && handleNavigate(item.path)}
                                     className={`w-full flex items-center transition-all duration-300 group relative overflow-hidden rounded-2xl sidebar-module-button
-                                        ${sidebarOpen ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
+                                        ${sidebarExpanded ? 'px-6 py-4 gap-4' : 'p-0 h-16 justify-center'}
                                         ${isActive
                                             ? 'sidebar-module-button--active'
                                             : item.disabled
@@ -475,7 +465,7 @@ const MainLayout: React.FC = () => {
                                     style={getModuleButtonVars(item.themeKey)}
                                 >
                                     <span className="sidebar-module-button__icon shrink-0 relative z-10">{item.icon}</span>
-                                    {sidebarOpen && (
+                                    {sidebarExpanded && (
                                         <span className="text-[10px] font-black uppercase tracking-widest relative z-10 whitespace-nowrap">
                                             {item.label}
                                         </span>
@@ -491,10 +481,10 @@ const MainLayout: React.FC = () => {
                             );
                         }
                         const g = entry;
-                        const groupOpen = openGroups[g.id] !== false;
+                        const groupOpen = openGroups[g.id] === true;
                         const childActive = g.children.some((c) => Boolean(c.path) && location.pathname === c.path);
                         const firstPath = g.children.find((c) => c.path && !c.disabled)?.path;
-                        if (!sidebarOpen) {
+                        if (!sidebarExpanded) {
                             return (
                                 <button
                                     key={g.id}
@@ -571,25 +561,27 @@ const MainLayout: React.FC = () => {
                     <button
                         type="button"
                         onClick={logout}
-                        className={`w-full flex items-center rounded-2xl text-app-danger hover:bg-app-danger-muted transition-all ${sidebarOpen ? 'p-4 gap-5' : 'p-0 h-16 justify-center'}`}
+                        className={`w-full flex items-center rounded-2xl text-app-danger hover:bg-app-danger-muted transition-all ${sidebarExpanded ? 'p-4 gap-5' : 'p-0 h-16 justify-center'}`}
                     >
                         <LogOut size={18} />
-                        {sidebarOpen && (
+                        {sidebarExpanded && (
                             <span className="text-[10px] font-black uppercase tracking-widest">Cerrar Sesión</span>
                         )}
                     </button>
                 </div>
 
-                <button
-                    type="button"
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="p-6 border-t text-app-muted hover:text-app-accent flex justify-center transition-all group"
-                    style={{ borderColor: 'var(--app-border)' }}
-                >
-                    <div className="bg-white/5 p-2 rounded-lg group-hover:bg-app-accent-muted-bg">
-                        {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-                    </div>
-                </button>
+                {!isBelowLg && (
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="p-6 border-t text-app-muted hover:text-app-accent flex justify-center transition-all group"
+                        style={{ borderColor: 'var(--app-border)' }}
+                    >
+                        <div className="bg-white/5 p-2 rounded-lg group-hover:bg-app-accent-muted-bg">
+                            {sidebarExpanded ? <X size={18} /> : <Menu size={18} />}
+                        </div>
+                    </button>
+                )}
             </motion.aside>
 
             <main className="flex-1 flex flex-col h-full overflow-hidden relative">

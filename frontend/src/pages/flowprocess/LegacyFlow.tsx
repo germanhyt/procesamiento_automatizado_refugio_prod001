@@ -613,13 +613,8 @@ const LegacyFlow: React.FC = () => {
         setSelectedRestoreFiles({});
         setFilesSearchTerm('');
         try {
-            const list = await refreshCierreModal();
-            const expanded: Record<string, boolean> = {};
-            for (const g of list) {
-                const { pendientes, consolidados, backup } = conteoArchivosCierre(g);
-                if (pendientes + consolidados + backup > 0) expanded[g.locatario] = true;
-            }
-            setExpandedCierreLocs(expanded);
+            await refreshCierreModal();
+            setExpandedCierreLocs({});
         } catch {
             setPorLocatarioModal([]);
             setExpandedCierreLocs({});
