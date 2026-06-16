@@ -588,15 +588,6 @@ const DeliveryPanel: React.FC = () => {
             <DeliveryMetricsModal
                 open={metricsModalOpen}
                 onClose={() => setMetricsModalOpen(false)}
-                orders={adminOrders.data?.items ?? []}
-                drivers={drivers.data ?? []}
-                isLoading={adminOrders.isLoading || drivers.isLoading}
-                isError={adminOrders.isError || drivers.isError}
-                onRefresh={() => {
-                    adminOrders.refetch();
-                    drivers.refetch();
-                    orders.refetch();
-                }}
             />
 
             <DeliveryRestaurantsModal open={restaurantsModalOpen} onClose={() => setRestaurantsModalOpen(false)} toast={toast} />

@@ -121,6 +121,56 @@ export interface AdminOrdersListParams {
     codigo?: string;
     plataforma?: string;
     restaurant_nombre?: string;
+    fecha_desde?: string;
+    fecha_hasta?: string;
+}
+
+export interface DeliveryMetricsRowApi {
+    group: string;
+    total: number;
+    active: number;
+    delivered: number;
+    canceled: number;
+    returned: number;
+    matched: number;
+    bags: number;
+    avg_create_to_ready: number | null;
+    avg_ready_to_match: number | null;
+    avg_match_to_pickup: number | null;
+    avg_pickup_to_delivered: number | null;
+    avg_ready_to_delivered: number | null;
+}
+
+export interface DeliveryMetricsResponse {
+    fecha_desde: string;
+    fecha_hasta: string;
+    total_orders_in_range: number;
+    total_filtered: number;
+    summary: DeliveryMetricsRowApi;
+    rows: DeliveryMetricsRowApi[];
+    filter_options: {
+        estado: string[];
+        locatario: string[];
+        plataforma: string[];
+        driver: string[];
+        runner: string[];
+    };
+    drivers_live: {
+        esperando: number;
+        en_match: number;
+        total: number;
+    };
+}
+
+export interface DeliveryMetricsParams {
+    fecha_desde: string;
+    fecha_hasta: string;
+    dimension?: string;
+    estado?: string;
+    locatario?: string;
+    plataforma?: string;
+    driver?: string;
+    runner?: string;
 }
 
 function authHeaders(token: string | null) {
@@ -180,6 +230,25 @@ export const deliveryService = {
                 params,
             }
         );
+        return res.data;
+    },
+
+    /** Métricas agregadas en servidor (Dashboard Delivery; sin traer pedidos al cliente). */
+    async adminGetMetrics(token: string, params: DeliveryMetricsParams) {
+        const query: Record<string, string> = {
+            fecha_desde: params.fecha_desde,
+            fecha_hasta: params.fecha_hasta,
+            dimension: params.dimension ?? 'estado',
+        };
+        if (params.estado) query.estado = params.estado;
+        if (params.locatario) query.locatario = params.locatario;
+        if (params.plataforma) query.plataforma = params.plataforma;
+        if (params.driver) query.driver = params.driver;
+        if (params.runner) query.runner = params.runner;
+        const res = await axios.get<DeliveryMetricsResponse>(`${API_URL}/delivery/admin/metrics`, {
+            headers: authHeaders(token),
+            params: query,
+        });
         return res.data;
     },
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import logging
@@ -14,6 +14,7 @@ from sqlalchemy.sql import func as sql_func
 from starlette.responses import FileResponse, Response
 
 from app.core.delivery_constants import (
+    ADMIN_ORDERS_MAX_DATE_RANGE_DAYS,
     DEFAULT_QUERY_LIMIT,
     MATCH_CANDIDATES_LIMIT,
     FUZZY_MATCH_THRESHOLD,
@@ -52,6 +53,7 @@ from app.models.delivery import (
 from app.core import security
 from jose import jwt, JWTError
 from app.schemas.delivery import (
+    DeliveryMetricsOut,
     DeliveryStatus,
     FidelioOrderReadyIn,
     FidelioOrderReadyOut,
@@ -82,6 +84,7 @@ from app.schemas.delivery import (
     RunnerFeatureFlagsOut,
 )
 
+from app.services.delivery_metrics_service import compute_delivery_metrics
 from app.services.delivery_push import (
     notify_runners_kiosk_match_sync,
     notify_runners_new_driver_waiting_sync,
@@ -267,22 +270,50 @@ def _lima_today_range_utc() -> tuple[datetime, datetime]:
     return start_lima.astimezone(timezone.utc), end_lima.astimezone(timezone.utc)
 
 
+def _parse_lima_date(date_str: str) -> date:
+    try:
+        return datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Formato de fecha inválido: '{date_str}'. Use YYYY-MM-DD.",
+        )
+
+
 def _lima_date_range_utc(date_str: str) -> tuple[datetime, datetime]:
     """
     Convierte una fecha YYYY-MM-DD (zona Lima) al rango UTC equivalente [inicio, fin).
     Lanza HTTPException 422 si el formato no es válido.
     """
     lima_tz = ZoneInfo("America/Lima")
-    try:
-        parsed = datetime.strptime(date_str.strip(), "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Formato de fecha inválido: '{date_str}'. Use YYYY-MM-DD.",
-        )
-    start_lima = parsed.replace(tzinfo=lima_tz)
+    parsed = _parse_lima_date(date_str)
+    start_lima = datetime(parsed.year, parsed.month, parsed.day, tzinfo=lima_tz)
     end_lima = datetime.fromtimestamp(start_lima.timestamp() + 86400, tz=lima_tz)
     return start_lima.astimezone(timezone.utc), end_lima.astimezone(timezone.utc)
+
+
+def _lima_created_at_bounds_utc(
+    fecha_desde: Optional[str],
+    fecha_hasta: Optional[str],
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Límites UTC [inicio, fin) sobre Order.created_at según fechas Lima inclusive."""
+    start_utc: Optional[datetime] = None
+    end_utc: Optional[datetime] = None
+    if fecha_desde:
+        start_utc, _ = _lima_date_range_utc(fecha_desde)
+    if fecha_hasta:
+        _, end_utc = _lima_date_range_utc(fecha_hasta)
+    if fecha_desde and fecha_hasta:
+        d0 = _parse_lima_date(fecha_desde)
+        d1 = _parse_lima_date(fecha_hasta)
+        if d0 > d1:
+            raise HTTPException(status_code=422, detail="fecha_desde no puede ser posterior a fecha_hasta")
+        if (d1 - d0).days > ADMIN_ORDERS_MAX_DATE_RANGE_DAYS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"El rango de fechas no puede superar {ADMIN_ORDERS_MAX_DATE_RANGE_DAYS} días",
+            )
+    return start_utc, end_utc
 
 
 def _get_state_ts(obj) -> datetime:
@@ -1533,6 +1564,8 @@ def _admin_orders_query(
     codigo: Optional[str] = None,
     plataforma: Optional[str] = None,
     restaurant_nombre: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
 ):
     q = (
         db.query(Order)
@@ -1542,6 +1575,11 @@ def _admin_orders_query(
             joinedload(Order.locked_by_runner),
         )
     )
+    start_utc, end_utc = _lima_created_at_bounds_utc(fecha_desde, fecha_hasta)
+    if start_utc is not None:
+        q = q.filter(Order.created_at >= start_utc)
+    if end_utc is not None:
+        q = q.filter(Order.created_at < end_utc)
     if status:
         q = q.filter(Order.estado == status.strip().upper())
     if codigo:
@@ -1568,10 +1606,16 @@ async def admin_list_orders(
     codigo: Optional[str] = None,
     plataforma: Optional[str] = None,
     restaurant_nombre: Optional[str] = None,
+    fecha_desde: Optional[str] = Query(
+        default=None,
+        description="Fecha inicio (YYYY-MM-DD, America/Lima) sobre created_at del pedido.",
+    ),
+    fecha_hasta: Optional[str] = Query(
+        default=None,
+        description="Fecha fin inclusive (YYYY-MM-DD, America/Lima) sobre created_at del pedido.",
+    ),
 ):
-    """
-    Listado paginado de pedidos (más recientes primero por registro).
-    """
+    """Listado paginado de pedidos (más recientes primero por registro)."""
     _require_permission(current_user, "delivery:admin")
     apply_timeouts(db)
     q = _admin_orders_query(
@@ -1579,6 +1623,8 @@ async def admin_list_orders(
         codigo=codigo,
         plataforma=plataforma,
         restaurant_nombre=restaurant_nombre,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
     total = q.count()
     orders = q.order_by(Order.created_at.desc(), Order.id.desc()).offset(skip).limit(limit).all()
@@ -1600,6 +1646,8 @@ async def admin_list_orders_by_status(
     codigo: Optional[str] = None,
     plataforma: Optional[str] = None,
     restaurant_nombre: Optional[str] = None,
+    fecha_desde: Optional[str] = Query(default=None, description="YYYY-MM-DD (America/Lima)"),
+    fecha_hasta: Optional[str] = Query(default=None, description="YYYY-MM-DD inclusive (America/Lima)"),
 ):
     _require_permission(current_user, "delivery:admin")
     apply_timeouts(db)
@@ -1609,6 +1657,8 @@ async def admin_list_orders_by_status(
         codigo=codigo,
         plataforma=plataforma,
         restaurant_nombre=restaurant_nombre,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
     total = q.count()
     orders = q.order_by(Order.created_at.desc(), Order.id.desc()).offset(skip).limit(limit).all()
@@ -1617,6 +1667,46 @@ async def admin_list_orders_by_status(
         total=total,
         skip=skip,
         limit=limit,
+    )
+
+
+@router.get("/admin/metrics", response_model=DeliveryMetricsOut)
+async def admin_delivery_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    fecha_desde: str = Query(..., description="YYYY-MM-DD (America/Lima), inclusive"),
+    fecha_hasta: str = Query(..., description="YYYY-MM-DD (America/Lima), inclusive"),
+    dimension: str = Query("estado", description="estado|locatario|plataforma|driver|runner"),
+    estado: Optional[str] = Query(default=None),
+    locatario: Optional[str] = Query(default=None),
+    plataforma: Optional[str] = Query(default=None),
+    driver: Optional[str] = Query(default=None),
+    runner: Optional[str] = Query(default=None),
+):
+    """
+    Métricas agregadas en servidor para Dashboard Delivery.
+    Sin límite de filas al cliente: el rango de fechas acota la consulta.
+    """
+    _require_permission(current_user, "delivery:admin")
+    apply_timeouts(db)
+    start_utc, end_utc = _lima_created_at_bounds_utc(fecha_desde, fecha_hasta)
+    if start_utc is None or end_utc is None:
+        raise HTTPException(status_code=422, detail="fecha_desde y fecha_hasta son requeridas")
+    payload = compute_delivery_metrics(
+        db,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        dimension=dimension,
+        estado=estado or None,
+        locatario=locatario or None,
+        plataforma=plataforma or None,
+        driver=driver or None,
+        runner=runner or None,
+    )
+    return DeliveryMetricsOut(
+        fecha_desde=fecha_desde.strip(),
+        fecha_hasta=fecha_hasta.strip(),
+        **payload,
     )
 
 

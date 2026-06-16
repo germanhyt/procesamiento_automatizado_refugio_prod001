@@ -1,11 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, FileText, Lightbulb, RefreshCcw, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FileText, Lightbulb, RefreshCcw, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import AppSelect from '@/components/ui/AppSelect';
-import { DRIVER_STATUS, ORDER_STATUS, ORDER_STATUSES_ADMIN, orderStatusBadgeClass } from '@/constants/delivery';
-import type { DriverArrival, Order } from '@/services/deliveryService';
+import { DRIVER_STATUS, ORDER_STATUSES_ADMIN, orderStatusBadgeClass } from '@/constants/delivery';
+import { useDeliveryMetrics } from '@/hooks/useDelivery';
+import { useAuth } from '@/context/AuthContext';
+import type { DeliveryMetricsRowApi, DriverArrival } from '@/services/deliveryService';
+import { deliveryService } from '@/services/deliveryService';
+import {
+    defaultDeliveryMetricsDateRange,
+    lastMonthDeliveryMetricsDateRange,
+    thisMonthDeliveryMetricsDateRange,
+    thisWeekDeliveryMetricsDateRange,
+} from '@/utils/deliveryMetricsDates';
 
 const ALL_VALUE = 'ALL';
 
@@ -40,11 +50,6 @@ type MetricInsight = {
 type DeliveryMetricsModalProps = {
     open: boolean;
     onClose: () => void;
-    orders: Order[];
-    drivers: DriverArrival[];
-    isLoading: boolean;
-    isError: boolean;
-    onRefresh: () => void;
 };
 
 const DIMENSION_OPTIONS: Array<{ value: Dimension; label: string }> = [
@@ -55,29 +60,9 @@ const DIMENSION_OPTIONS: Array<{ value: Dimension; label: string }> = [
     { value: 'runner', label: 'Runner' },
 ];
 
-const TERMINAL_STATUSES = new Set<string>([
-    ORDER_STATUS.ENTREGADO,
-    ORDER_STATUS.CANCELADO,
-    ORDER_STATUS.DEVOLUCION,
-]);
-
 function cleanLabel(value: string | null | undefined, fallback: string) {
     const text = value?.trim();
     return text ? text : fallback;
-}
-
-function minutesBetween(from: string | null | undefined, to: string | null | undefined) {
-    if (!from || !to) return null;
-    const start = Date.parse(from);
-    const end = Date.parse(to);
-    if (Number.isNaN(start) || Number.isNaN(end)) return null;
-    return Math.max(0, Math.floor((end - start) / 60000));
-}
-
-function avg(values: Array<number | null>) {
-    const valid = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-    if (!valid.length) return null;
-    return valid.reduce((acc, value) => acc + value, 0) / valid.length;
 }
 
 function formatMinutes(value: number | null) {
@@ -105,51 +90,41 @@ function driverLabelFromArrival(driver: DriverArrival | null | undefined) {
     return parts.length ? parts.join(' · ') : `Driver #${driver.id}`;
 }
 
-function runnerLabel(order: Order) {
-    if (order.locked_by_runner_username?.trim()) return order.locked_by_runner_username.trim();
-    if (order.locked_by_runner_id != null) return `Runner #${order.locked_by_runner_id}`;
-    return 'Sin runner';
-}
-
-function groupLabel(order: Order, dimension: Dimension) {
-    if (dimension === 'estado') return cleanLabel(order.estado, 'Sin estado');
-    if (dimension === 'locatario') return cleanLabel(order.restaurant_nombre, 'Sin locatario');
-    if (dimension === 'plataforma') return cleanLabel(order.plataforma, 'Sin plataforma');
-    if (dimension === 'driver') return driverLabelFromArrival(order.matched_driver_arrival);
-    return runnerLabel(order);
-}
-
 function buildOptionList(values: string[], allLabel = 'Todos') {
     const unique = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
     return [{ value: ALL_VALUE, label: allLabel }, ...unique.map((value) => ({ value, label: value }))];
 }
 
-function summarizeOrders(orders: Order[]) {
+function mapMetricsRow(row: DeliveryMetricsRowApi): MetricRow {
     return {
-        total: orders.length,
-        active: orders.filter((order) => !TERMINAL_STATUSES.has(order.estado)).length,
-        delivered: orders.filter((order) => order.estado === ORDER_STATUS.ENTREGADO).length,
-        canceled: orders.filter((order) => order.estado === ORDER_STATUS.CANCELADO).length,
-        returned: orders.filter((order) => order.estado === ORDER_STATUS.DEVOLUCION).length,
-        matched: orders.filter((order) => Boolean(order.matched_driver_arrival_id || order.matched_driver_arrival)).length,
-        bags: orders.reduce((acc, order) => acc + (order.numero_bolsas ?? 0), 0),
-        avgCreateToReady: avg(orders.map((order) => minutesBetween(order.created_at, order.listo_at))),
-        avgReadyToMatch: avg(orders.map((order) => minutesBetween(order.listo_at, order.match_at))),
-        avgMatchToPickup: avg(orders.map((order) => minutesBetween(order.match_at, order.recogido_at))),
-        avgPickupToDelivered: avg(orders.map((order) => minutesBetween(order.recogido_at, order.entregado_at))),
-        avgReadyToDelivered: avg(orders.map((order) => minutesBetween(order.listo_at, order.entregado_at))),
+        group: row.group,
+        total: row.total,
+        active: row.active,
+        delivered: row.delivered,
+        canceled: row.canceled,
+        returned: row.returned,
+        matched: row.matched,
+        bags: row.bags,
+        avgCreateToReady: row.avg_create_to_ready,
+        avgReadyToMatch: row.avg_ready_to_match,
+        avgMatchToPickup: row.avg_match_to_pickup,
+        avgPickupToDelivered: row.avg_pickup_to_delivered,
+        avgReadyToDelivered: row.avg_ready_to_delivered,
     };
 }
 
-function buildMetricRows(orders: Order[], dimension: Dimension) {
-    const groups = new Map<string, Order[]>();
-    for (const order of orders) {
-        const key = groupLabel(order, dimension);
-        groups.set(key, [...(groups.get(key) ?? []), order]);
-    }
-    return Array.from(groups.entries())
-        .map(([group, groupOrders]): MetricRow => ({ group, ...summarizeOrders(groupOrders) }))
-        .sort((a, b) => b.total - a.total || a.group.localeCompare(b.group));
+function resetSecondaryFilters(setters: {
+    setEstado: (v: string) => void;
+    setLocatario: (v: string) => void;
+    setPlataforma: (v: string) => void;
+    setDriver: (v: string) => void;
+    setRunner: (v: string) => void;
+}) {
+    setters.setEstado(ALL_VALUE);
+    setters.setLocatario(ALL_VALUE);
+    setters.setPlataforma(ALL_VALUE);
+    setters.setDriver(ALL_VALUE);
+    setters.setRunner(ALL_VALUE);
 }
 
 function insightLevelLabel(level: InsightLevel) {
@@ -520,12 +495,12 @@ function downloadExcelReport(
 const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     open,
     onClose,
-    orders,
-    drivers,
-    isLoading,
-    isError,
-    onRefresh,
 }) => {
+    const { token } = useAuth();
+    const defaultRange = useMemo(() => defaultDeliveryMetricsDateRange(), []);
+    const [fechaDesde, setFechaDesde] = useState(defaultRange.fecha_desde);
+    const [fechaHasta, setFechaHasta] = useState(defaultRange.fecha_hasta);
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const [dimension, setDimension] = useState<Dimension>('estado');
     const [estado, setEstado] = useState(ALL_VALUE);
     const [locatario, setLocatario] = useState(ALL_VALUE);
@@ -534,43 +509,90 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const [runner, setRunner] = useState(ALL_VALUE);
     const [insightsModalOpen, setInsightsModalOpen] = useState(false);
 
+    const metricsParams = useMemo(
+        () => ({
+            fecha_desde: fechaDesde,
+            fecha_hasta: fechaHasta,
+            dimension,
+            ...(estado !== ALL_VALUE ? { estado } : {}),
+            ...(locatario !== ALL_VALUE ? { locatario } : {}),
+            ...(plataforma !== ALL_VALUE ? { plataforma } : {}),
+            ...(driver !== ALL_VALUE ? { driver } : {}),
+            ...(runner !== ALL_VALUE ? { runner } : {}),
+        }),
+        [fechaDesde, fechaHasta, dimension, estado, locatario, plataforma, driver, runner]
+    );
+
+    const metricsQuery = useDeliveryMetrics(open, metricsParams);
+    const driversQuery = useQuery({
+        queryKey: ['delivery', 'drivers', 'waiting', 'metrics'],
+        queryFn: () => deliveryService.listWaitingDrivers(token as string),
+        enabled: !!token && open,
+        staleTime: 15_000,
+    });
+
+    const drivers = driversQuery.data ?? [];
+    const isLoading = metricsQuery.isLoading || driversQuery.isLoading;
+    const isError = metricsQuery.isError || driversQuery.isError;
+
+    const onRefresh = () => {
+        metricsQuery.refetch();
+        driversQuery.refetch();
+    };
+
+    const applyDateRange = (range: { fecha_desde: string; fecha_hasta: string }) => {
+        setFechaDesde(range.fecha_desde);
+        setFechaHasta(range.fecha_hasta);
+        resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
+    };
+
     const options = useMemo(() => {
-        const driverValues = orders.map((order) => driverLabelFromArrival(order.matched_driver_arrival));
-        const runnerValues = orders.map(runnerLabel);
+        const fo = metricsQuery.data?.filter_options;
+        if (!fo) {
+            return {
+                estado: [{ value: ALL_VALUE, label: 'Todos' }],
+                locatario: [{ value: ALL_VALUE, label: 'Todos' }],
+                plataforma: [{ value: ALL_VALUE, label: 'Todos' }],
+                driver: [{ value: ALL_VALUE, label: 'Todos' }],
+                runner: [{ value: ALL_VALUE, label: 'Todos' }],
+            };
+        }
         return {
-            estado: [
-                { value: ALL_VALUE, label: 'Todos' },
-                ...Array.from(new Set([...ORDER_STATUSES_ADMIN, ...orders.map((order) => order.estado)]))
-                    .sort((a, b) => a.localeCompare(b))
-                    .map((value) => ({ value, label: value })),
-            ],
-            locatario: buildOptionList(orders.map((order) => cleanLabel(order.restaurant_nombre, 'Sin locatario'))),
-            plataforma: buildOptionList(orders.map((order) => cleanLabel(order.plataforma, 'Sin plataforma'))),
-            driver: buildOptionList(driverValues),
-            runner: buildOptionList(runnerValues),
+            estado: buildOptionList([...ORDER_STATUSES_ADMIN, ...fo.estado]),
+            locatario: buildOptionList(fo.locatario),
+            plataforma: buildOptionList(fo.plataforma),
+            driver: buildOptionList(fo.driver),
+            runner: buildOptionList(fo.runner),
         };
-    }, [orders]);
+    }, [metricsQuery.data]);
 
-    const filteredOrders = useMemo(() => {
-        return orders.filter((order) => {
-            if (estado !== ALL_VALUE && order.estado !== estado) return false;
-            if (locatario !== ALL_VALUE && cleanLabel(order.restaurant_nombre, 'Sin locatario') !== locatario) return false;
-            if (plataforma !== ALL_VALUE && cleanLabel(order.plataforma, 'Sin plataforma') !== plataforma) return false;
-            if (driver !== ALL_VALUE && driverLabelFromArrival(order.matched_driver_arrival) !== driver) return false;
-            if (runner !== ALL_VALUE && runnerLabel(order) !== runner) return false;
-            return true;
-        });
-    }, [orders, estado, locatario, plataforma, driver, runner]);
-
-    const rows = useMemo(() => buildMetricRows(filteredOrders, dimension), [filteredOrders, dimension]);
+    const rows = useMemo(
+        () => (metricsQuery.data?.rows ?? []).map(mapMetricsRow),
+        [metricsQuery.data]
+    );
     const summary = useMemo<MetricRow>(
-        () => ({ group: 'Total filtrado', ...summarizeOrders(filteredOrders) }),
-        [filteredOrders]
+        () => (metricsQuery.data?.summary ? mapMetricsRow(metricsQuery.data.summary) : mapMetricsRow({
+            group: 'Total filtrado',
+            total: 0,
+            active: 0,
+            delivered: 0,
+            canceled: 0,
+            returned: 0,
+            matched: 0,
+            bags: 0,
+            avg_create_to_ready: null,
+            avg_ready_to_match: null,
+            avg_match_to_pickup: null,
+            avg_pickup_to_delivered: null,
+            avg_ready_to_delivered: null,
+        })),
+        [metricsQuery.data]
     );
 
     const maxRowTotal = rows[0]?.total ?? 0;
     const dimensionLabel = DIMENSION_OPTIONS.find((option) => option.value === dimension)?.label ?? 'Estado';
     const filtersLabel = [
+        `Rango=${fechaDesde} → ${fechaHasta}`,
         `Estado=${estado === ALL_VALUE ? 'Todos' : estado}`,
         `Locatario=${locatario === ALL_VALUE ? 'Todos' : locatario}`,
         `Plataforma=${plataforma === ALL_VALUE ? 'Todos' : plataforma}`,
@@ -579,14 +601,20 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     ].join(' · ');
 
     const driverStatusCounts = useMemo(() => {
+        const live = metricsQuery.data?.drivers_live;
+        if (live) {
+            return { esperando: live.esperando, enMatch: live.en_match, total: live.total };
+        }
         return {
             esperando: drivers.filter((item) => item.estado === DRIVER_STATUS.ESPERANDO).length,
             enMatch: drivers.filter((item) => item.estado === DRIVER_STATUS.EN_MATCH).length,
             total: drivers.length,
         };
-    }, [drivers]);
+    }, [metricsQuery.data, drivers]);
 
     const insights = useMemo(() => buildInsights(summary, rows, dimensionLabel), [summary, rows, dimensionLabel]);
+    const totalInRange = metricsQuery.data?.total_orders_in_range ?? 0;
+    const totalFiltered = metricsQuery.data?.total_filtered ?? 0;
 
     if (!open) return null;
 
@@ -605,7 +633,10 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                             Dashboard Delivery
                         </h2>
                         <p className="mt-1 text-[10px] font-mono text-app-muted">
-                            Métricas y resultados por estado, locatario, plataforma, driver y runner.
+                            Agregado en servidor · fecha registro (Lima) · default mes en curso
+                            {totalInRange > 0 && (
+                                <> · {totalFiltered.toLocaleString('es-PE')} pedidos en corte ({totalInRange.toLocaleString('es-PE')} en rango)</>
+                            )}
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -652,6 +683,92 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                 </div>
 
                 <div className="max-h-[calc(92vh-96px)] overflow-y-auto p-4 sm:p-5">
+                    <div className="mb-4 rounded-3xl border border-app-border bg-app-card overflow-hidden">
+                        <button
+                            type="button"
+                            onClick={() => setFiltersOpen((v) => !v)}
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-app-surface transition-colors"
+                            aria-expanded={filtersOpen}
+                        >
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-app-text">Filtros</p>
+                                <p className="mt-0.5 text-[10px] font-mono text-app-muted">
+                                    {fechaDesde} → {fechaHasta}
+                                    {totalFiltered > 0 ? ` · ${totalFiltered.toLocaleString('es-PE')} pedidos` : ''}
+                                </p>
+                            </div>
+                            {filtersOpen ? <ChevronUp size={18} className="text-app-muted shrink-0" /> : <ChevronDown size={18} className="text-app-muted shrink-0" />}
+                        </button>
+                        {filtersOpen && (
+                            <div className="border-t border-app-border p-4 space-y-4">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <label className="space-y-2">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-app-muted">Desde</span>
+                                        <input
+                                            type="date"
+                                            value={fechaDesde}
+                                            max={fechaHasta}
+                                            onChange={(e) => {
+                                                setFechaDesde(e.target.value);
+                                                resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
+                                            }}
+                                            className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2.5 text-sm text-app-text outline-none focus:border-app-delivery-muted"
+                                        />
+                                    </label>
+                                    <label className="space-y-2">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-app-muted">Hasta</span>
+                                        <input
+                                            type="date"
+                                            value={fechaHasta}
+                                            min={fechaDesde}
+                                            onChange={(e) => {
+                                                setFechaHasta(e.target.value);
+                                                resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
+                                            }}
+                                            className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2.5 text-sm text-app-text outline-none focus:border-app-delivery-muted"
+                                        />
+                                    </label>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => applyDateRange(thisWeekDeliveryMetricsDateRange())}
+                                        className="rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted hover:text-app-text hover:bg-app-surface"
+                                    >
+                                        Restablecer esta semana
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyDateRange(thisMonthDeliveryMetricsDateRange())}
+                                        className="rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted hover:text-app-text hover:bg-app-surface"
+                                    >
+                                        Restablecer este mes
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyDateRange(lastMonthDeliveryMetricsDateRange())}
+                                        className="rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted hover:text-app-text hover:bg-app-surface"
+                                    >
+                                        Restablecer último mes
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                    <FilterSelect
+                                        label="Agrupar"
+                                        options={DIMENSION_OPTIONS}
+                                        value={dimension}
+                                        onChange={(value) => setDimension(value as Dimension)}
+                                    />
+                                    <FilterSelect label="Estado" options={options.estado} value={estado} onChange={setEstado} />
+                                    <FilterSelect label="Locatario" options={options.locatario} value={locatario} onChange={setLocatario} />
+                                    <FilterSelect label="Plataforma" options={options.plataforma} value={plataforma} onChange={setPlataforma} />
+                                    <FilterSelect label="Driver" options={options.driver} value={driver} onChange={setDriver} />
+                                    <FilterSelect label="Runner" options={options.runner} value={runner} onChange={setRunner} />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
                         <MetricCard label="Pedidos" value={summary.total} helper={`${summary.active} activos`} />
                         <MetricCard label="Entregados" value={summary.delivered} helper={formatPercent(summary.delivered, summary.total)} />
@@ -659,22 +776,6 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                         <MetricCard label="Devoluciones" value={summary.returned} helper={formatPercent(summary.returned, summary.total)} />
                         <MetricCard label="Match driver" value={summary.matched} helper={formatPercent(summary.matched, summary.total)} />
                         <MetricCard label="Drivers live" value={driverStatusCounts.total} helper={`${driverStatusCounts.esperando} esp. · ${driverStatusCounts.enMatch} match`} />
-                    </div>
-
-                    <div className="mt-4 rounded-3xl border border-app-border bg-app-card p-4">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-                            <FilterSelect
-                                label="Agrupar"
-                                options={DIMENSION_OPTIONS}
-                                value={dimension}
-                                onChange={(value) => setDimension(value as Dimension)}
-                            />
-                            <FilterSelect label="Estado" options={options.estado} value={estado} onChange={setEstado} />
-                            <FilterSelect label="Locatario" options={options.locatario} value={locatario} onChange={setLocatario} />
-                            <FilterSelect label="Plataforma" options={options.plataforma} value={plataforma} onChange={setPlataforma} />
-                            <FilterSelect label="Driver" options={options.driver} value={driver} onChange={setDriver} />
-                            <FilterSelect label="Runner" options={options.runner} value={runner} onChange={setRunner} />
-                        </div>
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_2fr]">
@@ -715,7 +816,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                     <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted">
                                         Resultados por {dimensionLabel}
                                     </h3>
-                                    <p className="mt-1 text-[10px] font-mono text-app-muted">{filteredOrders.length} pedidos filtrados</p>
+                                    <p className="mt-1 text-[10px] font-mono text-app-muted">{totalFiltered.toLocaleString('es-PE')} pedidos filtrados</p>
                                 </div>
                                 <span className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted">
                                     <Download size={13} /> PDF / Excel
@@ -807,7 +908,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                     Conclusiones y recomendaciones clave
                                 </h3>
                                 <p className="mt-1 text-[10px] font-mono text-app-muted">
-                                    {dimensionLabel} · {filteredOrders.length} pedidos filtrados
+                                    {dimensionLabel} · {totalFiltered.toLocaleString('es-PE')} pedidos filtrados
                                 </p>
                             </div>
                             <button

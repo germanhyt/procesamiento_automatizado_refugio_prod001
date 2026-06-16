@@ -153,6 +153,47 @@ class PaginatedOrders(BaseModel):
     limit: int
 
 
+class DeliveryMetricsRowOut(BaseModel):
+    group: str
+    total: int
+    active: int
+    delivered: int
+    canceled: int
+    returned: int
+    matched: int
+    bags: int
+    avg_create_to_ready: Optional[float] = None
+    avg_ready_to_match: Optional[float] = None
+    avg_match_to_pickup: Optional[float] = None
+    avg_pickup_to_delivered: Optional[float] = None
+    avg_ready_to_delivered: Optional[float] = None
+
+
+class DeliveryMetricsFilterOptionsOut(BaseModel):
+    estado: List[str] = []
+    locatario: List[str] = []
+    plataforma: List[str] = []
+    driver: List[str] = []
+    runner: List[str] = []
+
+
+class DeliveryDriversLiveOut(BaseModel):
+    esperando: int
+    en_match: int
+    total: int
+
+
+class DeliveryMetricsOut(BaseModel):
+    fecha_desde: str
+    fecha_hasta: str
+    total_orders_in_range: int
+    total_filtered: int
+    summary: DeliveryMetricsRowOut
+    rows: List[DeliveryMetricsRowOut]
+    filter_options: DeliveryMetricsFilterOptionsOut
+    drivers_live: DeliveryDriversLiveOut
+
+
 class DeliveryStatus(BaseModel):
     module: str
     status: str

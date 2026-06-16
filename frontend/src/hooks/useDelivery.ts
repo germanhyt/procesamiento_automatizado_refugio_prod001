@@ -4,6 +4,7 @@ import {
     AdminForceEntregadoIn,
     AdminOrdersListParams,
     AdminUnlockIn,
+    DeliveryMetricsParams,
     RestaurantCreateIn,
     RestaurantUpdateIn,
     deliveryService,
@@ -95,6 +96,8 @@ export function useAdminOrders(
             params.codigo ?? '',
             params.plataforma ?? '',
             params.restaurant_nombre ?? '',
+            params.fecha_desde ?? '',
+            params.fecha_hasta ?? '',
         ],
         queryFn: async () =>
             isAll
@@ -102,6 +105,31 @@ export function useAdminOrders(
                 : deliveryService.adminListOrdersByStatus(token as string, status, params),
         enabled: !!token && !!status,
         refetchInterval: refetchIntervalMs,
+    });
+}
+
+export function useDeliveryMetrics(
+    open: boolean,
+    params: DeliveryMetricsParams
+) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: [
+            'delivery',
+            'admin',
+            'metrics',
+            params.fecha_desde,
+            params.fecha_hasta,
+            params.dimension ?? 'estado',
+            params.estado ?? '',
+            params.locatario ?? '',
+            params.plataforma ?? '',
+            params.driver ?? '',
+            params.runner ?? '',
+        ],
+        queryFn: () => deliveryService.adminGetMetrics(token as string, params),
+        enabled: !!token && open && !!params.fecha_desde && !!params.fecha_hasta,
+        staleTime: 30_000,
     });
 }
 
