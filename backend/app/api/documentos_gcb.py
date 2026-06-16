@@ -8,8 +8,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.api.auth import get_current_user
-from app.database import get_db
+from app.api.auth import authenticate_token, get_current_user, oauth2_scheme
+from app.database import db_session, get_db
 from app.models.auth import User
 from app.models.documentos_gcb import DocumentoGcb
 from app.schemas.documentos_gcb import (
@@ -105,7 +105,7 @@ def list_documentos(
 
     total = query.count()
     rows = (
-        query.order_by(DocumentoGcb.updated_at.desc(), DocumentoGcb.id.desc())
+        query.order_by(DocumentoGcb.created_at.desc(), DocumentoGcb.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
@@ -129,36 +129,37 @@ def _unlink_temp_zip(path: str) -> None:
 @router.post("/download-zip")
 def download_documentos_zip(
     body: DocumentosGcbZipRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
-    _require_view(current_user)
-    ids = list(dict.fromkeys(body.ids))
-    rows_db = db.query(DocumentoGcb).filter(DocumentoGcb.id.in_(ids)).all()
-    by_id = {r.id: r for r in rows_db}
-    missing_ids = [i for i in ids if i not in by_id]
-    if missing_ids:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Documentos no encontrados: {missing_ids[:20]}{'…' if len(missing_ids) > 20 else ''}",
-        )
-    ordered = [by_id[i] for i in ids]
+    with db_session() as db:
+        user = authenticate_token(db, token)
+        _require_view(user)
+        ids = list(dict.fromkeys(body.ids))
+        rows_db = db.query(DocumentoGcb).filter(DocumentoGcb.id.in_(ids)).all()
+        by_id = {r.id: r for r in rows_db}
+        missing_ids = [i for i in ids if i not in by_id]
+        if missing_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documentos no encontrados: {missing_ids[:20]}{'…' if len(missing_ids) > 20 else ''}",
+            )
+        ordered = [by_id[i] for i in ids]
 
-    tmp_path, added = create_documents_zip_tempfile(ordered)
-    if added == 0:
-        _unlink_temp_zip(tmp_path)
-        raise HTTPException(
-            status_code=404,
-            detail="Ningún archivo disponible en storage para los documentos solicitados",
-        )
+        tmp_path, added = create_documents_zip_tempfile(ordered)
+        if added == 0:
+            _unlink_temp_zip(tmp_path)
+            raise HTTPException(
+                status_code=404,
+                detail="Ningún archivo disponible en storage para los documentos solicitados",
+            )
 
-    fname = f"documentos-gcb_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
-    return FileResponse(
-        tmp_path,
-        media_type="application/zip",
-        filename=fname,
-        background=BackgroundTask(_unlink_temp_zip, tmp_path),
-    )
+        fname = f"documentos-gcb_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+        return FileResponse(
+            tmp_path,
+            media_type="application/zip",
+            filename=fname,
+            background=BackgroundTask(_unlink_temp_zip, tmp_path),
+        )
 
 
 @router.post("", response_model=DocumentoGcbOut, status_code=status.HTTP_201_CREATED)
@@ -345,26 +346,27 @@ async def replace_document_file(
 @router.get("/{documento_id}/file")
 def get_document_file(
     documento_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
-    _require_view(current_user)
-    row = _get_or_404(db, documento_id)
-    abs_path = resolve_existing_document_file_path(
-        documento_id=row.id,
-        coleccion=row.coleccion,
-        categoria=row.categoria,
-        archivo_ruta=row.archivo_ruta,
-        archivo_nombre_actual=row.archivo_nombre_actual,
-    )
-    if not abs_path:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado en storage")
+    with db_session() as db:
+        user = authenticate_token(db, token)
+        _require_view(user)
+        row = _get_or_404(db, documento_id)
+        abs_path = resolve_existing_document_file_path(
+            documento_id=row.id,
+            coleccion=row.coleccion,
+            categoria=row.categoria,
+            archivo_ruta=row.archivo_ruta,
+            archivo_nombre_actual=row.archivo_nombre_actual,
+        )
+        if not abs_path:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado en storage")
 
-    return FileResponse(
-        path=str(abs_path),
-        media_type=row.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{row.archivo_nombre_actual}"'},
-    )
+        return FileResponse(
+            path=str(abs_path),
+            media_type=row.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{row.archivo_nombre_actual}"'},
+        )
 
 
 @router.delete("/{documento_id}", response_model=ActionResponse)

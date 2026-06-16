@@ -146,6 +146,13 @@ class OrderOut(OrderBase):
         from_attributes = True
 
 
+class PaginatedOrders(BaseModel):
+    items: List[OrderOut]
+    total: int
+    skip: int
+    limit: int
+
+
 class DeliveryStatus(BaseModel):
     module: str
     status: str

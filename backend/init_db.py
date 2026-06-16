@@ -9,7 +9,14 @@ from app.models.agenda_deportiva import (  # noqa: F401
     AgendaSlide,
     AgendaTrack,
 )
+from app.models.sales_staging import StgSales  # noqa: F401
+from app.models.realizadas_staging import StgRealizada  # noqa: F401
 from app.core.security import get_password_hash
+from app.core.permissions_catalog import (
+    ALL_PERMISSIONS,
+    ensure_admin_and_operador_roles,
+    upsert_permissions,
+)
 import sys
 
 def init():
@@ -21,27 +28,8 @@ def init():
     
     # 1. Crear Permisos Básicos
     print(">>> Creando permisos...")
-    permissions_data = [
-        {"name": "Ver Dashboard", "codename": "dashboard:view", "module": "core"},
-        {"name": "Procesar Legacy", "codename": "legacy:process", "module": "legacy"},
-        {"name": "Gestionar Usuarios", "codename": "users:manage", "module": "users"},
-        {"name": "Configurador Sistema", "codename": "system:config", "module": "core"},
-        {"name": "Ver Comercial", "codename": "comercial:view", "module": "comercial"},
-        {"name": "Gestionar Comercial", "codename": "comercial:manage", "module": "comercial"},
-        {"name": "Ver Documentos GCB", "codename": "documentos_gcb:view", "module": "documentos_gcb"},
-        {"name": "Gestionar Documentos GCB", "codename": "documentos_gcb:manage", "module": "documentos_gcb"},
-        {"name": "Ver Agenda Deportiva", "codename": "agenda_deportiva:view", "module": "agenda_deportiva"},
-        {"name": "Gestionar Agenda Deportiva", "codename": "agenda_deportiva:manage", "module": "agenda_deportiva"},
-    ]
-    
-    perms = []
-    for p in permissions_data:
-        perm = db.query(Permission).filter(Permission.codename == p["codename"]).first()
-        if not perm:
-            perm = Permission(**p)
-            db.add(perm)
-        perms.append(perm)
-    db.commit()
+    perms_map = upsert_permissions(db)
+    perms = list(perms_map.values())
 
     # 2. Crear Roles
     print(">>> Creando roles...")
@@ -53,16 +41,12 @@ def init():
     
     op_role = db.query(Role).filter(Role.name == "Operador").first()
     if not op_role:
+        from app.core.permissions_catalog import OPERADOR_PERMISSION_CODENAMES
         op_role = Role(name="Operador", description="Solo procesos de carga")
-        op_role.permissions = [p for p in perms if p.module == "legacy"]
+        op_role.permissions = [p for p in perms if p.codename in OPERADOR_PERMISSION_CODENAMES]
         db.add(op_role)
 
-    if admin_role:
-        have = {p.codename for p in admin_role.permissions}
-        for p in perms:
-            if p.codename not in have:
-                admin_role.permissions.append(p)
-    db.commit()
+    ensure_admin_and_operador_roles(db, perms_map)
 
     # 3. Crear Superuser Inicial
     print(">>> Creando superusuario inicial...")

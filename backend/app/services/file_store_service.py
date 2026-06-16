@@ -663,12 +663,45 @@ def _preview_cap_rows(max_rows: int) -> int:
     return max(1, min(int(max_rows or 50), PREVIEW_MAX_ROWS_CAP))
 
 
-def preview_tabular_file(path: Path, *, max_rows: int = 50) -> dict:
+def _detect_monto_column(columns: list) -> str | None:
+    """Detecta columna de monto en reportes/consolidados."""
+    for col in columns:
+        n = str(col).strip().lower()
+        if n == "monto" or n.startswith("monto ") or n.startswith("monto_"):
+            return str(col)
+    for col in columns:
+        n = str(col).strip().lower()
+        if "monto" in n:
+            return str(col)
+    for col in columns:
+        n = str(col).strip().lower()
+        if n in ("total", "importe", "venta"):
+            return str(col)
+    return None
+
+
+def _read_tabular_df_for_preview(path: Path) -> pd.DataFrame:
+    ext = path.suffix.lower()
+    if ext == ".csv":
+        return pd.read_csv(
+            path,
+            dtype=str,
+            encoding="utf-8",
+            encoding_errors="replace",
+            sep=None,
+            engine="python",
+        )
+    if ext == ".xlsx":
+        return pd.read_excel(path, dtype=str, engine="openpyxl")
+    return pd.read_excel(path, dtype=str, engine="xlrd")
+
+
+def preview_tabular_file(path: Path, *, max_rows: int = 50, offset: int = 0) -> dict:
     """
-    Lee las primeras filas de un CSV, XLSX o XLS (Excel 97-2003) para vista previa en UI.
+    Vista previa tabular con paginación (offset) y suma total del campo Monto del archivo completo.
     """
     cap = _preview_cap_rows(max_rows)
-    want = cap + 1
+    offset = max(0, int(offset or 0))
     if not path.is_file():
         return {"ok": False, "error": "no_existe"}
     ext = path.suffix.lower()
@@ -682,38 +715,38 @@ def preview_tabular_file(path: Path, *, max_rows: int = 50) -> dict:
         return {"ok": False, "error": "archivo_muy_grande", "max_mb": PREVIEW_MAX_FILE_BYTES // (1024 * 1024)}
 
     try:
-        if ext == ".csv":
-            df = pd.read_csv(
-                path,
-                nrows=want,
-                dtype=str,
-                encoding="utf-8",
-                encoding_errors="replace",
-                sep=None,
-                engine="python",
-            )
-        elif ext == ".xlsx":
-            df = pd.read_excel(path, nrows=want, dtype=str, engine="openpyxl")
-        else:
-            df = pd.read_excel(path, nrows=want, dtype=str, engine="xlrd")
+        df = _read_tabular_df_for_preview(path)
     except Exception as e:
         logger.warning("preview_tabular_file fallo: %s", path, exc_info=True)
         return {"ok": False, "error": "lectura_fallo", "detail": str(e)[:500]}
 
-    truncated = len(df) > cap
-    if truncated:
-        df = df.iloc[:cap].copy()
-    df = df.fillna("")
-    columns = [str(c) for c in df.columns.tolist()]
-    rows = df.astype(str).values.tolist()
+    total_rows = int(len(df))
+    from app.services.ventas_normalizacion import sum_monto_column
+
+    monto_col = _detect_monto_column(df.columns.tolist())
+    monto_total = sum_monto_column(df[monto_col]) if monto_col else None
+
+    end_idx = min(offset + cap, total_rows)
+    chunk = df.iloc[offset:end_idx].copy() if total_rows else df.iloc[0:0].copy()
+    chunk = chunk.fillna("")
+    columns = [str(c) for c in chunk.columns.tolist()]
+    rows = chunk.astype(str).values.tolist()
+    has_more = end_idx < total_rows
+
     return {
         "ok": True,
         "filename": path.name,
         "extension": ext,
         "columns": columns,
         "rows": rows,
-        "truncated": truncated,
+        "truncated": has_more,
         "row_count_shown": len(rows),
+        "total_rows": total_rows,
+        "offset": offset,
+        "next_offset": end_idx if has_more else offset,
+        "has_more": has_more,
+        "monto_column": monto_col,
+        "monto_total": monto_total,
     }
 
 
@@ -723,6 +756,7 @@ def preview_cierre_caja_tabular(
     *,
     zona: str,
     max_rows: int = 50,
+    offset: int = 0,
 ) -> dict:
     loc = locatario_codigo.strip()
     if loc not in CODIGOS_LOCATARIOS_VALIDOS:
@@ -737,7 +771,7 @@ def preview_cierre_caja_tabular(
         path = _dir_locatario_pendientes(get_upload_base(), loc) / fn
     else:
         raise ValueError("zona debe ser pendiente o consolidado")
-    return preview_tabular_file(path, max_rows=max_rows)
+    return preview_tabular_file(path, max_rows=max_rows, offset=offset)
 
 
 def preview_procesados_tabular(
@@ -746,6 +780,7 @@ def preview_procesados_tabular(
     filename: str,
     *,
     max_rows: int = 50,
+    offset: int = 0,
 ) -> dict:
     raw_f = fecha.strip()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_f):
@@ -765,4 +800,4 @@ def preview_procesados_tabular(
         path.relative_to(day_dir)
     except ValueError:
         return {"ok": False, "error": "no_existe"}
-    return preview_tabular_file(path, max_rows=max_rows)
+    return preview_tabular_file(path, max_rows=max_rows, offset=offset)

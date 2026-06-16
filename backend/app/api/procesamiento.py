@@ -205,9 +205,14 @@ async def legacy_cargar_ventas(
     )
 
 @router.post("/legacy/cargar-bigquery")
-async def legacy_cargar_bigquery():
+async def legacy_cargar_bigquery(
+    modo_sync: str = Query(
+        "pendiente",
+        description="pendiente: solo Realizadas sin BQ_Sincronizado (MERGE idempotente). completo: todo sales_df.",
+    ),
+):
     service = get_legacy_service()
-    return await service.cargar_bigquery_legacy()
+    return await service.cargar_bigquery_legacy(modo_sync=modo_sync)
 
 @router.post("/legacy/subir")
 async def legacy_subir_archivo(
@@ -234,3 +239,36 @@ async def legacy_preview_realizadas(limit: int = 100):
     """Vista previa de Realizadas."""
     service = get_legacy_service()
     return await service.get_realizadas_preview(limit)
+
+
+@router.get("/legacy/staging-status")
+async def legacy_staging_status():
+    """Filas y montos de sales_df (Excel) vs stg_sales (PostgreSQL) y modo activo."""
+    service = get_legacy_service()
+    return await service.get_sales_staging_status()
+
+
+@router.post("/legacy/import-staging-excel")
+async def legacy_import_staging_excel(
+    clear_before: bool = Query(False, description="TRUNCATE stg_sales antes de importar"),
+    dry_run: bool = Query(False, description="Solo simular, sin escribir en PostgreSQL"),
+):
+    """Migra histórico: hoja sales_df → tabla stg_sales (upsert idempotente)."""
+    service = get_legacy_service()
+    return await service.import_sales_staging_from_excel(
+        clear_before=clear_before,
+        dry_run=dry_run,
+    )
+
+
+@router.post("/legacy/import-realizadas-staging-excel")
+async def legacy_import_realizadas_staging_excel(
+    clear_before: bool = Query(False, description="TRUNCATE stg_realizadas antes de importar"),
+    dry_run: bool = Query(False, description="Solo simular, sin escribir en PostgreSQL"),
+):
+    """Migra histórico: hoja Realizadas → tabla stg_realizadas (upsert idempotente)."""
+    service = get_legacy_service()
+    return await service.import_realizadas_staging_from_excel(
+        clear_before=clear_before,
+        dry_run=dry_run,
+    )

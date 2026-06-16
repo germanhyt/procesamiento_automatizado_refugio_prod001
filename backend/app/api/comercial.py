@@ -103,6 +103,15 @@ def _reserva_personas_rango_expr():
     )
 
 
+def _dd_mm_yyyy_sort_key(column):
+    """Clave ordenable YYYYMMDD a partir de texto DD/MM/YYYY."""
+    return func.concat(
+        func.split_part(column, "/", 3),
+        func.lpad(func.split_part(column, "/", 2), 2, "0"),
+        func.lpad(func.split_part(column, "/", 1), 2, "0"),
+    )
+
+
 @router.get("/reservas", response_model=PaginatedReservas)
 def list_reservas(
     db: Session = Depends(get_db),
@@ -129,7 +138,11 @@ def list_reservas(
         q = q.filter(ComercialReserva.fecha_creacion <= hasta)
     total = q.count()
     rows = (
-        q.order_by(ComercialReserva.fecha_creacion.desc(), ComercialReserva.id.desc())
+        q.order_by(
+            _dd_mm_yyyy_sort_key(ComercialReserva.fecha_reserva).desc(),
+            ComercialReserva.hora_reserva.desc(),
+            ComercialReserva.id.desc(),
+        )
         .offset(skip)
         .limit(limit)
         .all()
@@ -254,7 +267,10 @@ def list_eventos(
         q = q.filter(ComercialEvento.fecha_creacion <= hasta)
     total = q.count()
     rows = (
-        q.order_by(ComercialEvento.fecha_creacion.desc(), ComercialEvento.id.desc())
+        q.order_by(
+            _dd_mm_yyyy_sort_key(ComercialEvento.fecha_tentativa).desc(),
+            ComercialEvento.id.desc(),
+        )
         .offset(skip)
         .limit(limit)
         .all()

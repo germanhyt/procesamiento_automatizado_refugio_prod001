@@ -148,9 +148,10 @@ async def fuentes_preview_tabular(
     zona: str | None = None,
     fecha: str | None = None,
     max_rows: int = 50,
+    offset: int = 0,
 ):
     """
-    Vista previa tabular (primeras filas) de CSV/XLSX en cierre_caja o procesados.
+    Vista previa tabular (paginada) de CSV/XLSX en cierre_caja o procesados.
     origen: cierre | procesados
     cierre: zona=pendiente|consolidado
     procesados: fecha=YYYY-MM-DD
@@ -165,6 +166,7 @@ async def fuentes_preview_tabular(
                 filename,
                 zona=zona,
                 max_rows=max_rows,
+                offset=offset,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -177,6 +179,7 @@ async def fuentes_preview_tabular(
                 locatario_codigo,
                 filename,
                 max_rows=max_rows,
+                offset=offset,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))

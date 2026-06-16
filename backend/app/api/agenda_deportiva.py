@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.auth import get_current_user
+from app.api.auth import authenticate_token, get_current_user, oauth2_scheme
 from app.core.agenda_deportiva_constants import (
     AGENDA_ARCHIVO_TIPO_MUSIC,
     AGENDA_ARCHIVO_TIPO_SLIDE,
@@ -22,7 +22,7 @@ from app.core.agenda_deportiva_constants import (
     PERMISSION_AGENDA_MANAGE,
     PERMISSION_AGENDA_VIEW,
 )
-from app.database import get_db
+from app.database import db_session, get_db
 from app.models.agenda_deportiva import AgendaProgramacion, AgendaSlide, AgendaTrack
 from app.models.auth import User
 from app.schemas.agenda_deportiva import (
@@ -277,33 +277,34 @@ def public_musica(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/public/archivo/{tipo}/{item_id}", name="agenda_public_archivo")
-def public_archivo(tipo: str, item_id: int, db: Session = Depends(get_db)):
+def public_archivo(tipo: str, item_id: int):
     if tipo not in AGENDA_ARCHIVO_TIPOS:
         raise HTTPException(status_code=400, detail="tipo de archivo inválido")
 
-    if tipo == AGENDA_ARCHIVO_TIPO_SLIDE:
-        row = db.query(AgendaSlide).filter(AgendaSlide.id == item_id).first()
-        if not row or not row.habilitada:
-            raise HTTPException(status_code=404, detail="Slide no disponible")
-    else:
-        row = db.query(AgendaTrack).filter(AgendaTrack.id == item_id).first()
-        if not row or not row.habilitada or not row.publica:
-            raise HTTPException(status_code=404, detail="Track no disponible")
+    with db_session() as db:
+        if tipo == AGENDA_ARCHIVO_TIPO_SLIDE:
+            row = db.query(AgendaSlide).filter(AgendaSlide.id == item_id).first()
+            if not row or not row.habilitada:
+                raise HTTPException(status_code=404, detail="Slide no disponible")
+        else:
+            row = db.query(AgendaTrack).filter(AgendaTrack.id == item_id).first()
+            if not row or not row.habilitada or not row.publica:
+                raise HTTPException(status_code=404, detail="Track no disponible")
 
-    try:
-        path = resolve_file_path(row.archivo_ruta)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            path = resolve_file_path(row.archivo_ruta)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado en storage")
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Archivo no encontrado en storage")
 
-    return FileResponse(
-        path=str(path),
-        media_type=row.mime_type,
-        filename=row.archivo_nombre_original,
-        headers={"Cache-Control": "public, max-age=300"},
-    )
+        return FileResponse(
+            path=str(path),
+            media_type=row.mime_type,
+            filename=row.archivo_nombre_original,
+            headers={"Cache-Control": "public, max-age=300"},
+        )
 
 
 def _serve_stored_file(row, *, filename: str, media_type: str) -> FileResponse:
@@ -324,31 +325,33 @@ def _serve_stored_file(row, *, filename: str, media_type: str) -> FileResponse:
 @router.get("/slides/{slide_id}/file")
 def admin_slide_file(
     slide_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
-    _require_view(current_user)
-    row = _get_slide_or_404(db, slide_id)
-    return _serve_stored_file(
-        row,
-        filename=row.archivo_nombre_original,
-        media_type=row.mime_type,
-    )
+    with db_session() as db:
+        user = authenticate_token(db, token)
+        _require_view(user)
+        row = _get_slide_or_404(db, slide_id)
+        return _serve_stored_file(
+            row,
+            filename=row.archivo_nombre_original,
+            media_type=row.mime_type,
+        )
 
 
 @router.get("/tracks/{track_id}/file")
 def admin_track_file(
     track_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
-    _require_view(current_user)
-    row = _get_track_or_404(db, track_id)
-    return _serve_stored_file(
-        row,
-        filename=row.archivo_nombre_original,
-        media_type=row.mime_type,
-    )
+    with db_session() as db:
+        user = authenticate_token(db, token)
+        _require_view(user)
+        row = _get_track_or_404(db, track_id)
+        return _serve_stored_file(
+            row,
+            filename=row.archivo_nombre_original,
+            media_type=row.mime_type,
+        )
 
 
 # --- Admin: config ---

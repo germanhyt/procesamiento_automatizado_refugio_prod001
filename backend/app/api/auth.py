@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import timedelta
 from typing import List
 
 from app.database import get_db
-from app.models.auth import User, Role
+from app.models.auth import Role, User
 from app.schemas.auth import Token, UserOut, UserCreate, RoleOut
 from app.core import security
 from jose import jwt, JWTError
@@ -14,24 +14,38 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
+
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="No se pudo validar las credenciales",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def authenticate_token(db: Session, token: str) -> User:
+    """Valida JWT y devuelve usuario con roles/permisos cargados (usable tras cerrar sesión)."""
     try:
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            raise credentials_exception
+            raise _credentials_exception()
     except JWTError:
-        raise credentials_exception
-    
-    user = db.query(User).filter(User.username == username).first()
+        raise _credentials_exception()
+
+    user = (
+        db.query(User)
+        .options(joinedload(User.roles).joinedload(Role.permissions))
+        .filter(User.username == username)
+        .first()
+    )
     if user is None:
-        raise credentials_exception
+        raise _credentials_exception()
     return user
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    return authenticate_token(db, token)
 
 @router.post("/login", response_model=Token)
 async def login_for_access_token(

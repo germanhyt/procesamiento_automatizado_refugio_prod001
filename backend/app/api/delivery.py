@@ -37,8 +37,8 @@ from app.core.delivery_constants import (
     PERMISSION_DELIVERY_OPERATE,
     PERMISSION_DELIVERY_SIMULATE_ORDER_READY,
 )
-from app.database import get_db, SessionLocal
-from app.api.auth import get_current_user
+from app.database import db_session, get_db, SessionLocal
+from app.api.auth import authenticate_token, get_current_user, oauth2_scheme
 from app.models.auth import User
 from app.models.delivery import (
     Restaurant,
@@ -62,6 +62,7 @@ from app.schemas.delivery import (
     AdminUnlockIn,
     AdminForceEntregadoIn,
     OrderOut,
+    PaginatedOrders,
     DriverArrivalOut,
     RestaurantOut,
     RestaurantAdminOut,
@@ -346,7 +347,6 @@ async def delivery_ws(websocket: WebSocket):
     if not token:
         await websocket.close(code=1008)
         return
-    db = SessionLocal()
     try:
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
         username: str = payload.get("sub")
@@ -357,11 +357,15 @@ async def delivery_ws(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
-    user = db.query(User).filter(User.username == username).first()
-    if not user or not user.is_active:
-        await websocket.close(code=1008)
-        return
-    if not (user.is_superuser or _user_has_permission(user, "delivery:view")):
+    # Validar token/usuario usando una sesión corta para no retener conexiones DB
+    # durante toda la vida del WebSocket (evita agotar el pool en reconexiones).
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        allowed = bool(user and user.is_active and (user.is_superuser or _user_has_permission(user, "delivery:view")))
+    finally:
+        db.close()
+    if not allowed:
         await websocket.close(code=1008)
         return
 
@@ -374,8 +378,6 @@ async def delivery_ws(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
-    finally:
-        db.close()
 
 
 def _load_order_dict(db: Session, order_id: int) -> Dict[str, Any]:
@@ -1524,51 +1526,98 @@ def _require_permission(current_user: User, codename: str) -> None:
         raise HTTPException(status_code=403, detail="No tiene permisos")
 
 
-@router.get("/admin/orders", response_model=List[OrderOut])
-async def admin_list_orders(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+def _admin_orders_query(
+    db: Session,
+    *,
+    status: Optional[str] = None,
+    codigo: Optional[str] = None,
+    plataforma: Optional[str] = None,
+    restaurant_nombre: Optional[str] = None,
 ):
-    """
-    Listado completo de pedidos (hasta DEFAULT_QUERY_LIMIT), más recientes primero.
-    """
-    _require_permission(current_user, "delivery:admin")
-    apply_timeouts(db)
-    orders = (
+    q = (
         db.query(Order)
         .options(
             joinedload(Order.matched_driver_arrival),
             joinedload(Order.restaurant),
             joinedload(Order.locked_by_runner),
         )
-        .order_by(Order.id.desc())
-        .limit(DEFAULT_QUERY_LIMIT)
-        .all()
     )
-    return _orders_to_dicts(orders)
+    if status:
+        q = q.filter(Order.estado == status.strip().upper())
+    if codigo:
+        term = codigo.strip()
+        if term:
+            q = q.filter(Order.codigo_pedido.ilike(f"%{term}%"))
+    if plataforma:
+        plat = plataforma.strip().upper()
+        if plat:
+            q = q.filter(Order.plataforma == plat)
+    if restaurant_nombre:
+        loc = restaurant_nombre.strip()
+        if loc:
+            q = q.join(Restaurant, Order.restaurant_id == Restaurant.id).filter(Restaurant.nombre == loc)
+    return q
 
 
-@router.get("/admin/orders/by-status/{status}", response_model=List[OrderOut])
+@router.get("/admin/orders", response_model=PaginatedOrders)
+async def admin_list_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=DEFAULT_QUERY_LIMIT),
+    codigo: Optional[str] = None,
+    plataforma: Optional[str] = None,
+    restaurant_nombre: Optional[str] = None,
+):
+    """
+    Listado paginado de pedidos (más recientes primero por registro).
+    """
+    _require_permission(current_user, "delivery:admin")
+    apply_timeouts(db)
+    q = _admin_orders_query(
+        db,
+        codigo=codigo,
+        plataforma=plataforma,
+        restaurant_nombre=restaurant_nombre,
+    )
+    total = q.count()
+    orders = q.order_by(Order.created_at.desc(), Order.id.desc()).offset(skip).limit(limit).all()
+    return PaginatedOrders(
+        items=_orders_to_dicts(orders),
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/admin/orders/by-status/{status}", response_model=PaginatedOrders)
 async def admin_list_orders_by_status(
     status: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=DEFAULT_QUERY_LIMIT),
+    codigo: Optional[str] = None,
+    plataforma: Optional[str] = None,
+    restaurant_nombre: Optional[str] = None,
 ):
     _require_permission(current_user, "delivery:admin")
     apply_timeouts(db)
-    orders = (
-        db.query(Order)
-        .options(
-            joinedload(Order.matched_driver_arrival),
-            joinedload(Order.restaurant),
-            joinedload(Order.locked_by_runner),
-        )
-        .filter(Order.estado == status.strip().upper())
-        .order_by(Order.id.desc())
-        .limit(DEFAULT_QUERY_LIMIT)
-        .all()
+    q = _admin_orders_query(
+        db,
+        status=status,
+        codigo=codigo,
+        plataforma=plataforma,
+        restaurant_nombre=restaurant_nombre,
     )
-    return _orders_to_dicts(orders)
+    total = q.count()
+    orders = q.order_by(Order.created_at.desc(), Order.id.desc()).offset(skip).limit(limit).all()
+    return PaginatedOrders(
+        items=_orders_to_dicts(orders),
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 _DRIVER_PHOTO_REL_PREFIX = "delivery/driver_photos/"
@@ -1577,32 +1626,33 @@ _DRIVER_PHOTO_REL_PREFIX = "delivery/driver_photos/"
 @router.get("/admin/driver-arrivals/{arrival_id}/photo-file")
 async def admin_driver_arrival_photo_file(
     arrival_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
     """
     Sirve el archivo de foto del conductor (kiosk) para el panel admin.
     Solo `delivery:admin`; ruta acotada bajo delivery/driver_photos/.
     """
-    _require_permission(current_user, "delivery:admin")
-    arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
-    if not arrival:
-        raise HTTPException(status_code=404, detail="Arribo no encontrado")
-    rel = (arrival.foto_path or "").strip().replace("\\", "/")
-    if not rel or ".." in rel or rel.startswith("/"):
-        raise HTTPException(status_code=404, detail="Sin foto registrada")
-    if not rel.startswith(_DRIVER_PHOTO_REL_PREFIX):
-        raise HTTPException(status_code=400, detail="Ruta de archivo no permitida")
-    base = get_upload_base().resolve()
-    abs_path = (base / rel).resolve()
-    try:
-        abs_path.relative_to(base)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Ruta inválida")
-    if not abs_path.is_file():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    media = (arrival.foto_mime or "application/octet-stream").split(";")[0].strip()
-    return FileResponse(abs_path, media_type=media, filename=abs_path.name)
+    with db_session() as db:
+        user = authenticate_token(db, token)
+        _require_permission(user, "delivery:admin")
+        arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
+        if not arrival:
+            raise HTTPException(status_code=404, detail="Arribo no encontrado")
+        rel = (arrival.foto_path or "").strip().replace("\\", "/")
+        if not rel or ".." in rel or rel.startswith("/"):
+            raise HTTPException(status_code=404, detail="Sin foto registrada")
+        if not rel.startswith(_DRIVER_PHOTO_REL_PREFIX):
+            raise HTTPException(status_code=400, detail="Ruta de archivo no permitida")
+        base = get_upload_base().resolve()
+        abs_path = (base / rel).resolve()
+        try:
+            abs_path.relative_to(base)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Ruta inválida")
+        if not abs_path.is_file():
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        media = (arrival.foto_mime or "application/octet-stream").split(";")[0].strip()
+        return FileResponse(abs_path, media_type=media, filename=abs_path.name)
 
 
 @router.post("/admin/orders/{order_id}/mark-devolucion", response_model=OrderOut)

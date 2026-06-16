@@ -1,6 +1,8 @@
+from contextlib import contextmanager
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 import os
 from dotenv import load_dotenv
 
@@ -36,12 +38,32 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "refugio_procesamiento_app")
 
 SQLALCHEMY_DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+# Pool ampliado: FileResponse/StreamingResponse mantienen viva la request (y Depends(get_db))
+# hasta terminar la transferencia; muchas descargas concurrentes agotaban pool 5+10.
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_timeout=30,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+
 def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def db_session():
+    """Sesión corta para operaciones que no deben retener conexión durante I/O largo."""
     db = SessionLocal()
     try:
         yield db

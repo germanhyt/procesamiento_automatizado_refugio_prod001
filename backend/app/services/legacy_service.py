@@ -4,8 +4,6 @@ import pandas as pd
 import shutil
 import logging
 import chardet
-import subprocess
-import sys
 import openpyxl
 import re
 from datetime import datetime, timedelta
@@ -16,6 +14,42 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 from app.core.constants import FILE_STORE_SUB_CONSOLIDADOS, LOCATARIOS, get_locatario_code_from_full
+from app.core.data_constants import REALIZADAS_COL_BQ_SINCRONIZADO
+from app.services.bq_sales_sync import (
+    filtrar_sales_df_por_realizadas,
+    marcar_realizadas_sincronizadas_por_pendientes,
+    merge_sales_dataframe,
+    realizadas_pendientes_sync,
+    sync_reference_table_truncate,
+)
+from app.services.realizadas_staging_service import (
+    append_realizadas_staging,
+    clear_realizadas_staging,
+    consolidar_realizadas_dataframe,
+    count_realizadas_pendientes_bq,
+    count_realizadas_staging_rows,
+    get_realizadas_staging_mode,
+    mark_realizadas_bq_sincronizado_by_keys,
+    merge_realizadas_dataframe,
+    preview_realizadas_staging,
+    read_realizadas_staging,
+    upsert_realizadas_staging,
+    uses_excel_realizadas_staging,
+    uses_postgres_realizadas_staging,
+)
+from app.services.sales_staging_service import (
+    clear_staging,
+    count_staging_rows,
+    get_sales_staging_mode,
+    preview_staging,
+    read_staging_dataframe,
+    sum_staging_monto,
+    upsert_staging_dataframe,
+    uses_excel_staging,
+    uses_postgres_staging,
+)
+from app.services.ventas_deduplicacion import deduplicar_ventas_df
+from app.services.ventas_normalizacion import aplicar_montos_normalizados, normalizar_monto, sum_monto_column
 
 logger = logging.getLogger(__name__)
 
@@ -82,16 +116,7 @@ class LegacyService:
         self.config_write_path = os.path.join(self.temp_dir, "ConfiguracionWeb.xlsx")
         self.config_path = self.config_read_path
         
-        # Root path for scripts
         self.backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        # Intentar ruta local (Docker) o ruta relativa (Desarrollo)
-        local_prediction = os.path.join(self.backend_dir, "prediction", "predictor_ventas_powerbi_clean.py")
-        if os.path.exists(local_prediction):
-            self.prediction_script = local_prediction
-        else:
-            self.project_root = os.path.dirname(self.backend_dir)
-            self.prediction_script = os.path.join(self.project_root, "prediction", "predictor_ventas_powerbi_clean.py")
 
     def _local_config_candidates(self, *, web: bool = False) -> list[str]:
         """Rutas locales si Drive falla."""
@@ -313,40 +338,6 @@ class LegacyService:
         
         return grouped
 
-
-    def _create_default_records(self, codigo_negocio, codigo_ubicacion, estado_negocio, tipo_negocio, area, column_names):
-        """Crea registros por defecto para toda la semana pasada (Lunes a Domingo)."""
-        now = datetime.now()
-        days_since_monday = now.weekday()
-        monday_last_week = (now - timedelta(days=days_since_monday)) - timedelta(days=7)
-        
-        default_records = []
-        for i in range(7):
-            date = (monday_last_week + timedelta(days=i)).date()
-            record = {col: '' for col in column_names}
-            fh = f"{date.strftime('%Y-%m-%d')} 06:00:00"
-            record.update({
-                'Fecha': date,
-                'Hora': "06:00:00",
-                'FechaHora': fh,
-                'Monto': 0.0,
-                'Producto': '-',
-                'Cliente': 'Sistema',
-                'Cantidad': 0,
-                'CodigoTransaccion': f'DEFAULT_{date.strftime("%Y%m%d")}_{now.strftime("%H%M%S")}',
-                'CodigoNegocio': codigo_negocio,
-                'CodigoUbicacion': codigo_ubicacion,
-                'FechaCarga': now.strftime("%Y-%m-%d"),
-                'Estado': 0,
-                'FormaPago': '-',
-                'EstadoNegocio': estado_negocio if pd.notna(estado_negocio) else "INACTIVO",
-                'TipoNegocio': tipo_negocio if pd.notna(tipo_negocio) else '',
-                'Area': area if pd.notna(area) else ''
-            })
-            default_records.append(record)
-        return pd.DataFrame(default_records)
-
-    # ... (métodos existentes de conversión y archivos) ...
 
     def _resolve_filestore_path_for_ventas(self, ruta_archivo: str) -> str | None:
         """Resuelve ruta local: loc/archivo, loc/_consolidados/archivo, o nombre único en cierre_caja."""
@@ -720,28 +711,14 @@ class LegacyService:
             )
             return None
 
-        def force_numeric_safe(val):
-            if pd.isna(val):
-                return 0.0
-            try:
-                clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
-                clean_str = re.sub(r"[^0-9.]", "", clean_str)
-                if not clean_str or clean_str == ".":
-                    return 0.0
-                num_val = float(clean_str)
-                if num_val > 50000:
-                    logger.warning(
-                        "⚠️ Monto detectado como irreal (%s). Posible ID capturado como Monto. Seteando a 0.",
-                        num_val,
-                    )
-                    return 0.0
-                return round(num_val, 4)
-            except Exception:
-                return 0.0
-
         if "Monto" in processed_df.columns:
-            processed_df = processed_df.copy()
-            processed_df["Monto"] = processed_df["Monto"].apply(force_numeric_safe)
+            processed_df, cuarentena = aplicar_montos_normalizados(processed_df)
+            if cuarentena:
+                logger.warning(
+                    "Ventas: %s fila(s) en cuarentena por monto anómalo (%s).",
+                    len(cuarentena),
+                    ruta_log or "df",
+                )
 
         processed_df = self._group_by_transaction(processed_df, codigo_negocio)
 
@@ -776,24 +753,6 @@ class LegacyService:
             )
             processed_df["Hora"] = processed_df["Hora"].apply(lambda x: x if ":" in x else "06:00:00")
 
-        def clean_currency(value):
-            if value is None or (isinstance(value, float) and np.isnan(value)):
-                return 0.0
-            if isinstance(value, (int, float)):
-                return round(float(value), 4)
-            clean_str = str(value).strip().replace("S/", "").replace(",", ".").replace(" ", "")
-            try:
-                clean_str = re.sub(r"[^0-9.\-]", "", clean_str)
-                if not clean_str or clean_str == ".":
-                    return 0.0
-                num_val = float(clean_str)
-                if num_val > 50000:
-                    return 0.0
-                return round(num_val, 4)
-            except Exception:
-                return 0.0
-
-        processed_df["Monto"] = processed_df["Monto"].apply(clean_currency)
         processed_df["Fecha"] = pd.to_datetime(processed_df["Fecha"], errors="coerce")
 
         processed_df = self._group_by_transaction(processed_df, codigo_negocio)
@@ -868,6 +827,10 @@ class LegacyService:
 
             if clear_data:
                 self._clear_sales_data()
+                if uses_postgres_staging():
+                    clear_staging()
+                if uses_postgres_realizadas_staging():
+                    clear_realizadas_staging()
 
             config_activas_df = self._read_config_sheet("Activas", operational=True)
             base_carga_df = self._read_base_carga_df()
@@ -888,10 +851,7 @@ class LegacyService:
                 logger.error(f"Error capturando valores planos de formulas: {e_flat}")
                 negocios_df = self._read_config_sheet("Negocios", operational=True)
 
-            try:
-                Realizadas_df = self._read_config_sheet("Realizadas", operational=True)
-            except Exception:
-                Realizadas_df = pd.DataFrame()
+            Realizadas_df = self._read_realizadas_df(operational=True)
 
             processed_dataframes = []
             pendientes_extra_movidos: list[str] = []
@@ -966,10 +926,9 @@ class LegacyService:
 
                 if not file_path or not os.path.isfile(file_path):
                     logger.warning(
-                        f"Archivo no encontrado (Drive/FileStore): {ruta_archivo}. Intentando crear registros por defecto..."
+                        "Archivo no encontrado (Drive/FileStore): %s — se omite (sin registros sintéticos).",
+                        ruta_archivo,
                     )
-                    processed_df = self._create_default_records(codigo_negocio, codigo_ubicacion, estado_negocio, tipo_negocio, area, column_names)
-                    processed_dataframes.append(processed_df)
                     continue
                 
                 if str(ruta_archivo).lower().endswith('.xlsx'):
@@ -1079,11 +1038,23 @@ class LegacyService:
             if processed_dataframes:
                 final_df = pd.concat(processed_dataframes, ignore_index=True)
 
-                # Actualizar hojas en Excel
+                pg_upserted = 0
                 self._update_excel_with_sales(final_df, config_activas_df, Realizadas_df)
-                self._upload_config()
+                if uses_postgres_staging():
+                    pg_upserted = upsert_staging_dataframe(final_df)
+                if uses_excel_staging():
+                    self._upload_config()
 
-                msg = f"Se escribieron {len(final_df)} filas en sales_df (ConfiguracionWeb.xlsx)."
+                staging_mode = get_sales_staging_mode()
+                if uses_postgres_staging() and not uses_excel_staging():
+                    msg = f"Se escribieron {len(final_df)} fila(s) en PostgreSQL stg_sales (modo {staging_mode})."
+                elif uses_postgres_staging():
+                    msg = (
+                        f"Se escribieron {len(final_df)} fila(s) en sales_df (Excel) "
+                        f"y {pg_upserted} upsert(s) en stg_sales (modo {staging_mode})."
+                    )
+                else:
+                    msg = f"Se escribieron {len(final_df)} filas en sales_df (ConfiguracionWeb.xlsx)."
                 if pendientes_extra_movidos:
                     msg += f" Archivados además {len(pendientes_extra_movidos)} archivo(s) pendiente(s) en FileStore."
                 out: Dict[str, Any] = {
@@ -1112,46 +1083,70 @@ class LegacyService:
     # ==========================================
     # PASO 4: CARGAR BIGQUERY & PREDICCIÓN
     # ==========================================
-    async def cargar_bigquery_legacy(self) -> Dict[str, Any]:
+    async def cargar_bigquery_legacy(self, modo_sync: str = "pendiente") -> Dict[str, Any]:
         """
-        Sincroniza BigQuery basándose EXCLUSIVAMENTE en la hoja 'sales_df' del Excel.
+        Sincroniza ventas a BigQuery con MERGE idempotente.
+        modo_sync:
+          - pendiente (default): solo filas de sales_df asociadas a Realizadas sin BQ_Sincronizado.
+          - completo: MERGE de todo sales_df (recuperación / migración).
         """
+        modo = (modo_sync or "pendiente").strip().lower()
+        if modo not in ("pendiente", "completo"):
+            return {"success": False, "error": f"modo_sync inválido: {modo_sync}"}
+
         try:
             creds = service_account.Credentials.from_service_account_file(self.bq_creds_path)
             client = bigquery.Client(credentials=creds, project=self.bq_project_id)
 
-            logger.info("🚀 Leyendo hoja 'sales_df' de ConfiguracionWeb.xlsx para carga a BigQuery.")
+            logger.info("Leyendo sales_df y Realizadas para sincronización BigQuery (modo=%s).", modo)
 
-            # 1. CARGAR DESDE EXCEL (Fuente de verdad según lógica original)
-            df_sales_excel = self._read_config_sheet("sales_df", from_web=True)
+            df_sales_excel = self._read_sales_staging_df()
             filas_excel = int(len(df_sales_excel))
-
-            # 2. Preprocesar para evitar errores de tipos en BQ
             df_sales_clean = self._preprocess_bq_sales(df_sales_excel)
             filas_tras_preprocess = int(len(df_sales_clean))
+
             if filas_tras_preprocess < filas_excel:
                 logger.warning(
-                    "BQ: sales_df %s filas en Excel → %s tras preprocess (descartadas por Monto/Fecha inválidos)",
+                    "BQ: sales_df %s filas en Excel → %s tras preprocess",
                     filas_excel,
                     filas_tras_preprocess,
                 )
 
-            if df_sales_clean.empty:
+            realizadas_df = self._read_realizadas_df()
+            pendientes = realizadas_pendientes_sync(realizadas_df)
+
+            if modo == "pendiente":
+                if pendientes.empty and not realizadas_df.empty:
+                    return {
+                        "success": True,
+                        "message": "No hay realizadas pendientes de sincronizar con BigQuery.",
+                        "modo_sync": modo,
+                        "filas_leidas_excel": filas_excel,
+                        "filas_tras_preprocess": filas_tras_preprocess,
+                        "filas_origen": 0,
+                        "filas_insertadas": 0,
+                    }
+                if not pendientes.empty:
+                    df_a_sync = filtrar_sales_df_por_realizadas(df_sales_clean, pendientes)
+                else:
+                    logger.warning(
+                        "BQ: Realizadas vacía; modo pendiente usa MERGE completo de sales_df como fallback."
+                    )
+                    df_a_sync = df_sales_clean.copy()
+            else:
+                df_a_sync = df_sales_clean.copy()
+                pendientes = pd.DataFrame()
+
+            if df_a_sync.empty:
                 return {
                     "success": True,
-                    "message": "La hoja sales_df está vacía o todas las filas quedaron fuera por Monto/Fecha inválidos.",
+                    "message": "No hay filas de ventas para sincronizar en el modo seleccionado.",
+                    "modo_sync": modo,
                     "filas_leidas_excel": filas_excel,
-                    "filas_tras_preprocess": 0,
+                    "filas_tras_preprocess": filas_tras_preprocess,
+                    "filas_origen": 0,
                     "filas_insertadas": 0,
                 }
-
-            columnas_bq = [
-                "Fecha", "Hora", "FechaHora", "CodigoTransaccion", "Producto", "Cliente",
-                "CodigoNegocio", "FechaCarga", "Estado", "Monto", "Cantidad",
-                "CodigoUbicacion", "FormaPago", "EstadoNegocio", "TipoNegocio", "Area"
-            ]
-            cols_existentes = [c for c in columnas_bq if c in df_sales_clean.columns]
-            df_final_bq = df_sales_clean[cols_existentes].copy()
 
             table_sales_id = f"{self.bq_project_id}.{self.bq_dataset}.{self.bq_table_sales}"
             try:
@@ -1163,67 +1158,329 @@ class LegacyService:
                     f"Detalle: {exc}"
                 ) from exc
 
-            df_final_bq = self._cast_dataframe_to_bq_schema(df_final_bq, bq_table.schema)
+            merge_result = merge_sales_dataframe(
+                client,
+                df_a_sync,
+                project_id=self.bq_project_id,
+                dataset=self.bq_dataset,
+                table_name=self.bq_table_sales,
+                schema=bq_table.schema,
+                cast_fn=self._cast_dataframe_to_bq_schema,
+            )
+            filas_bq = int(merge_result.get("filas_merge") or 0)
+            filas_origen = int(merge_result.get("filas_origen") or 0)
 
-            job_config = bigquery.LoadJobConfig(
-                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-                schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
-            )
-            load_job = client.load_table_from_dataframe(
-                df_final_bq, table_sales_id, job_config=job_config
-            )
-            load_job.result()
-            filas_bq = int(load_job.output_rows or len(df_final_bq))
-            logger.info(
-                "BQ: %s fila(s) añadidas a %s (Excel: %s, tras preprocess: %s)",
-                filas_bq,
-                table_sales_id,
-                filas_excel,
-                filas_tras_preprocess,
-            )
+            if modo == "pendiente" and not pendientes.empty and filas_origen > 0:
+                self._persist_realizadas_after_bq_sync(realizadas_df, pendientes)
 
-            # 2. Update Negocios & Categorias (Truncate con validación de contenido)
+            ref_results: dict[str, Any] = {}
             for sheet in ["Negocios", "Categorias"]:
                 try:
                     df_temp = self._read_config_sheet(sheet)
                     df_temp = self._preprocess_bq_sales(df_temp)
-                    
-                    if df_temp.empty:
-                        logger.warning(f"⚠️ La hoja '{sheet}' está vacía. Saltando carga para evitar error de esquema.")
-                        continue
-
-                    table_ref_id = f"{self.bq_project_id}.{self.bq_dataset}.{sheet}"
-                    bq_ref_table = client.get_table(table_ref_id)
-                    df_temp = self._cast_dataframe_to_bq_schema(df_temp, bq_ref_table.schema)
-                    job_config = bigquery.LoadJobConfig(
-                        write_disposition="WRITE_TRUNCATE",
-                        autodetect=True,
+                    ref_results[sheet] = sync_reference_table_truncate(
+                        client,
+                        df_temp,
+                        project_id=self.bq_project_id,
+                        dataset=self.bq_dataset,
+                        table_name=sheet,
+                        cast_fn=self._cast_dataframe_to_bq_schema,
                     )
-                    client.load_table_from_dataframe(df_temp, table_ref_id, job_config=job_config).result()
-                    logger.info(f"✅ Tabla '{sheet}' actualizada correctamente.")
+                    if ref_results[sheet].get("success"):
+                        logger.info("Tabla BQ '%s' actualizada (%s filas).", sheet, ref_results[sheet].get("rows"))
+                    else:
+                        logger.warning(
+                            "Tabla BQ '%s' omitida: %s",
+                            sheet,
+                            ref_results[sheet].get("reason"),
+                        )
                 except Exception as e_sheet:
-                    logger.error(f"Error procesando hoja {sheet}: {e_sheet}")
-                    # No lanzamos excepción para permitir que el proceso principal continúe
+                    logger.error("Error procesando hoja %s: %s", sheet, e_sheet)
+                    ref_results[sheet] = {"success": False, "error": str(e_sheet)}
 
-            # 3. Aplicar FormaPagoModificado (Lógica original SQL)
-            # await self._update_forma_pago_bq(client)
-            
-            # 4. Ejecutar Predicción Interna
-            # pred_result = await self._run_prediction_engine(client)
-            
             return {
                 "success": True,
                 "message": (
-                    f"Sincronización BigQuery: {filas_bq} fila(s) añadidas a {self.bq_table_sales} "
-                    f"(Excel: {filas_excel}, tras preprocess: {filas_tras_preprocess})."
+                    f"BigQuery MERGE: {filas_bq} fila(s) nuevas en {self.bq_table_sales} "
+                    f"(origen: {filas_origen}, modo: {modo})."
                 ),
+                "modo_sync": modo,
                 "bq_table": self.bq_table_sales,
                 "filas_insertadas": filas_bq,
+                "filas_origen": filas_origen,
                 "filas_leidas_excel": filas_excel,
                 "filas_tras_preprocess": filas_tras_preprocess,
+                "realizadas_marcadas": int(len(pendientes)) if modo == "pendiente" else 0,
+                "referencias": ref_results,
+                "staging_mode": get_sales_staging_mode(),
+                "staging_source": "postgresql" if uses_postgres_staging() else "excel",
             }
         except Exception as e:
-            logger.error(f"Error en cargar_bigquery_legacy: {str(e)}")
+            logger.error("Error en cargar_bigquery_legacy: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def _read_sales_staging_df(self) -> pd.DataFrame:
+        """Lee ventas desde PostgreSQL (dual/postgres) o desde hoja sales_df (excel)."""
+        if uses_postgres_staging():
+            df_pg = read_staging_dataframe()
+            if not df_pg.empty or not uses_excel_staging():
+                return df_pg
+            logger.warning("stg_sales vacío; fallback a hoja sales_df en Excel.")
+        return self._read_config_sheet("sales_df", from_web=True)
+
+    def _read_realizadas_df(self, *, operational: bool = False) -> pd.DataFrame:
+        """Lee Realizadas (una fila por negocio + periodo) desde PG o Excel."""
+        if uses_postgres_realizadas_staging():
+            df_pg = read_realizadas_staging()
+            if not df_pg.empty or not uses_excel_realizadas_staging():
+                return consolidar_realizadas_dataframe(
+                    df_pg.drop(columns=["id"], errors="ignore")
+                )
+            logger.warning("stg_realizadas vacío; fallback a hoja Realizadas en Excel.")
+        try:
+            df = self._read_config_sheet("Realizadas", operational=operational, from_web=not operational)
+            return consolidar_realizadas_dataframe(df)
+        except Exception:
+            return pd.DataFrame()
+
+    def _persist_realizadas_after_bq_sync(
+        self,
+        realizadas_df: pd.DataFrame,
+        pendientes_df: pd.DataFrame,
+    ) -> None:
+        """Marca BQ_Sincronizado tras MERGE exitoso (PostgreSQL y/o Excel según modo)."""
+        if pendientes_df is None or pendientes_df.empty:
+            return
+        keys = [
+            (
+                str(row.get("CodigoNegocio", "")).strip(),
+                str(row.get("FechaInicio", "")).strip(),
+                str(row.get("FechaFin", "")).strip(),
+            )
+            for _, row in pendientes_df.iterrows()
+        ]
+        if uses_postgres_realizadas_staging():
+            mark_realizadas_bq_sincronizado_by_keys(keys)
+        if uses_excel_realizadas_staging():
+            raw = self._read_config_sheet("Realizadas", from_web=True)
+            final_realizadas = consolidar_realizadas_dataframe(
+                marcar_realizadas_sincronizadas_por_pendientes(raw, pendientes_df)
+            )
+            self._write_realizadas_sheet(final_realizadas)
+
+    # ==========================================
+    # STAGING (Excel ↔ PostgreSQL)
+    # ==========================================
+    async def get_sales_staging_status(self) -> Dict[str, Any]:
+        """Estado de sales_df y Realizadas en Excel vs PostgreSQL."""
+        try:
+            mode = get_sales_staging_mode()
+            realizadas_mode = get_realizadas_staging_mode()
+            config_path = self._resolve_config_web_workbook()
+            excel_rows = 0
+            excel_monto: float | None = None
+            try:
+                df_excel = self._read_config_sheet("sales_df", from_web=True)
+                excel_rows = len(df_excel)
+                if "Monto" in df_excel.columns:
+                    excel_monto = sum_monto_column(df_excel["Monto"])
+            except Exception as exc:
+                logger.warning("No se pudo leer sales_df en Excel para staging-status: %s", exc)
+
+            pg_rows = count_staging_rows()
+            pg_monto = sum_staging_monto()
+            if uses_postgres_staging() and (pg_rows > 0 or not uses_excel_staging()):
+                active_source = "postgresql"
+            else:
+                active_source = "excel"
+
+            realizadas_excel_rows = 0
+            try:
+                df_real_excel = consolidar_realizadas_dataframe(
+                    self._read_config_sheet("Realizadas", from_web=True)
+                )
+                realizadas_excel_rows = len(df_real_excel)
+            except Exception as exc:
+                logger.warning("No se pudo leer Realizadas en Excel para staging-status: %s", exc)
+
+            realizadas_pg_rows = count_realizadas_staging_rows()
+            realizadas_pendientes = count_realizadas_pendientes_bq()
+            if uses_postgres_realizadas_staging() and (
+                realizadas_pg_rows > 0 or not uses_excel_realizadas_staging()
+            ):
+                realizadas_active_source = "postgresql"
+            else:
+                realizadas_active_source = "excel"
+
+            return {
+                "success": True,
+                "staging_mode": mode,
+                "active_source": active_source,
+                "excel": {
+                    "rows": excel_rows,
+                    "monto_total": excel_monto,
+                    "config_source": str(config_path),
+                },
+                "postgresql": {
+                    "rows": pg_rows,
+                    "monto_total": pg_monto,
+                    "table": "stg_sales",
+                },
+                "realizadas": {
+                    "staging_mode": realizadas_mode,
+                    "active_source": realizadas_active_source,
+                    "excel": {"rows": realizadas_excel_rows},
+                    "postgresql": {
+                        "rows": realizadas_pg_rows,
+                        "table": "stg_realizadas",
+                        "pendientes_bq": realizadas_pendientes,
+                    },
+                },
+            }
+        except Exception as e:
+            logger.error("Error en get_sales_staging_status: %s", e)
+            return {"success": False, "error": str(e)}
+
+    async def import_sales_staging_from_excel(
+        self,
+        *,
+        clear_before: bool = False,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Importa la hoja sales_df (ConfiguracionWeb.xlsx) a PostgreSQL stg_sales.
+        Upsert por clave natural (misma que MERGE en BigQuery).
+        """
+        try:
+            config_path = self._resolve_config_web_workbook()
+            df = self._read_config_sheet("sales_df", from_web=True)
+            excel_rows = len(df)
+            excel_monto = (
+                sum_monto_column(df["Monto"]) if excel_rows and "Monto" in df.columns else None
+            )
+            pg_rows_before = count_staging_rows()
+
+            if excel_rows == 0:
+                return {
+                    "success": True,
+                    "message": "sales_df vacío en Excel; nada que importar.",
+                    "dry_run": dry_run,
+                    "excel_rows": 0,
+                    "pg_rows_before": pg_rows_before,
+                    "pg_rows_after": pg_rows_before,
+                    "staging_mode": get_sales_staging_mode(),
+                    "config_source": str(config_path),
+                }
+
+            if dry_run:
+                return {
+                    "success": True,
+                    "dry_run": True,
+                    "message": (
+                        f"Simulación: importarían {excel_rows} fila(s) desde Excel "
+                        f"({'TRUNCATE stg_sales antes' if clear_before else 'upsert sin borrar'})."
+                    ),
+                    "excel_rows": excel_rows,
+                    "excel_monto": excel_monto,
+                    "would_clear": clear_before,
+                    "pg_rows_before": pg_rows_before,
+                    "pg_rows_after": 0 if clear_before else pg_rows_before,
+                    "staging_mode": get_sales_staging_mode(),
+                    "config_source": str(config_path),
+                }
+
+            pg_cleared = 0
+            if clear_before:
+                pg_cleared = clear_staging()
+
+            rows_upserted = upsert_staging_dataframe(df)
+            pg_rows_after = count_staging_rows()
+
+            return {
+                "success": True,
+                "message": (
+                    f"Importadas {excel_rows} fila(s) desde Excel "
+                    f"({rows_upserted} operación(es) upsert en stg_sales)."
+                ),
+                "dry_run": False,
+                "excel_rows": excel_rows,
+                "excel_monto": excel_monto,
+                "rows_upserted": rows_upserted,
+                "pg_cleared": pg_cleared,
+                "pg_rows_before": pg_rows_before,
+                "pg_rows_after": pg_rows_after,
+                "staging_mode": get_sales_staging_mode(),
+                "config_source": str(config_path),
+            }
+        except Exception as e:
+            logger.error("Error en import_sales_staging_from_excel: %s", e)
+            return {"success": False, "error": str(e)}
+
+    async def import_realizadas_staging_from_excel(
+        self,
+        *,
+        clear_before: bool = False,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Importa la hoja Realizadas (ConfiguracionWeb.xlsx) a PostgreSQL stg_realizadas."""
+        try:
+            config_path = self._resolve_config_web_workbook()
+            df = self._read_config_sheet("Realizadas", from_web=True)
+            excel_rows = len(df)
+            pg_rows_before = count_realizadas_staging_rows()
+
+            if excel_rows == 0:
+                return {
+                    "success": True,
+                    "message": "Realizadas vacío en Excel; nada que importar.",
+                    "dry_run": dry_run,
+                    "excel_rows": 0,
+                    "pg_rows_before": pg_rows_before,
+                    "pg_rows_after": pg_rows_before,
+                    "staging_mode": get_realizadas_staging_mode(),
+                    "config_source": str(config_path),
+                }
+
+            if dry_run:
+                return {
+                    "success": True,
+                    "dry_run": True,
+                    "message": (
+                        f"Simulación: importarían {excel_rows} fila(s) de Realizadas "
+                        f"({'TRUNCATE stg_realizadas antes' if clear_before else 'upsert sin borrar'})."
+                    ),
+                    "excel_rows": excel_rows,
+                    "would_clear": clear_before,
+                    "pg_rows_before": pg_rows_before,
+                    "pg_rows_after": 0 if clear_before else pg_rows_before,
+                    "staging_mode": get_realizadas_staging_mode(),
+                    "config_source": str(config_path),
+                }
+
+            pg_cleared = 0
+            if clear_before:
+                pg_cleared = clear_realizadas_staging()
+
+            rows_upserted = upsert_realizadas_staging(df)
+            pg_rows_after = count_realizadas_staging_rows()
+
+            return {
+                "success": True,
+                "message": (
+                    f"Importadas {excel_rows} fila(s) de Realizadas "
+                    f"({rows_upserted} operación(es) upsert en stg_realizadas)."
+                ),
+                "dry_run": False,
+                "excel_rows": excel_rows,
+                "rows_upserted": rows_upserted,
+                "pg_cleared": pg_cleared,
+                "pg_rows_before": pg_rows_before,
+                "pg_rows_after": pg_rows_after,
+                "staging_mode": get_realizadas_staging_mode(),
+                "config_source": str(config_path),
+            }
+        except Exception as e:
+            logger.error("Error en import_realizadas_staging_from_excel: %s", e)
             return {"success": False, "error": str(e)}
 
     # ==========================================
@@ -1237,6 +1494,11 @@ class LegacyService:
         try:
             limit = max(1, min(int(limit), 500))
             offset = max(0, int(offset))
+
+            if uses_postgres_staging():
+                out = preview_staging(limit=limit, offset=offset)
+                if out.get("total_rows", 0) > 0 or not uses_excel_staging():
+                    return out
 
             config_path = self._resolve_config_web_workbook()
             df = self._read_config_sheet("sales_df", from_web=True)
@@ -1278,6 +1540,12 @@ class LegacyService:
             preview_df = preview_df.map(lambda x: x.isoformat() if isinstance(x, (dt.date, dt.datetime)) else x)
             preview_df = preview_df.fillna("")
 
+            monto_total = None
+            if "Monto" in df.columns:
+                from app.services.ventas_normalizacion import sum_monto_column
+
+                monto_total = sum_monto_column(df["Monto"])
+
             return {
                 "success": True,
                 "data": preview_df.to_dict(orient="records"),
@@ -1288,31 +1556,44 @@ class LegacyService:
                 "has_more": has_more,
                 "returned_count": returned,
                 "config_source": str(config_path),
+                "monto_column": "Monto" if "Monto" in df.columns else None,
+                "monto_total": monto_total,
+                "staging_mode": get_sales_staging_mode(),
+                "staging_source": "excel",
             }
         except Exception as e:
             logger.error(f"Error en preview: {e}")
             return {"success": False, "error": str(e)}
 
     async def get_realizadas_preview(self, limit: int = 100) -> Dict[str, Any]:
-        """Obtiene una vista previa de la hoja Realizadas."""
+        """Vista previa de Realizadas (PostgreSQL o Excel según modo)."""
         try:
+            limit = max(1, min(int(limit), 500))
+
+            if uses_postgres_realizadas_staging():
+                out = preview_realizadas_staging(limit=limit)
+                if out.get("total_rows", 0) > 0 or not uses_excel_realizadas_staging():
+                    return out
+
             config_path = self._resolve_config_web_workbook()
             df = self._read_config_sheet("Realizadas", from_web=True)
+            df = consolidar_realizadas_dataframe(df)
             preview_df = df.tail(limit).copy()
-            
-            # Convertir fechas a string para JSON de forma segura
+
             import datetime as dt
             preview_df = preview_df.map(lambda x: x.isoformat() if isinstance(x, (dt.date, dt.datetime)) else x)
-            
-            # Reemplazar nulos
             preview_df = preview_df.fillna("")
-            
+
             return {
                 "success": True,
                 "data": preview_df.to_dict(orient="records"),
                 "columns": preview_df.columns.tolist(),
                 "total_rows": len(df),
+                "returned_count": len(preview_df),
                 "config_source": str(config_path),
+                "staging_mode": get_realizadas_staging_mode(),
+                "staging_source": "excel",
+                "pendientes_bq": len(realizadas_pendientes_sync(df)),
             }
         except Exception as e:
             logger.error(f"Error en preview realizadas: {e}")
@@ -1329,20 +1610,9 @@ class LegacyService:
         return _CONSOL_SKIP_LEGIBLE.get(skip, skip.replace("_", " "))
 
     def _consolidacion_force_numeric(self, val) -> tuple[float, bool]:
-        """Normaliza Monto; devuelve (valor, True si se descartó por tope > 50000)."""
-        if val is None or (isinstance(val, float) and np.isnan(val)):
-            return 0.0, False
-        try:
-            clean_str = str(val).strip().replace("S/", "").replace(",", ".").replace(" ", "")
-            clean_str = re.sub(r"[^0-9.]", "", clean_str)
-            if not clean_str or clean_str == ".":
-                return 0.0, False
-            num_val = float(clean_str)
-            if num_val > 50000:
-                return 0.0, True
-            return round(num_val, 4), False
-        except Exception:
-            return 0.0, False
+        """Normaliza Monto; devuelve (valor, True si va a cuarentena por tope anómalo)."""
+        res = normalizar_monto(val)
+        return res.valor, res.anomalo
 
     def _consolidacion_leer_hoja(self, file_path: Path) -> tuple[pd.DataFrame | None, str | None]:
         """Lee .xlsx, .xls o .csv (motor Excel por contenido del archivo)."""
@@ -1819,7 +2089,6 @@ class LegacyService:
 
                 final = pd.concat(processed_list, ignore_index=True)
                 fmin_pre, fmax_pre, fechas_muestra = self._consolidacion_fechas_en_df(final)
-                before_dedup = len(final)
                 if "Fecha" in final.columns:
                     final = filtrar_filas_por_rango_fecha(final, start_d, end_d, col="Fecha")
                 if final.empty:
@@ -1836,10 +2105,16 @@ class LegacyService:
                     })
                     return
 
-                subset_cols = [c for c in ["Fecha", "CodigoNegocio", "Monto", "Producto"] if c in final.columns]
-                if subset_cols:
-                    final = final.drop_duplicates(subset=subset_cols, keep="last")
-                duplicados_eliminados = before_dedup - len(final)
+                final, dedup_stats = deduplicar_ventas_df(final)
+                duplicados_eliminados = int(dedup_stats.get("duplicados_eliminados") or 0)
+                claves_dedup = list(dedup_stats.get("claves_dedup") or ())
+                if duplicados_eliminados:
+                    logger.info(
+                        "Consolidar %s: %s duplicado(s) eliminados (claves=%s).",
+                        codigo_negocio,
+                        duplicados_eliminados,
+                        claves_dedup,
+                    )
 
                 estado_loc = "ok" if base_entry["archivos_ok"] == len(filenames) else "parcial"
                 out_rel: str | None = None
@@ -1862,6 +2137,7 @@ class LegacyService:
                     else f"Consolidado con {len(filenames) - base_entry['archivos_ok']} archivo(s) sin aportar datos.",
                     "registros": len(final),
                     "duplicados_eliminados": duplicados_eliminados,
+                    "claves_dedup": claves_dedup,
                     "archivo": out_rel,
                     "escrito": not dry_run,
                     "fechas_en_consolidado_min": fmin_out,
@@ -1902,154 +2178,6 @@ class LegacyService:
             logger.error(f"Error en consolidar_desde_filestore: {e}")
             return {"success": False, "error": str(e)}
 
-    # ==========================================
-    # GESTIÓN DE ARCHIVOS
-    # ==========================================
-
-    async def _run_prediction_engine(self, client: bigquery.Client) -> str:
-        """
-        Adaptación del algoritmo μ ± k·σ para predicción de ventas.
-        Escribe resultados en la tabla 'Predicciones' de BigQuery.
-        """
-        try:
-            # 1. Configuración de Fechas
-            now = datetime.now()
-            start_data = now.replace(day=1).strftime("%Y-%m-%d")
-            # Último domingo
-            end_data = (now - timedelta(days=now.weekday() + 1)).strftime("%Y-%m-%d")
-            
-            start_cal = now.replace(day=1).strftime("%Y-%m-%d")
-            end_cal = (now.replace(day=1) + pd.DateOffset(months=1) - pd.DateOffset(days=1)).strftime("%Y-%m-%d")
-            corte_date = pd.Timestamp(end_data)
-
-            # 2. Cargar datos históricos para el mes actual
-            query = f"""
-                SELECT DATE(Fecha) AS Fecha, SUM(CAST(Monto AS FLOAT64)) AS Venta
-                FROM `{self.bq_project_id}.{self.bq_dataset}.sales_df`
-                WHERE DATE(Fecha) BETWEEN '{start_data}' AND '{end_data}'
-                  AND CAST(Monto AS FLOAT64) > 0
-                GROUP BY 1 ORDER BY 1
-            """
-            df_ventas = client.query(query).to_dataframe()
-            df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha'])
-
-            # 3. Construir calendario y proyecciones por DOW
-            cal = pd.DataFrame({"Fecha": pd.date_range(start=start_cal, end=end_cal, freq="D")})
-            df_daily = cal.merge(df_ventas, on="Fecha", how="left")
-            df_daily["DiaSemana"] = df_daily["Fecha"].dt.dayofweek
-
-            # 4. Calcular μ ± k·σ por día de la semana
-            proyecciones_dow = {}
-            k_sigma = 0.5
-            for dow in range(7):
-                historico = df_ventas[df_ventas["Fecha"].dt.dayofweek == dow].copy()
-                if historico.empty:
-                    proyecciones_dow[dow] = 0.0
-                    continue
-                
-                mu = float(historico["Venta"].mean())
-                sigma = float(historico["Venta"].std()) if len(historico) > 1 else 0.0
-                lie, lse = mu - k_sigma * sigma, mu + k_sigma * sigma
-                
-                dentro = historico[(historico["Venta"] >= lie) & (historico["Venta"] <= lse)]
-                ultimos_6 = list(dentro.sort_values("Fecha")["Venta"].tail(6))
-                if len(ultimos_6) < 6:
-                    promedio = mu if dentro.empty else float(dentro["Venta"].mean())
-                    ultimos_6.extend([promedio] * (6 - len(ultimos_6)))
-                
-                proyecciones_dow[dow] = float(np.mean(ultimos_6))
-
-            # 5. Generar tabla de predicciones
-            predicciones = []
-            for _, row in df_daily.iterrows():
-                fecha = row['Fecha']
-                dow = fecha.dayofweek
-                
-                if not pd.isna(row['Venta']) and fecha <= corte_date:
-                    ventas, ventas_proy = float(row['Venta']), 0.0
-                else:
-                    ventas, ventas_proy = 0.0, proyecciones_dow[dow]
-                
-                predicciones.append({
-                    'Fecha': fecha.date(),
-                    'NroSemana': self._get_weeknum_pb(fecha),
-                    'Anio': int(fecha.year),
-                    'Mes': int(fecha.month),
-                    'Ventas': ventas,
-                    'VentasProyectadas': ventas_proy
-                })
-            
-            df_pred = pd.DataFrame(predicciones)
-
-            # 6. Guardar en BigQuery
-            table_ref = f"{self.bq_project_id}.{self.bq_dataset}.Predicciones"
-            # Limpiar mes actual
-            client.query(f"DELETE FROM `{table_ref}` WHERE Anio = {now.year} AND Mes = {now.month}").result()
-            
-            job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-            client.load_table_from_dataframe(df_pred, table_ref, job_config=job_config).result()
-
-            return f"Predicción exitosa: {len(df_pred)} días procesados."
-        except Exception as e:
-            logger.error(f"Error en prediction_engine: {str(e)}")
-            return f"Error en predictor: {str(e)}"
-
-    def _get_weeknum_pb(self, fecha: pd.Timestamp) -> int:
-        """Calcula WEEKNUM compatible con Power BI (parámetro 11)."""
-        jan1 = pd.Timestamp(fecha.year, 1, 1)
-        days_diff = (fecha - jan1).days
-        jan1_weekday = jan1.weekday()
-        if jan1_weekday == 0:
-            return (days_diff // 7) + 1
-        days_to_first_monday = 7 - jan1_weekday
-        if days_diff < days_to_first_monday:
-            return 1
-        return ((days_diff - days_to_first_monday) // 7) + 2
-
-    # --- Helpers Internal ---
-
-    async def _update_forma_pago_bq(self, client):
-        """Replica update_payment_method_cell de CargaBigQueryOfi.py."""
-        today = datetime.now().date()
-        last_monday = today - timedelta(days=today.weekday() if today.weekday() > 0 else 7)
-        last_monday_str = last_monday.strftime('%Y-%m-%d')
-        
-        query = f"""
-            UPDATE `{self.bq_project_id}.{self.bq_dataset}.sales_df`
-            SET FormaPagoModificado = 
-              CASE
-                WHEN REGEXP_CONTAINS(LOWER(TRIM(FormaPago)), r'(transf|transferencia).?(rappi|rapi)') OR
-                     FormaPago IN ('RAPPI','RAPPI ', 'Rappi', 'Transf. Rappi', 'Transferencia Rappi','rappi','Tarjeta (Rappi ):') 
-                THEN 'RAPPI'
-                WHEN REGEXP_CONTAINS(LOWER(TRIM(FormaPago)), r'(transf|transferencia).?(pedidos ya|peya|pedidosya)') OR
-                     FormaPago IN ('PEDIDOSYA', 'pedidosya', 'Pedidos Ya', 'Transf Peya', 'Transferencia Pedidos Ya', 'Tarjeta (Pedidosya ):') 
-                THEN 'PEDIDOS YA'
-                WHEN REGEXP_CONTAINS(LOWER(TRIM(FormaPago)), r'(tarjeta|visa|mastercard|american express|bbva|izipay|niubiz|diners club|crédito|credito)') OR
-                     FormaPago IN ('Tarjeta CrÃ©dito', 'Mastercard CrÃ©dito', 'American Express', 'Tarjeta BBVA', 
-                                  'Tarjeta (Izipay)', 'VISA', 'Contado/VISA', 'Niubiz (s)', 'Diners Club','Tarjeta (Visa ):', 'Tarjeta (BBVA 30% ):') OR
-                     REGEXP_CONTAINS(FormaPago, r'^Contado/') 
-                THEN 'TARJETA'
-                WHEN REGEXP_CONTAINS(LOWER(TRIM(FormaPago)), r'(efectivo|cash|contado)') OR
-                     FormaPago IN ('Efectivo', 'venta presencial', 'Contado', 'Contado ','Contado / Efectivo', 'Contado /Efectivo', 'Contado/Cash', 'Efectivo(S/):', 'Contado') 
-                THEN 'EFECTIVO'
-                ELSE 'OTROS'
-              END
-            WHERE DATE(Fecha) > DATE('{last_monday_str}');
-        """
-        client.query(query).result()
-
-    def _run_predictor(self) -> str:
-        """Ejecuta el script de predicción."""
-        if not os.path.exists(self.prediction_script):
-            return "Script de predicción no encontrado"
-        
-        try:
-            # Ejecutar con el mismo intérprete
-            subprocess.run([sys.executable, self.prediction_script], cwd=os.path.dirname(self.prediction_script), check=True)
-            return "Predicción ejecutada con éxito"
-        except Exception as e:
-            return f"Error en predictor: {str(e)}"
-
     def _excel_cell_to_csv_indices(self, cell_address: str) -> Tuple[int, int]:
         """
         Compat carga ventas (DataFrame con cabecera pandas): fila Excel N → iloc N-2.
@@ -2067,13 +2195,19 @@ class LegacyService:
         try:
             self._ensure_config_write_workbook()
             with pd.ExcelWriter(self.config_write_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                # 1. Limpiar sales_df manteniendo la cabecera original
-                pd.DataFrame(columns=["CodigoNegocio","Fecha","Monto", "Estado", "FormaPago", "CodigoUbicacion", "EstadoNegocio", "TipoNegocio", "Area", "FechaCarga"]).to_excel(writer, sheet_name="sales_df", index=False)
-                
-                # 2. Limpiar Realizadas
-                pd.DataFrame(columns=["CodigoNegocio", "RutaArchivo", "FechaInicio", "FechaFin", "Fecha_Procesamiento_Web"]).to_excel(writer, sheet_name="Realizadas", index=False)
-                
-            logger.info("♻️ Hojas 'sales_df' y 'Realizadas' reseteadas con éxito.")
+                if uses_excel_staging():
+                    pd.DataFrame(columns=["CodigoNegocio","Fecha","Monto", "Estado", "FormaPago", "CodigoUbicacion", "EstadoNegocio", "TipoNegocio", "Area", "FechaCarga"]).to_excel(writer, sheet_name="sales_df", index=False)
+                if uses_excel_realizadas_staging():
+                    from app.core.data_constants import REALIZADAS_STAGING_COLUMNS
+
+                    pd.DataFrame(columns=list(REALIZADAS_STAGING_COLUMNS)).to_excel(
+                        writer, sheet_name="Realizadas", index=False
+                    )
+            logger.info(
+                "Hojas de staging reseteadas (sales=%s, realizadas=%s).",
+                get_sales_staging_mode(),
+                get_realizadas_staging_mode(),
+            )
         except Exception as e:
             logger.error(f"Error al limpiar hojas: {e}")
             raise e
@@ -2104,9 +2238,15 @@ class LegacyService:
 
             # Concatenar respetando el orden de las columnas maestras
             final_sales = pd.concat([existing_sales[columnas_sales_df], new_sales[columnas_sales_df]], ignore_index=True)
-            
-            # Eliminar duplicados técnicos (evitar reprocesar la misma transacción)
-            final_sales = final_sales.drop_duplicates(subset=['Fecha', 'CodigoNegocio', 'Monto', 'Producto'], keep='last')
+
+            final_sales, dedup_stats = deduplicar_ventas_df(final_sales)
+            dup_n = int(dedup_stats.get("duplicados_eliminados") or 0)
+            if dup_n:
+                logger.info(
+                    "sales_df: %s duplicado(s) eliminados (claves=%s).",
+                    dup_n,
+                    list(dedup_stats.get("claves_dedup") or ()),
+                )
             
             # 3. Actualizar Realizadas (Mapeo de 10 Campos según lógica original)
             # Asegurar redondeo a 4 decimales en la sumatoria de Ventas Totales
@@ -2120,38 +2260,46 @@ class LegacyService:
             nuevas_realizadas['Fecha Fin'] = nuevas_realizadas['FechaFin']
             nuevas_realizadas['Ventas Totales'] = nuevas_realizadas['CodigoNegocio'].map(totales_por_negocio).fillna(0).astype(float).round(4)
             nuevas_realizadas['Fecha_Procesamiento_Web'] = now_str
+            nuevas_realizadas[REALIZADAS_COL_BQ_SINCRONIZADO] = 0
 
             columnas_realizadas = [
-                "CodigoNegocio", "RutaArchivo", "Cargar", "Añadir", 
-                "FechaInicio", "FechaFin", "Fecha Transaccion", 
+                "CodigoNegocio", "RutaArchivo", "Cargar", "Añadir",
+                "FechaInicio", "FechaFin", "Fecha Transaccion",
                 "Fecha Inicio", "Fecha Fin", "Ventas Totales",
-                "Fecha_Procesamiento_Web"
+                "Fecha_Procesamiento_Web", REALIZADAS_COL_BQ_SINCRONIZADO,
             ]
             
             for col in columnas_realizadas:
                 if col not in nuevas_realizadas.columns: nuevas_realizadas[col] = ""
             
             nuevas_realizadas = nuevas_realizadas[columnas_realizadas]
-            
-            if realizadas.empty:
-                final_realizadas = nuevas_realizadas
-            else:
-                # Sincronizar columnas de la hoja existente para evitar errores de tipo en concat
-                for col in columnas_realizadas:
-                    if col not in realizadas.columns: realizadas[col] = ""
-                final_realizadas = pd.concat([realizadas[columnas_realizadas], nuevas_realizadas], ignore_index=True)
+            final_realizadas = merge_realizadas_dataframe(realizadas, nuevas_realizadas)
 
-            # 4. Escritura Atómica en Excel
+            # 4. Escritura Atómica en Excel (sales_df / Realizadas según modo)
             with pd.ExcelWriter(self.config_write_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                final_sales.to_excel(writer, sheet_name="sales_df", index=False)
-                final_realizadas.to_excel(writer, sheet_name="Realizadas", index=False)
-                # Limpiar Activas (CORREGIDO: 'activ' -> 'activas')
+                if uses_excel_staging():
+                    final_sales.to_excel(writer, sheet_name="sales_df", index=False)
+                if uses_excel_realizadas_staging():
+                    final_realizadas.to_excel(writer, sheet_name="Realizadas", index=False)
                 pd.DataFrame(columns=activas.columns).to_excel(writer, sheet_name="Activas", index=False)
-                
-            logger.info("✅ Excel actualizado: sales_df ordenado y Realizadas sincronizadas.")
+
+            if uses_postgres_realizadas_staging():
+                append_realizadas_staging(nuevas_realizadas)
+
+            logger.info(
+                "Staging actualizado: sales (modo %s), realizadas (modo %s).",
+                get_sales_staging_mode(),
+                get_realizadas_staging_mode(),
+            )
         except Exception as e:
             logger.error(f"Error crítico en sincronización de hojas: {e}")
             raise e
+
+    def _write_realizadas_sheet(self, realizadas_df: pd.DataFrame) -> None:
+        """Persiste la hoja Realizadas (p. ej. tras marcar BQ_Sincronizado)."""
+        self._ensure_config_write_workbook()
+        with pd.ExcelWriter(self.config_write_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            realizadas_df.to_excel(writer, sheet_name="Realizadas", index=False)
 
     @staticmethod
     def _bq_cell_as_string(value: Any) -> str:
