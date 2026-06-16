@@ -6,8 +6,7 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import { useAuth } from '@/context/AuthContext';
 import logo from '@/assets/logo.png';
-
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -36,7 +35,7 @@ const Login: React.FC = () => {
                     icon: 'success',
                     title: '¡Bienvenido!',
                     text: 'Acceso concedido al motor Refugio.',
-                    timer: 2000,
+                    timer: 800,
                     showConfirmButton: false,
                     background: 'var(--app-panel)',
                     color: 'var(--app-text)',

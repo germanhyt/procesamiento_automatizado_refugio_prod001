@@ -12,12 +12,17 @@ export type DocumentosGcbListFilters = {
     coleccion: string;
     categoria: string;
     soloActivos: boolean;
+    skip?: number;
+    limit?: number;
 };
 
-const DEFAULT_LIMIT = 500;
+const FILTER_META_LIMIT = 500;
+export const DOCUMENTOS_GCB_PAGE_SIZE = 15;
 
 export function useDocumentosGcbList(filters: DocumentosGcbListFilters) {
     const { token } = useAuth();
+    const skip = filters.skip ?? 0;
+    const limit = filters.limit ?? DOCUMENTOS_GCB_PAGE_SIZE;
     return useQuery({
         queryKey: [
             ...DOCUMENTOS_GCB_QUERY_KEY,
@@ -26,17 +31,35 @@ export function useDocumentosGcbList(filters: DocumentosGcbListFilters) {
             filters.coleccion,
             filters.categoria,
             filters.soloActivos,
+            skip,
+            limit,
         ],
         queryFn: () =>
             documentosGcbService.list(token as string, {
-                skip: 0,
-                limit: DEFAULT_LIMIT,
+                skip,
+                limit,
                 q: filters.q || undefined,
                 coleccion: filters.coleccion || undefined,
                 categoria: filters.categoria || undefined,
                 solo_activos: filters.soloActivos,
             }),
         enabled: !!token,
+    });
+}
+
+/** Opciones de filtros (colección/categoría) desde un lote amplio, independiente de la página visible. */
+export function useDocumentosGcbFilterMeta(filters: Pick<DocumentosGcbListFilters, 'soloActivos'>) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: [...DOCUMENTOS_GCB_QUERY_KEY, 'filter-meta', filters.soloActivos],
+        queryFn: () =>
+            documentosGcbService.list(token as string, {
+                skip: 0,
+                limit: FILTER_META_LIMIT,
+                solo_activos: filters.soloActivos,
+            }),
+        enabled: !!token,
+        staleTime: 60_000,
     });
 }
 

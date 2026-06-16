@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 const FUENTES_BASE = `${API_URL}/fuentes`;
 
 export interface SemanaActual {
@@ -133,6 +133,12 @@ export interface FuentesPreviewResponse {
     rows: string[][];
     truncated: boolean;
     row_count_shown: number;
+    total_rows?: number;
+    offset?: number;
+    next_offset?: number;
+    has_more?: boolean;
+    monto_column?: string | null;
+    monto_total?: number | null;
 }
 
 export async function fetchFuentesPreview(params: {
@@ -142,12 +148,14 @@ export async function fetchFuentesPreview(params: {
     zona?: 'pendiente' | 'consolidado';
     fecha?: string;
     max_rows?: number;
+    offset?: number;
 }): Promise<FuentesPreviewResponse> {
     const q: Record<string, string | number> = {
         origen: params.origen,
         locatario_codigo: params.locatario_codigo,
         filename: params.filename,
         max_rows: params.max_rows ?? 80,
+        offset: params.offset ?? 0,
     };
     if (params.origen === 'cierre' && params.zona) q.zona = params.zona;
     if (params.origen === 'procesados' && params.fecha) q.fecha = params.fecha;

@@ -4,7 +4,6 @@ import {
     createColumnHelper,
     flexRender,
     getCoreRowModel,
-    getPaginationRowModel,
     useReactTable,
 } from '@tanstack/react-table';
 import type { PaginationState, Updater } from '@tanstack/react-table';
@@ -19,6 +18,7 @@ import ComercialDateFilterPopover, { DATE_FILTER_HINT_EVENTOS } from '@/pages/co
 import CrudModal from '@/pages/comercial/CrudModal';
 import WhatsAppModal from '@/pages/comercial/WhatsAppModal';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { formatRegistrationDateTime } from '@/utils/formatDateTime';
 
 const PAGE_SIZE = 15;
 const columnHelper = createColumnHelper<ComercialEvento>();
@@ -62,11 +62,20 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
     }, [buscar, estadoFiltro, tipoFiltro, desde, hasta]);
 
     const { data, isLoading, isFetching, isError } = useQuery({
-        queryKey: ['comercial-eventos', buscar, estadoFiltro, tipoFiltro, desde, hasta],
+        queryKey: [
+            'comercial-eventos',
+            buscar,
+            estadoFiltro,
+            tipoFiltro,
+            desde,
+            hasta,
+            pagination.pageIndex,
+            pagination.pageSize,
+        ],
         queryFn: () =>
             comercialService.listEventos(token, {
-                skip: 0,
-                limit: 500,
+                skip: pagination.pageIndex * pagination.pageSize,
+                limit: pagination.pageSize,
                 buscar: buscar.trim() || undefined,
                 estado: estadoFiltro || undefined,
                 tipo_evento: tipoFiltro || undefined,
@@ -79,6 +88,7 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
     });
 
     const rows = data?.items ?? [];
+    const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / pagination.pageSize));
 
     const onPaginationChange = useCallback((updater: Updater<PaginationState>) => {
         setPagination((prev) => (typeof updater === 'function' ? updater(prev) : updater));
@@ -121,6 +131,14 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
                 header: 'ID',
                 cell: (i) => <span className="font-mono text-app-muted text-xs">{i.getValue()}</span>,
                 size: 52,
+            }),
+            columnHelper.accessor('fecha_creacion', {
+                header: 'Registro',
+                cell: (i) => (
+                    <span className="text-[10px] font-mono text-app-muted whitespace-nowrap">
+                        {formatRegistrationDateTime(i.getValue())}
+                    </span>
+                ),
             }),
             columnHelper.accessor('nombres', {
                 header: 'Cliente',
@@ -227,9 +245,10 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
         columns,
         getRowId: (row) => String(row.id),
         getCoreRowModel: getCoreRowModel(),
-        getPaginationRowModel: getPaginationRowModel(),
         state: { pagination },
         onPaginationChange,
+        manualPagination: true,
+        pageCount,
     });
 
     return (
@@ -332,13 +351,12 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
                 )}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-3 border-t border-app-border text-[10px] text-app-muted font-mono">
                     <span>
-                        {data?.total ?? rows.length} registros (pág. {table.getState().pagination.pageIndex + 1} /{' '}
-                        {table.getPageCount() || 1})
+                        {data?.total ?? 0} registros (pág. {pagination.pageIndex + 1} / {pageCount})
                     </span>
                     <div className="flex gap-2">
                         <button
                             type="button"
-                            disabled={!table.getCanPreviousPage()}
+                            disabled={pagination.pageIndex <= 0 || isFetching}
                             onClick={() => table.previousPage()}
                             className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >
@@ -346,7 +364,7 @@ const EventosTab: React.FC<EventosTabProps> = ({ token, canManage }) => {
                         </button>
                         <button
                             type="button"
-                            disabled={!table.getCanNextPage()}
+                            disabled={pagination.pageIndex + 1 >= pageCount || isFetching}
                             onClick={() => table.nextPage()}
                             className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >

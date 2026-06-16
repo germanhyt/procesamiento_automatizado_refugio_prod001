@@ -3,21 +3,27 @@ import {
     createColumnHelper,
     flexRender,
     getCoreRowModel,
-    getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
+    type PaginationState,
     type RowSelectionState,
+    type Updater,
 } from '@tanstack/react-table';
-import { Download, Eye, FilePenLine, FileUp, FolderDown, ShieldOff } from 'lucide-react';
+import { Download, Eye, FilePenLine, FileUp, ShieldOff } from 'lucide-react';
 
 import type { DocumentoGcb } from '@/services/documentosGcbService';
 import { formatDocumentSize } from '@/utils/documentosGcbUtils';
+import { formatRegistrationDateTime } from '@/utils/formatDateTime';
 
 const columnHelper = createColumnHelper<DocumentoGcb>();
 
 export type DocumentosGcbTableProps = {
     rows: DocumentoGcb[];
+    total: number;
+    pagination: PaginationState;
+    onPaginationChange: (updater: Updater<PaginationState>) => void;
     isLoading: boolean;
+    isFetching?: boolean;
     canManage: boolean;
     bulkDownloadBusy?: boolean;
     onView: (doc: DocumentoGcb) => void;
@@ -30,7 +36,11 @@ export type DocumentosGcbTableProps = {
 
 const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
     rows,
+    total,
+    pagination,
+    onPaginationChange,
     isLoading,
+    isFetching = false,
     canManage,
     bulkDownloadBusy = false,
     onView,
@@ -40,7 +50,6 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
     onReplace,
     onDeactivate,
 }) => {
-    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 15 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
     const selectedDocs = useMemo(
@@ -48,6 +57,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
         [rows, rowSelection]
     );
     const selectedCount = selectedDocs.length;
+    const pageCount = Math.max(1, Math.ceil(total / pagination.pageSize));
 
     const columns = useMemo(
         () => [
@@ -82,6 +92,14 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
             columnHelper.accessor('codigo', {
                 header: 'Código',
                 cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
+            }),
+            columnHelper.accessor('created_at', {
+                header: 'Registro',
+                cell: (info) => (
+                    <span className="text-[10px] font-mono text-app-muted whitespace-nowrap">
+                        {formatRegistrationDateTime(info.getValue())}
+                    </span>
+                ),
             }),
             columnHelper.accessor('nombre', {
                 header: 'Documento',
@@ -180,7 +198,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                                             title="Desactivar"
                                             aria-label="Desactivar"
                                             onClick={() => onDeactivate(doc)}
-                                        className="p-2 rounded-lg hover:bg-app-danger-muted text-app-danger"
+                                            className="p-2 rounded-lg hover:bg-app-danger-muted text-app-danger"
                                         >
                                             <ShieldOff size={16} />
                                         </button>
@@ -200,12 +218,13 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
         columns,
         getRowId: (row) => String(row.id),
         state: { pagination, rowSelection },
-        onPaginationChange: setPagination,
+        onPaginationChange,
         onRowSelectionChange: setRowSelection,
         enableRowSelection: true,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
-        getPaginationRowModel: getPaginationRowModel(),
+        manualPagination: true,
+        pageCount,
     });
 
     return (
@@ -213,32 +232,27 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
             <div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
                     <h2 className="text-[10px] font-black uppercase tracking-widest text-app-muted">Documentos</h2>
-                    {rows.length > 0 && (
+                    {total > 0 && selectedCount > 0 && (
                         <div className="flex flex-wrap items-center gap-2 justify-end">
                             <button
                                 type="button"
-                                disabled={bulkDownloadBusy || selectedCount === 0}
+                                disabled={bulkDownloadBusy}
                                 onClick={() => onDownloadMany(selectedDocs)}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-card-hover hover:text-app-accent disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-card-hover disabled:opacity-40 disabled:pointer-events-none transition-colors"
                             >
                                 <Download size={14} />
-                                ZIP selección
-                                {selectedCount > 0 ? ` (${selectedCount})` : ''}
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkDownloadBusy}
-                                onClick={() => onDownloadMany(rows)}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-card-hover disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                            >
-                                <FolderDown size={14} />
-                                ZIP todo
-                                <span className="text-app-muted font-mono normal-case">({rows.length})</span>
+                                ZIP selección ({selectedCount})
                             </button>
                         </div>
                     )}
                 </div>
-                <div className="overflow-x-auto rounded-2xl border border-app-border">
+                <div className="overflow-x-auto rounded-2xl border border-app-border relative">
+                    {isFetching && !isLoading && (
+                        <div className="absolute top-2 right-3 z-10 flex items-center gap-2 rounded-lg border border-app-border bg-app-input px-2 py-1 text-[9px] font-mono uppercase tracking-wider text-app-muted">
+                            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-app-accent-muted border-t-app-accent" />
+                            Actualizando…
+                        </div>
+                    )}
                     <table className="min-w-full text-left text-xs">
                         <thead>
                             {table.getHeaderGroups().map((hg) => (
@@ -283,15 +297,15 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                 </div>
             </div>
 
-            {rows.length > 0 && (
+            {total > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-wrap text-[10px] text-app-muted font-mono">
                     <span>
-                        Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()} · {rows.length} filas
+                        {total} documentos (pág. {pagination.pageIndex + 1} / {pageCount})
                     </span>
                     <div className="flex gap-2">
                         <button
                             type="button"
-                            disabled={!table.getCanPreviousPage()}
+                            disabled={pagination.pageIndex <= 0 || isFetching}
                             onClick={() => table.previousPage()}
                             className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >
@@ -299,7 +313,7 @@ const DocumentosGcbTable: React.FC<DocumentosGcbTableProps> = ({
                         </button>
                         <button
                             type="button"
-                            disabled={!table.getCanNextPage()}
+                            disabled={pagination.pageIndex + 1 >= pageCount || isFetching}
                             onClick={() => table.nextPage()}
                             className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                         >

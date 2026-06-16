@@ -8,6 +8,7 @@ interface Props {
     open: boolean;
     data: ConsolidacionResponse | null;
     onClose: () => void;
+    onRunConsolidation?: () => void;
 }
 
 const ESTADO_ICON: Record<string, React.ReactNode> = {
@@ -27,7 +28,7 @@ function filterLocatarios(
     return list;
 }
 
-const ConsolidacionResultModal: React.FC<Props> = ({ open, data, onClose }) => {
+const ConsolidacionResultModal: React.FC<Props> = ({ open, data, onClose, onRunConsolidation }) => {
     const [tab, setTab] = useState<'todos' | 'ok' | 'alerta' | 'sin_carpeta'>('todos');
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -39,7 +40,7 @@ const ConsolidacionResultModal: React.FC<Props> = ({ open, data, onClose }) => {
     const resumen = data.resumen ?? { ok: 0, omitidos: 0, parciales: 0, sin_carpeta: 0 };
 
     return (
-        <div className="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/80">
+        <div className="fixed inset-0 z-10050 flex items-center justify-center p-4 bg-black/80">
             <div
                 className="bg-app-card border border-app-border rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
                 role="dialog"
@@ -133,6 +134,13 @@ const ConsolidacionResultModal: React.FC<Props> = ({ open, data, onClose }) => {
                                                     {loc.fechas_en_consolidado_min && loc.fechas_en_consolidado_max
                                                         ? ` · fechas ${loc.fechas_en_consolidado_min} – ${loc.fechas_en_consolidado_max}`
                                                         : ''}
+                                                    {(loc.duplicados_eliminados ?? 0) > 0
+                                                        ? ` · ${loc.duplicados_eliminados} dup. eliminados${
+                                                              loc.claves_dedup?.length
+                                                                  ? ` (${loc.claves_dedup.join(' + ')})`
+                                                                  : ''
+                                                          }`
+                                                        : ''}
                                                 </p>
                                             )}
                                             {loc.skip === 'sin_registros_en_rango_fecha' &&
@@ -190,7 +198,16 @@ const ConsolidacionResultModal: React.FC<Props> = ({ open, data, onClose }) => {
                     )}
                 </div>
 
-                <div className="p-5 border-t border-app-border flex justify-end">
+                <div className="p-5 border-t border-app-border flex flex-wrap justify-end gap-2">
+                    {data.dry_run && onRunConsolidation ? (
+                        <button
+                            type="button"
+                            onClick={onRunConsolidation}
+                            className="px-5 py-2.5 border border-app-accent-muted bg-app-accent-muted-bg text-app-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-app-accent-muted-bg-hover"
+                        >
+                            Consolidar ahora
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         onClick={onClose}

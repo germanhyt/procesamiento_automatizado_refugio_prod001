@@ -1,8 +1,6 @@
 import axios from 'axios';
 import type { DriverStatus, OrderStatus } from '@/constants/delivery';
-
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080`;
+import { API_URL, WS_URL } from '@/config/api';
 
 export interface RestaurantNotificationEmail {
     id: number;
@@ -110,9 +108,19 @@ export interface AdminUnlockIn {
     note?: string | null;
 }
 
-export interface AdminForceEntregadoIn {
-    reason: string;
-    note?: string | null;
+export interface PaginatedOrders {
+    items: Order[];
+    total: number;
+    skip: number;
+    limit: number;
+}
+
+export interface AdminOrdersListParams {
+    skip?: number;
+    limit?: number;
+    codigo?: string;
+    plataforma?: string;
+    restaurant_nombre?: string;
 }
 
 function authHeaders(token: string | null) {
@@ -156,15 +164,22 @@ export const deliveryService = {
         return res.data;
     },
 
-    async adminListAllOrders(token: string) {
-        const res = await axios.get<Order[]>(`${API_URL}/delivery/admin/orders`, { headers: authHeaders(token) });
+    async adminListAllOrders(token: string, params: AdminOrdersListParams = {}) {
+        const res = await axios.get<PaginatedOrders>(`${API_URL}/delivery/admin/orders`, {
+            headers: authHeaders(token),
+            params,
+        });
         return res.data;
     },
 
-    async adminListOrdersByStatus(token: string, status: string) {
-        const res = await axios.get<Order[]>(`${API_URL}/delivery/admin/orders/by-status/${encodeURIComponent(status)}`, {
-            headers: authHeaders(token),
-        });
+    async adminListOrdersByStatus(token: string, status: string, params: AdminOrdersListParams = {}) {
+        const res = await axios.get<PaginatedOrders>(
+            `${API_URL}/delivery/admin/orders/by-status/${encodeURIComponent(status)}`,
+            {
+                headers: authHeaders(token),
+                params,
+            }
+        );
         return res.data;
     },
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     AdminCancelIn,
     AdminForceEntregadoIn,
+    AdminOrdersListParams,
     AdminUnlockIn,
     RestaurantCreateIn,
     RestaurantUpdateIn,
@@ -75,15 +76,30 @@ export function useManualMatch() {
 /** Valor del filtro admin: todos los pedidos (sin filtrar por estado en API). */
 export const ADMIN_ORDERS_FILTER_ALL = 'ALL';
 
-export function useAdminOrders(status: string, refetchIntervalMs: number | false = 5000) {
+export function useAdminOrders(
+    status: string,
+    refetchIntervalMs: number | false = 5000,
+    params: AdminOrdersListParams = { skip: 0, limit: 500 }
+) {
     const { token } = useAuth();
     const isAll = status === ADMIN_ORDERS_FILTER_ALL;
     return useQuery({
-        queryKey: ['delivery', 'admin', 'orders', isAll ? 'all' : 'by-status', isAll ? 'all' : status],
+        queryKey: [
+            'delivery',
+            'admin',
+            'orders',
+            isAll ? 'all' : 'by-status',
+            isAll ? 'all' : status,
+            params.skip ?? 0,
+            params.limit ?? 500,
+            params.codigo ?? '',
+            params.plataforma ?? '',
+            params.restaurant_nombre ?? '',
+        ],
         queryFn: async () =>
             isAll
-                ? deliveryService.adminListAllOrders(token as string)
-                : deliveryService.adminListOrdersByStatus(token as string, status),
+                ? deliveryService.adminListAllOrders(token as string, params)
+                : deliveryService.adminListOrdersByStatus(token as string, status, params),
         enabled: !!token && !!status,
         refetchInterval: refetchIntervalMs,
     });

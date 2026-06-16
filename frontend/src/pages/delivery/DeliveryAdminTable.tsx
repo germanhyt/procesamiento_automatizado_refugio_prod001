@@ -1,23 +1,29 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
     createColumnHelper,
     flexRender,
     getCoreRowModel,
-    getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
+    type PaginationState,
+    type Updater,
 } from '@tanstack/react-table';
 import AppSelect from '@/components/ui/AppSelect';
 import { ORDER_STATUS } from '@/constants/delivery';
 import type { AdminCancelIn, DriverArrival, Order } from '@/services/deliveryService';
+import { deliveryService } from '@/services/deliveryService';
+import { orderStatusBadgeClass } from '@/constants/delivery';
+import { ADMIN_ORDERS_FILTER_ALL } from '@/hooks/useDelivery';
+import { formatRegistrationDateTime } from '@/utils/formatDateTime';
 
 const ORDER_TERMINAL_STATUSES: readonly string[] = [
     ORDER_STATUS.ENTREGADO,
     ORDER_STATUS.CANCELADO,
     ORDER_STATUS.DEVOLUCION,
 ];
-import { deliveryService } from '@/services/deliveryService';
-import { orderStatusBadgeClass } from '@/constants/delivery';
+
+const ADMIN_PAGE_SIZE = 20;
 
 function diffMinutes(from: string | null | undefined, to: string | null | undefined): string {
     if (!from || !to) return '—';
@@ -25,21 +31,6 @@ function diffMinutes(from: string | null | undefined, to: string | null | undefi
     const b = Date.parse(to);
     if (Number.isNaN(a) || Number.isNaN(b)) return '—';
     return String(Math.max(0, Math.floor((b - a) / 60000)));
-}
-
-function formatRegistrationDateTime(value: string | null | undefined): string {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleString('es-PE', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    });
 }
 
 /** Desde registro en kiosk hasta atención/match; si falta `atendido_at`, usa ahora (caso borde / refresco). */
@@ -91,12 +82,10 @@ function totalE2EIncludingKioskStart(o: Order): string {
 const columnHelper = createColumnHelper<Order>();
 
 export type DeliveryAdminTableProps = {
-    orders: Order[];
-    isLoading: boolean;
-    isError: boolean;
     adminStatus: string;
     onAdminStatusChange: (status: string) => void;
     adminStatusOptions: Array<{ value: string; label: string }>;
+    refetchIntervalMs?: number | false;
     admin: {
         markDevolucion: {
             mutate: (id: number, opts?: { onSuccess?: () => void; onError?: () => void }) => void;
@@ -131,12 +120,10 @@ export type DeliveryAdminTableProps = {
 };
 
 const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
-    orders,
-    isLoading,
-    isError,
     adminStatus,
     onAdminStatusChange,
     adminStatusOptions,
+    refetchIntervalMs = 5000,
     admin,
     confirm,
     promptText,
@@ -146,9 +133,55 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     const [codigoFilter, setCodigoFilter] = useState('');
     const [platformFilter, setPlatformFilter] = useState('ALL');
     const [localFilter, setLocalFilter] = useState('ALL');
+    const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: ADMIN_PAGE_SIZE });
     const [photoViewer, setPhotoViewer] = useState<{ title: string; objectUrl: string } | null>(null);
     const [photoLoading, setPhotoLoading] = useState(false);
     const [driverDetailsForOrder, setDriverDetailsForOrder] = useState<Order | null>(null);
+
+    useEffect(() => {
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    }, [adminStatus, codigoFilter, platformFilter, localFilter]);
+
+    const onPaginationChange = useCallback((updater: Updater<PaginationState>) => {
+        setPagination((prev) => (typeof updater === 'function' ? updater(prev) : updater));
+    }, []);
+
+    const listParams = useMemo(
+        () => ({
+            skip: pagination.pageIndex * pagination.pageSize,
+            limit: pagination.pageSize,
+            codigo: codigoFilter.trim() || undefined,
+            plataforma: platformFilter !== 'ALL' ? platformFilter : undefined,
+            restaurant_nombre: localFilter !== 'ALL' ? localFilter : undefined,
+        }),
+        [pagination.pageIndex, pagination.pageSize, codigoFilter, platformFilter, localFilter]
+    );
+
+    const isAll = adminStatus === ADMIN_ORDERS_FILTER_ALL;
+    const ordersQuery = useQuery({
+        queryKey: ['delivery', 'admin', 'orders', 'table', adminStatus, listParams],
+        queryFn: async () =>
+            isAll
+                ? deliveryService.adminListAllOrders(authToken as string, listParams)
+                : deliveryService.adminListOrdersByStatus(authToken as string, adminStatus, listParams),
+        enabled: !!authToken && !!adminStatus,
+        refetchInterval: refetchIntervalMs,
+        placeholderData: keepPreviousData,
+    });
+
+    const filterMetaQuery = useQuery({
+        queryKey: ['delivery', 'admin', 'orders', 'filter-meta'],
+        queryFn: () => deliveryService.adminListAllOrders(authToken as string, { skip: 0, limit: 500 }),
+        enabled: !!authToken,
+        staleTime: 60_000,
+    });
+
+    const orders = ordersQuery.data?.items ?? [];
+    const ordersTotal = ordersQuery.data?.total ?? 0;
+    const pageCount = Math.max(1, Math.ceil(ordersTotal / pagination.pageSize));
+    const isLoading = ordersQuery.isLoading;
+    const isError = ordersQuery.isError;
+    const isFetching = ordersQuery.isFetching;
 
     const closePhotoViewer = useCallback(() => {
         setPhotoViewer((prev) => {
@@ -178,28 +211,22 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     );
 
     const platformOptions = useMemo(() => {
-        const list = Array.from(new Set(orders.map((order) => order.plataforma?.trim()).filter(Boolean) as string[])).sort((a, b) =>
-            a.localeCompare(b)
-        );
+        const list = Array.from(
+            new Set((filterMetaQuery.data?.items ?? []).map((order) => order.plataforma?.trim()).filter(Boolean) as string[])
+        ).sort((a, b) => a.localeCompare(b));
         return [{ value: 'ALL', label: 'Todas' }, ...list.map((value) => ({ value, label: value }))];
-    }, [orders]);
+    }, [filterMetaQuery.data?.items]);
 
     const localOptions = useMemo(() => {
         const list = Array.from(
-            new Set(orders.map((order) => order.restaurant_nombre?.trim()).filter(Boolean) as string[])
+            new Set(
+                (filterMetaQuery.data?.items ?? [])
+                    .map((order) => order.restaurant_nombre?.trim())
+                    .filter(Boolean) as string[]
+            )
         ).sort((a, b) => a.localeCompare(b));
         return [{ value: 'ALL', label: 'Todos' }, ...list.map((value) => ({ value, label: value }))];
-    }, [orders]);
-
-    const filtered = useMemo(() => {
-        const q = codigoFilter.trim().toLowerCase();
-        return orders.filter((o) => {
-            if (platformFilter !== 'ALL' && o.plataforma !== platformFilter) return false;
-            if (localFilter !== 'ALL' && (o.restaurant_nombre?.trim() || '') !== localFilter) return false;
-            if (q && !o.codigo_pedido.toLowerCase().includes(q)) return false;
-            return true;
-        });
-    }, [orders, codigoFilter, platformFilter, localFilter]);
+    }, [filterMetaQuery.data?.items]);
 
     const columns = useMemo(
         () => [
@@ -208,18 +235,17 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 cell: (info) => <span className="font-mono text-app-muted">{info.getValue()}</span>,
                 size: 56,
             }),
-            columnHelper.accessor('codigo_pedido', {
-                header: 'Código',
-                cell: (info) => <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>,
-            }),
             columnHelper.accessor('created_at', {
-                id: 'created_at',
                 header: 'Registro',
                 cell: (info) => (
                     <span className="text-[10px] font-mono text-app-muted whitespace-nowrap">
                         {formatRegistrationDateTime(info.getValue())}
                     </span>
                 ),
+            }),
+            columnHelper.accessor('codigo_pedido', {
+                header: 'Código',
+                cell: (info) => <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>,
             }),
             columnHelper.display({
                 id: 'restaurant_nombre',
@@ -495,13 +521,15 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     );
 
     const table = useReactTable({
-        data: filtered,
+        data: orders,
         columns,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
-        getPaginationRowModel: getPaginationRowModel(),
+        state: { pagination },
+        onPaginationChange,
+        manualPagination: true,
+        pageCount,
         initialState: {
-            pagination: { pageSize: 20 },
             sorting: [{ id: 'id', desc: true }],
         },
     });
@@ -564,7 +592,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 <p className="text-sm text-app-muted">Cargando…</p>
             ) : isError ? (
                 <p className="text-sm text-app-danger">Error cargando órdenes.</p>
-            ) : filtered.length === 0 ? (
+            ) : orders.length === 0 ? (
                 <p className="text-sm text-app-muted">Sin registros que coincidan con los filtros.</p>
             ) : (
                 <>
@@ -604,14 +632,13 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                     </div>
                     <div className="flex items-center justify-between gap-3 flex-wrap text-[10px] text-app-muted font-mono">
                         <span>
-                            Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount() || 1} · {filtered.length}{' '}
-                            filas
+                            Página {pagination.pageIndex + 1} de {pageCount} · {ordersTotal} pedidos
                         </span>
                         <div className="flex gap-2">
                             <button
                                 type="button"
                                 onClick={() => table.previousPage()}
-                                disabled={!table.getCanPreviousPage()}
+                                disabled={pagination.pageIndex <= 0 || isFetching}
                                 className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                             >
                                 Anterior
@@ -619,7 +646,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                             <button
                                 type="button"
                                 onClick={() => table.nextPage()}
-                                disabled={!table.getCanNextPage()}
+                                disabled={pagination.pageIndex + 1 >= pageCount || isFetching}
                                 className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-app-text disabled:opacity-40 text-[9px] font-black uppercase tracking-widest"
                             >
                                 Siguiente

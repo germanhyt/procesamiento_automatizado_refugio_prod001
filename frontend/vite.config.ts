@@ -13,4 +13,25 @@ export default defineConfig({
             '@': path.resolve(__dirname, './src'),
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    vendor: ['react', 'react-dom', 'react-router-dom'],
+                    query: ['@tanstack/react-query'],
+                    table: ['@tanstack/react-table'],
+                    ui: ['framer-motion', 'sweetalert2', 'lucide-react'],
+                },
+            },
+        },
+    },
+    server: {
+        proxy: {
+            '/api': {
+                target: 'http://127.0.0.1:8080',
+                changeOrigin: true,
+                ws: true,
+            },
+        },
+    },
 })

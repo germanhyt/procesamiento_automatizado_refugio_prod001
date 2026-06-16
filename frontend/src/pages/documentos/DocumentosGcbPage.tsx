@@ -1,10 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import Swal from 'sweetalert2';
+import type { PaginationState, Updater } from '@tanstack/react-table';
 
 import AppSelect from '@/components/ui/AppSelect';
 import { useAuth } from '@/context/AuthContext';
-import { useDocumentosGcbList, useDocumentosGcbMutations } from '@/hooks/useDocumentosGcb';
+import {
+    DOCUMENTOS_GCB_PAGE_SIZE,
+    useDocumentosGcbFilterMeta,
+    useDocumentosGcbList,
+    useDocumentosGcbMutations,
+} from '@/hooks/useDocumentosGcb';
 import type { DocumentoGcb } from '@/services/documentosGcbService';
 import { documentosGcbService } from '@/services/documentosGcbService';
 import { userHasCodename } from '@/utils/documentosGcbUtils';
@@ -24,6 +30,45 @@ const DocumentosGcbPage: React.FC = () => {
     const [coleccion, setColeccion] = useState('');
     const [categoria, setCategoria] = useState('');
     const [soloActivos, setSoloActivos] = useState(true);
+    const [pagination, setPagination] = useState<PaginationState>({
+        pageIndex: 0,
+        pageSize: DOCUMENTOS_GCB_PAGE_SIZE,
+    });
+
+    useEffect(() => {
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    }, [q, coleccion, categoria, soloActivos]);
+
+    const onPaginationChange = useCallback((updater: Updater<PaginationState>) => {
+        setPagination((prev) => (typeof updater === 'function' ? updater(prev) : updater));
+    }, []);
+
+    const docsQuery = useDocumentosGcbList({
+        q,
+        coleccion,
+        categoria,
+        soloActivos,
+        skip: pagination.pageIndex * pagination.pageSize,
+        limit: pagination.pageSize,
+    });
+    const filterMetaQuery = useDocumentosGcbFilterMeta({ soloActivos });
+    const { create, update, replaceFile, deactivate, invalidate } = useDocumentosGcbMutations();
+
+    const docs = docsQuery.data?.items ?? [];
+    const docsTotal = docsQuery.data?.total ?? 0;
+    const metaDocs = filterMetaQuery.data?.items ?? [];
+
+    const colecciones = useMemo(() => {
+        const set = new Set(metaDocs.map((d) => d.coleccion));
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [metaDocs]);
+
+    const categorias = useMemo(() => {
+        const set = new Set(
+            metaDocs.filter((d) => !coleccion || d.coleccion === coleccion).map((d) => d.categoria)
+        );
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [metaDocs, coleccion]);
 
     const [registerOpen, setRegisterOpen] = useState(false);
     const [editDoc, setEditDoc] = useState<DocumentoGcb | null>(null);
@@ -35,23 +80,6 @@ const DocumentosGcbPage: React.FC = () => {
     const [viewerUrl, setViewerUrl] = useState('');
     const [viewerLoading, setViewerLoading] = useState(false);
     const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
-
-    const docsQuery = useDocumentosGcbList({ q, coleccion, categoria, soloActivos });
-    const { create, update, replaceFile, deactivate, invalidate } = useDocumentosGcbMutations();
-
-    const docs = docsQuery.data?.items ?? [];
-
-    const colecciones = useMemo(() => {
-        const set = new Set(docs.map((d) => d.coleccion));
-        return Array.from(set).sort((a, b) => a.localeCompare(b));
-    }, [docs]);
-
-    const categorias = useMemo(() => {
-        const set = new Set(
-            docs.filter((d) => !coleccion || d.coleccion === coleccion).map((d) => d.categoria)
-        );
-        return Array.from(set).sort((a, b) => a.localeCompare(b));
-    }, [docs, coleccion]);
 
     const coleccionOptions = useMemo(
         () => [
@@ -257,7 +285,11 @@ const DocumentosGcbPage: React.FC = () => {
 
                 <DocumentosGcbTable
                     rows={docs}
+                    total={docsTotal}
+                    pagination={pagination}
+                    onPaginationChange={onPaginationChange}
                     isLoading={docsQuery.isLoading}
+                    isFetching={docsQuery.isFetching}
                     canManage={canManage}
                     bulkDownloadBusy={bulkDownloadBusy}
                     onView={handleViewFile}

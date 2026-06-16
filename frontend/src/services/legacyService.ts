@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 const LEGACY = `${API_URL}/procesamiento/legacy`;
 
 export type ModoRango = 'semana_actual' | 'ultima_semana' | 'rango_libre';
@@ -74,4 +74,35 @@ export async function getPreviewSales(limit = 100, offset = 0) {
 
 export async function getPreviewRealizadas(limit = 100) {
     return axios.get(`${LEGACY}/preview-realizadas`, { params: { limit } });
+}
+
+export interface LegacyStagingStatus {
+    success: boolean;
+    staging_mode?: 'excel' | 'dual' | 'postgres';
+    active_source?: 'excel' | 'postgresql';
+    excel?: { rows: number; monto_total: number | null; config_source: string };
+    postgresql?: { rows: number; monto_total: number; table: string };
+    realizadas?: {
+        staging_mode?: 'excel' | 'dual' | 'postgres';
+        active_source?: 'excel' | 'postgresql';
+        excel?: { rows: number };
+        postgresql?: { rows: number; table: string; pendientes_bq?: number };
+    };
+    error?: string;
+}
+
+export async function getLegacyStagingStatus() {
+    return axios.get<LegacyStagingStatus>(`${LEGACY}/staging-status`);
+}
+
+export async function postLegacyImportStagingExcel(clearBefore = false, dryRun = false) {
+    return axios.post(`${LEGACY}/import-staging-excel`, null, {
+        params: { clear_before: clearBefore, dry_run: dryRun },
+    });
+}
+
+export async function postLegacyImportRealizadasStagingExcel(clearBefore = false, dryRun = false) {
+    return axios.post(`${LEGACY}/import-realizadas-staging-excel`, null, {
+        params: { clear_before: clearBefore, dry_run: dryRun },
+    });
 }

@@ -43,10 +43,12 @@
   --app-warning: #fbbc00;
   --app-warning-strong: #ffd451;
   --app-warning-muted: rgba(251, 188, 0, 0.18);
-  --app-users-accent: #3b352e;
-  --app-users-accent-strong: #2d2d2d;
+  /* Usuarios: tono cálido apagado en dark (evita bloque beige intenso en menú activo) */
+  --app-users-accent: #5a5048;
+  --app-users-accent-strong: #6b5f55;
+  --app-users-text: #c4b0a0;
   --app-users-accent-muted: rgba(231, 212, 198, 0.2);
-  --app-users-accent-muted-bg: rgba(231, 212, 198, 0.12);
+  --app-users-accent-muted-bg: rgba(90, 80, 72, 0.32);
   --app-dashboard-accent: #125128;
   --app-dashboard-accent-strong: #0e3f1f;
   --app-dashboard-accent-muted: rgba(40, 130, 72, 0.28);
@@ -179,7 +181,7 @@ body {
 .bg-app-secondary-strong { background-color: var(--app-secondary-strong); }
 .bg-app-secondary-muted-bg { background-color: var(--app-secondary-muted-bg); }
 .text-app-accent { color: var(--app-accent); }
-.text-app-users { color: var(--app-users-accent); }
+.text-app-users { color: var(--app-users-text, var(--app-users-accent)); }
 .bg-app-users { background-color: var(--app-users-accent); }
 .bg-app-users-strong { background-color: var(--app-users-accent-strong); }
 .bg-app-users-muted-bg { background-color: var(--app-users-accent-muted-bg); }
@@ -187,9 +189,9 @@ body {
 .border-app-users-muted { border-color: var(--app-users-accent-muted); }
 .hover\:bg-app-users-strong:hover { background-color: var(--app-users-accent-strong); }
 .hover\:border-app-users-muted:hover { border-color: var(--app-users-accent-muted); }
-.hover\:text-app-users:hover { color: var(--app-users-accent); }
+.hover\:text-app-users:hover { color: var(--app-users-text, var(--app-users-accent)); }
 .focus\:border-app-users-muted:focus { border-color: var(--app-users-accent-muted); }
-.group:focus-within .group-focus-within\:text-app-users { color: var(--app-users-accent); }
+.group:focus-within .group-focus-within\:text-app-users { color: var(--app-users-text, var(--app-users-accent)); }
 .text-app-delivery { color: var(--app-delivery-accent); }
 .bg-app-delivery { background-color: var(--app-delivery-accent); }
 .bg-app-delivery-strong { background-color: var(--app-delivery-accent-strong); }

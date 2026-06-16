@@ -88,7 +88,7 @@ const DeliveryPanel: React.FC = () => {
     const [kioskAppsModalOpen, setKioskAppsModalOpen] = useState(false);
 
     const [adminStatus, setAdminStatus] = useState<string>(ADMIN_ORDERS_FILTER_ALL);
-    const adminOrders = useAdminOrders(adminStatus, polling);
+    const adminOrders = useAdminOrders(adminStatus, polling, { skip: 0, limit: 500 });
 
     const [platform, setPlatform] = useState<string>('ALL');
     const [sortMode, setSortMode] = useState<'oldest' | 'newest'>('oldest');
@@ -101,7 +101,7 @@ const DeliveryPanel: React.FC = () => {
         const set = new Set<string>();
         for (const o of orders.data ?? []) if (o.plataforma) set.add(o.plataforma);
         for (const d of drivers.data ?? []) if (d.plataforma) set.add(d.plataforma);
-        for (const o of adminOrders.data ?? []) if (o.plataforma) set.add(o.plataforma);
+        for (const o of adminOrders.data?.items ?? []) if (o.plataforma) set.add(o.plataforma);
         return Array.from(set).sort((a, b) => a.localeCompare(b));
     }, [orders.data, drivers.data, adminOrders.data]);
 
@@ -564,12 +564,10 @@ const DeliveryPanel: React.FC = () => {
 
             {tab === 'admin' && canAdmin && (
                 <DeliveryAdminTable
-                    orders={adminOrders.data ?? []}
-                    isLoading={adminOrders.isLoading}
-                    isError={adminOrders.isError}
                     adminStatus={adminStatus}
                     onAdminStatusChange={setAdminStatus}
                     adminStatusOptions={adminStatusOptions}
+                    refetchIntervalMs={polling}
                     admin={admin}
                     confirm={confirm}
                     promptText={promptText}
@@ -590,7 +588,7 @@ const DeliveryPanel: React.FC = () => {
             <DeliveryMetricsModal
                 open={metricsModalOpen}
                 onClose={() => setMetricsModalOpen(false)}
-                orders={adminOrders.data ?? []}
+                orders={adminOrders.data?.items ?? []}
                 drivers={drivers.data ?? []}
                 isLoading={adminOrders.isLoading || drivers.isLoading}
                 isError={adminOrders.isError || drivers.isError}

@@ -5,8 +5,7 @@ import { models } from 'powerbi-client';
 import { motion } from 'framer-motion';
 import { RefreshCcw, LayoutDashboard, AlertCircle, Maximize2 } from 'lucide-react';
 import Swal from 'sweetalert2';
-
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 
 const PowerBIDashboard: React.FC = () => {
     const [embedParams, setEmbedParams] = useState<any>(null);

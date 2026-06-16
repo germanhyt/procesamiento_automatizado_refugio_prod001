@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,8 +7,7 @@ import {
     AlertCircle, RefreshCcw, Plus, Save, Wand2, Eye, EyeOff
 } from 'lucide-react';
 import Swal from 'sweetalert2';
-
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 
 const generatePassword = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
@@ -198,6 +197,16 @@ const UserManagement: React.FC = () => {
     );
 };
 
+const MODULE_LABELS: Record<string, string> = {
+    core: 'Núcleo',
+    legacy: 'Procesamiento',
+    users: 'Usuarios',
+    comercial: 'Comercial',
+    documentos_gcb: 'Documentos GCB',
+    agenda_deportiva: 'Agenda Deportiva',
+    delivery: 'Delivery',
+};
+
 const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
     const [selectedRole, setSelectedRole] = useState<any>(roles[0] || null);
     const [searchPerm, setSearchPerm] = useState('');
@@ -211,6 +220,20 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
             setSelectedPermIds(selectedRole.permissions?.map((p: any) => p.id) || []);
         }
     }, [selectedRole, isCreating]);
+
+    const groupedPermissions = useMemo(() => {
+        const q = searchPerm.trim().toLowerCase();
+        const groups: Record<string, any[]> = {};
+        for (const p of permissions || []) {
+            if (q && !p.name.toLowerCase().includes(q) && !p.codename.toLowerCase().includes(q)) {
+                continue;
+            }
+            const mod = p.module || 'otros';
+            if (!groups[mod]) groups[mod] = [];
+            groups[mod].push(p);
+        }
+        return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    }, [permissions, searchPerm]);
 
     const handleSaveRole = async () => {
         setIsSaving(true);
@@ -271,19 +294,28 @@ const RoleModal = ({ onClose, roles, permissions, onSuccess }: any) => {
                                 <input placeholder="Descripción" className="bg-app-input border border-app-border rounded-2xl p-4 text-xs text-app-text outline-none" value={newRoleData.description} onChange={e => setNewRoleData({ ...newRoleData, description: e.target.value })} />
                             </div>
                         )}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {permissions?.filter((p: any) => p.name.toLowerCase().includes(searchPerm.toLowerCase())).map((p: any) => {
-                                const isChecked = selectedPermIds.includes(p.id);
-                                return (
-                                    <div key={p.id} onClick={() => setSelectedPermIds(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} className={`p-6 rounded-2xl border transition-all flex items-start gap-4 cursor-pointer ${isChecked ? 'bg-app-users-muted-bg border-app-users-muted' : 'bg-app-surface border-app-border hover:border-app-users-muted'}`}>
-                                        <div className={`mt-1 h-5 w-5 rounded-md border flex items-center justify-center ${isChecked ? 'bg-app-users border-app-users text-white' : 'bg-app-input border-app-border'}`}>{isChecked && <Check size={12} strokeWidth={4} />}</div>
-                                        <div className="min-w-0">
-                                            <div className="text-[11px] font-black uppercase text-app-text truncate">{p.name}</div>
-                                            <div className="text-[9px] text-app-muted font-mono mt-0.5">{p.codename}</div>
-                                        </div>
+                        <div className="space-y-8">
+                            {groupedPermissions.map(([moduleKey, modulePerms]) => (
+                                <div key={moduleKey} className="space-y-4">
+                                    <h5 className="text-[9px] font-black uppercase tracking-[0.2em] text-app-muted">
+                                        {MODULE_LABELS[moduleKey] || moduleKey}
+                                    </h5>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {modulePerms.map((p: any) => {
+                                            const isChecked = selectedPermIds.includes(p.id);
+                                            return (
+                                                <div key={p.id} onClick={() => setSelectedPermIds(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} className={`p-6 rounded-2xl border transition-all flex items-start gap-4 cursor-pointer ${isChecked ? 'bg-app-users-muted-bg border-app-users-muted' : 'bg-app-surface border-app-border hover:border-app-users-muted'}`}>
+                                                    <div className={`mt-1 h-5 w-5 rounded-md border flex items-center justify-center ${isChecked ? 'bg-app-users border-app-users text-white' : 'bg-app-input border-app-border'}`}>{isChecked && <Check size={12} strokeWidth={4} />}</div>
+                                                    <div className="min-w-0">
+                                                        <div className="text-[11px] font-black uppercase text-app-text truncate">{p.name}</div>
+                                                        <div className="text-[9px] text-app-muted font-mono mt-0.5">{p.codename}</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                );
-                            })}
+                                </div>
+                            ))}
                         </div>
                     </div>
                     <div className="p-6 sm:p-10 border-t border-app-border flex flex-col sm:flex-row gap-4 justify-between items-center px-8 sm:px-12 bg-app-surface">
@@ -313,7 +345,7 @@ const RegisterModal = ({ onClose, roles, onSuccess }: any) => {
     };
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-xl">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-app-modal-solid border border-app-border w-full max-w-lg rounded-[30px] sm:rounded-[40px] p-6 sm:p-12 shadow-2xl space-y-6 sm:space-y-8 text-app-text">
                 <div className="flex justify-between items-center border-b border-app-border pb-6 sm:pb-8"><h3 className="text-lg sm:text-xl font-black uppercase tracking-widest text-app-text">Nuevo Usuario</h3><button onClick={onClose} className="text-app-muted hover:text-app-text"><X size={20} /></button></div>
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -323,7 +355,20 @@ const RegisterModal = ({ onClose, roles, onSuccess }: any) => {
                     </div>
                     <div className="space-y-2 relative"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Password</label>
                         <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-app-input border border-app-border rounded-2xl p-4 pr-32 text-sm text-app-text outline-none" required value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button type="button" onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button type="button" onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-app-users-muted-bg text-app-users rounded-lg"><Wand2 size={16} /></button></div>
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2">
+                                <button type="button" onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted hover:text-app-text transition-colors" aria-label={showPass ? 'Ocultar contraseña' : 'Ver contraseña'}>
+                                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }}
+                                    className="p-2 rounded-lg border border-app-border bg-app-input text-app-text-secondary hover:text-app-accent hover:border-app-accent hover:bg-app-accent-muted-bg transition-colors"
+                                    title="Generar contraseña"
+                                    aria-label="Generar contraseña"
+                                >
+                                    <Wand2 size={16} />
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div className="space-y-3"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Roles</label><div className="flex flex-wrap gap-2">{roles.map((r: any) => (<button key={r.id} type="button" onClick={() => setFormData({ ...formData, role_ids: formData.role_ids.includes(r.id) ? formData.role_ids.filter(x => x !== r.id) : [...formData.role_ids, r.id] })} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${formData.role_ids.includes(r.id) ? 'bg-app-users text-white border-app-users' : 'bg-app-surface text-app-muted border-app-border'}`}>{r.name}</button>))}</div></div>
@@ -358,7 +403,20 @@ const EditUserModal = ({ user, onClose, roles, onSuccess }: any) => {
                 <div className="space-y-6">
                     <div className="space-y-2"><label className="text-[9px] font-black text-app-muted ml-2 uppercase">Password (Opcional)</label>
                         <div className="relative"><input type={showPass ? "text" : "password"} className="w-full bg-app-input border border-app-border rounded-2xl p-4 text-sm text-app-text outline-none" placeholder="Vacío para no cambiar" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2"><button onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button><button onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }} className="p-2 bg-app-users-muted-bg text-app-users rounded-lg"><Wand2 size={16} /></button></div>
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2">
+                                <button type="button" onClick={() => setShowPass(!showPass)} className="p-2 text-app-muted hover:text-app-text transition-colors" aria-label={showPass ? 'Ocultar contraseña' : 'Ver contraseña'}>
+                                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setFormData({ ...formData, password: generatePassword() }); setShowPass(true); }}
+                                    className="p-2 rounded-lg border border-app-border bg-app-input text-app-text-secondary hover:text-app-accent hover:border-app-accent hover:bg-app-accent-muted-bg transition-colors"
+                                    title="Generar contraseña"
+                                    aria-label="Generar contraseña"
+                                >
+                                    <Wand2 size={16} />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

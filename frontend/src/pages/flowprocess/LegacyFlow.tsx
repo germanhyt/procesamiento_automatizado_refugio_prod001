@@ -25,6 +25,7 @@ import {
     BellRing,
     Webhook,
     Undo2,
+    HelpCircle,
 } from 'lucide-react';
 
 import { LOCATARIOS } from '@/constants/locatarios';
@@ -48,7 +49,7 @@ import {
     restoreFuentesFromProcesados,
     downloadFuentesZipSelection,
 } from '@/services/fuentesService';
-import type { ModoRango } from '@/services/legacyService';
+import type { LegacyStagingStatus, ModoRango } from '@/services/legacyService';
 import {
     postLegacyConsolidar,
     postLegacyAsociar,
@@ -61,6 +62,9 @@ import {
     postGuardarAsociacion,
     getPreviewSales,
     getPreviewRealizadas,
+    getLegacyStagingStatus,
+    postLegacyImportStagingExcel,
+    postLegacyImportRealizadasStagingExcel,
 } from '@/services/legacyService';
 import {
     dispararNotificacionesN8n,
@@ -132,7 +136,8 @@ const LegacyFlow: React.FC = () => {
 
     const [legacyUploadLoc, setLegacyUploadLoc] = useState('');
     /** Tras procesar un consolidado FileStore, mover también todos los pendientes del mismo locatario */
-    const [archivarPendientesTrasConsolidado, setArchivarPendientesTrasConsolidado] = useState(true);
+    const [archivarPendientesTrasConsolidado, setArchivarPendientesTrasConsolidado] = useState(false);
+    const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [previewType, setPreviewType] = useState<'sales' | 'realizadas'>('sales');
@@ -143,6 +148,12 @@ const LegacyFlow: React.FC = () => {
     const [previewNextOffset, setPreviewNextOffset] = useState(0);
     const [bulkUploading, setBulkUploading] = useState(false);
     const PREVIEW_PAGE_SIZE = 100;
+    const FS_PREVIEW_PAGE_SIZE = 80;
+
+    const formatMontoTotal = (value: number | null | undefined) => {
+        if (value == null || Number.isNaN(value)) return '—';
+        return value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
 
     const [isFilesModalOpen, setIsFilesModalOpen] = useState(false);
     const [filesModalTab, setFilesModalTab] = useState<'cierre' | 'procesados'>('cierre');
@@ -208,6 +219,9 @@ const LegacyFlow: React.FC = () => {
     const [consolidacionResult, setConsolidacionResult] = useState<ConsolidacionResponse | null>(null);
     const [isConsolidacionModalOpen, setIsConsolidacionModalOpen] = useState(false);
 
+    const [stagingStatus, setStagingStatus] = useState<LegacyStagingStatus | null>(null);
+    const [stagingImportBusy, setStagingImportBusy] = useState(false);
+
     const [fsPreviewOpen, setFsPreviewOpen] = useState(false);
     const [fsPreviewTitle, setFsPreviewTitle] = useState('');
     const [fsPreviewLoading, setFsPreviewLoading] = useState(false);
@@ -217,15 +231,38 @@ const LegacyFlow: React.FC = () => {
         rows: string[][];
         truncated: boolean;
         filename: string;
+        total_rows?: number;
+        has_more?: boolean;
+        next_offset?: number;
+        monto_column?: string | null;
+        monto_total?: number | null;
     } | null>(null);
+    const [fsPreviewReq, setFsPreviewReq] = useState<{
+        origen: 'cierre' | 'procesados';
+        locatario: string;
+        filename: string;
+        zona?: 'pendiente' | 'consolidado';
+        fecha?: string;
+    } | null>(null);
+    const [fsPreviewLoadingMore, setFsPreviewLoadingMore] = useState(false);
+
+    const fetchStagingStatus = useCallback(async () => {
+        try {
+            const res = await getLegacyStagingStatus();
+            if (res.data?.success) setStagingStatus(res.data);
+        } catch {
+            /* badge opcional */
+        }
+    }, []);
 
     useEffect(() => {
         const loadInitialData = async () => {
             await fetchFiles();
             await fetchNegocios();
+            await fetchStagingStatus();
         };
         loadInitialData();
-    }, []);
+    }, [fetchStagingStatus]);
 
     useEffect(() => {
         if (!isEnvioN8nModalOpen || !token || !user?.is_superuser) return;
@@ -425,22 +462,34 @@ const LegacyFlow: React.FC = () => {
 
     const runVentasProtocol = async () => {
         const result = await Swal.fire({
-            title: 'Confirmar Carga de Ventas',
-            text: '¿Limpiar sales_df y Realizadas antes de cargar?',
-            icon: 'warning',
+            title: 'Procesar ventas',
+            html:
+                '<div class="text-left text-sm leading-relaxed">' +
+                '<p>Elige cómo escribir las ventas asociadas en Activas.</p>' +
+                '<p class="mt-2 text-xs opacity-75"><strong>Añadir sin limpiar</strong> es lo normal para una carga incremental.</p>' +
+                '<p class="mt-1 text-xs opacity-75"><strong>Limpiar y cargar</strong> reinicia sales_df / Realizadas antes de procesar.</p>' +
+                `<p class="mt-3 text-xs ${archivarPendientesTrasConsolidado ? 'text-amber-300' : 'opacity-60'}">` +
+                `Archivado extra de pendientes del consolidado: <strong>${archivarPendientesTrasConsolidado ? 'activado' : 'desactivado'}</strong>.` +
+                '</p>' +
+                '</div>',
+            icon: 'question',
+            showDenyButton: true,
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            cancelButtonColor: '#2dd4bf',
-            confirmButtonText: 'Sí, Limpiar y Cargar',
-            cancelButtonText: 'No, Solo Añadir',
+            denyButtonColor: '#2dd4bf',
+            cancelButtonColor: '#71717a',
+            confirmButtonText: 'Limpiar y cargar',
+            denyButtonText: 'Añadir sin limpiar',
+            cancelButtonText: 'Cancelar',
             background: '#111',
             color: '#fff',
         });
         if (result.isDismissed) return;
+        const clearBefore = result.isConfirmed === true;
         setIsProcessing('Ventas');
-        setLogs((prev) => [`⏳ Ventas...`, ...prev]);
+        setLogs((prev) => [`⏳ Ventas (${clearBefore ? 'limpiar y cargar' : 'añadir sin limpiar'})...`, ...prev]);
         try {
-            const res = await postLegacyCargarVentas(result.isConfirmed === true, archivarPendientesTrasConsolidado);
+            const res = await postLegacyCargarVentas(clearBefore, archivarPendientesTrasConsolidado);
             const d = res.data;
             if (d.success) {
                 const n = typeof d.registros === 'number' ? d.registros : 0;
@@ -459,12 +508,135 @@ const LegacyFlow: React.FC = () => {
                     confirmButtonColor: '#2dd4bf',
                 });
                 fetchFiles();
+                void fetchStagingStatus();
             } else throw new Error(d.error);
         } catch (e: any) {
             setLogs((prev) => [`❌ Ventas: ${e.message}`, ...prev]);
             Swal.fire({ title: 'Error', text: e.message, icon: 'error', background: '#111', color: '#fff' });
         } finally {
             setIsProcessing(null);
+        }
+    };
+
+    const runImportStagingExcel = async () => {
+        const sim = await Swal.fire({
+            title: 'Importar sales_df → PostgreSQL',
+            html:
+                '<p class="text-sm">Copia histórica de Excel a <code>stg_sales</code> (upsert idempotente).</p>' +
+                '<p class="text-xs mt-2 opacity-70">¿Simular primero (dry-run)?</p>',
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: 'Importar',
+            denyButtonText: 'Solo simular',
+            cancelButtonText: 'Cancelar',
+            background: '#111',
+            color: '#fff',
+            confirmButtonColor: '#2dd4bf',
+            denyButtonColor: '#64748b',
+        });
+        if (sim.isDismissed) return;
+
+        let clearBefore = false;
+        if (sim.isConfirmed) {
+            const wipe = await Swal.fire({
+                title: '¿Borrar stg_sales antes?',
+                text: 'TRUNCATE elimina filas actuales en PostgreSQL antes de importar.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, borrar e importar',
+                cancelButtonText: 'No, solo upsert',
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#2dd4bf',
+                background: '#111',
+                color: '#fff',
+            });
+            if (wipe.isDismissed) return;
+            clearBefore = wipe.isConfirmed === true;
+        }
+
+        setStagingImportBusy(true);
+        try {
+            const res = await postLegacyImportStagingExcel(clearBefore, sim.isDenied);
+            const d = res.data;
+            if (d.success) {
+                await Swal.fire({
+                    title: d.dry_run ? 'Simulación' : 'Importación',
+                    text: d.message ?? 'Completado',
+                    icon: 'success',
+                    background: '#111',
+                    color: '#fff',
+                });
+                void fetchStagingStatus();
+            } else {
+                throw new Error(d.error ?? 'Error en importación');
+            }
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Error en importación';
+            await Swal.fire({ title: 'Error', text: msg, icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setStagingImportBusy(false);
+        }
+    };
+
+    const runImportRealizadasStagingExcel = async () => {
+        const sim = await Swal.fire({
+            title: 'Importar Realizadas → PostgreSQL',
+            html:
+                '<p class="text-sm">Copia histórica de Excel a <code>stg_realizadas</code> (upsert idempotente).</p>' +
+                '<p class="text-xs mt-2 opacity-70">¿Simular primero (dry-run)?</p>',
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: 'Importar',
+            denyButtonText: 'Solo simular',
+            cancelButtonText: 'Cancelar',
+            background: '#111',
+            color: '#fff',
+            confirmButtonColor: '#2dd4bf',
+            denyButtonColor: '#64748b',
+        });
+        if (sim.isDismissed) return;
+
+        let clearBefore = false;
+        if (sim.isConfirmed) {
+            const wipe = await Swal.fire({
+                title: '¿Borrar stg_realizadas antes?',
+                text: 'TRUNCATE elimina filas actuales en PostgreSQL antes de importar.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, borrar e importar',
+                cancelButtonText: 'No, solo upsert',
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#2dd4bf',
+                background: '#111',
+                color: '#fff',
+            });
+            if (wipe.isDismissed) return;
+            clearBefore = wipe.isConfirmed === true;
+        }
+
+        setStagingImportBusy(true);
+        try {
+            const res = await postLegacyImportRealizadasStagingExcel(clearBefore, sim.isDenied);
+            const d = res.data;
+            if (d.success) {
+                await Swal.fire({
+                    title: d.dry_run ? 'Simulación' : 'Importación',
+                    text: d.message ?? 'Completado',
+                    icon: 'success',
+                    background: '#111',
+                    color: '#fff',
+                });
+                void fetchStagingStatus();
+            } else {
+                throw new Error(d.error ?? 'Error en importación');
+            }
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Error en importación';
+            await Swal.fire({ title: 'Error', text: msg, icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setStagingImportBusy(false);
         }
     };
 
@@ -486,6 +658,7 @@ const LegacyFlow: React.FC = () => {
                     color: '#fff',
                     confirmButtonColor: '#2dd4bf',
                 });
+                void fetchStagingStatus();
             } else throw new Error(d.error);
         } catch (e: any) {
             setLogs((prev) => [`❌ BigQuery: ${e.message}`, ...prev]);
@@ -749,8 +922,10 @@ const LegacyFlow: React.FC = () => {
         setFsPreviewOpen(true);
         setFsPreviewTitle(title);
         setFsPreviewLoading(true);
+        setFsPreviewLoadingMore(false);
         setFsPreviewErr(null);
         setFsPreviewTable(null);
+        setFsPreviewReq(req);
         try {
             const data = await fetchFuentesPreview({
                 origen: req.origen,
@@ -758,13 +933,19 @@ const LegacyFlow: React.FC = () => {
                 filename: req.filename,
                 zona: req.zona,
                 fecha: req.fecha,
-                max_rows: 80,
+                max_rows: FS_PREVIEW_PAGE_SIZE,
+                offset: 0,
             });
             setFsPreviewTable({
                 columns: data.columns,
                 rows: data.rows,
                 truncated: data.truncated,
                 filename: data.filename,
+                total_rows: data.total_rows,
+                has_more: data.has_more,
+                next_offset: data.next_offset,
+                monto_column: data.monto_column,
+                monto_total: data.monto_total,
             });
         } catch (err: unknown) {
             const e = err as { response?: { data?: { detail?: unknown } }; message?: string };
@@ -781,10 +962,62 @@ const LegacyFlow: React.FC = () => {
         }
     };
 
+    const loadMoreFileStorePreview = async () => {
+        if (!fsPreviewReq || !fsPreviewTable?.has_more || fsPreviewLoadingMore || fsPreviewLoading) return;
+        setFsPreviewLoadingMore(true);
+        try {
+            const data = await fetchFuentesPreview({
+                origen: fsPreviewReq.origen,
+                locatario_codigo: fsPreviewReq.locatario,
+                filename: fsPreviewReq.filename,
+                zona: fsPreviewReq.zona,
+                fecha: fsPreviewReq.fecha,
+                max_rows: FS_PREVIEW_PAGE_SIZE,
+                offset: fsPreviewTable.next_offset ?? fsPreviewTable.rows.length,
+            });
+            setFsPreviewTable((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          rows: [...prev.rows, ...data.rows],
+                          truncated: data.truncated,
+                          has_more: data.has_more,
+                          next_offset: data.next_offset,
+                          total_rows: data.total_rows ?? prev.total_rows,
+                          monto_total: data.monto_total ?? prev.monto_total,
+                          monto_column: data.monto_column ?? prev.monto_column,
+                      }
+                    : {
+                          columns: data.columns,
+                          rows: data.rows,
+                          truncated: data.truncated,
+                          filename: data.filename,
+                          total_rows: data.total_rows,
+                          has_more: data.has_more,
+                          next_offset: data.next_offset,
+                          monto_column: data.monto_column,
+                          monto_total: data.monto_total,
+                      }
+            );
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { detail?: unknown } }; message?: string };
+            const detail = e.response?.data?.detail;
+            const msg =
+                typeof detail === 'string'
+                    ? detail
+                    : e.message ?? 'No se pudieron cargar más filas';
+            await Swal.fire({ title: 'Cargar más', text: String(msg), icon: 'error', background: '#111', color: '#fff' });
+        } finally {
+            setFsPreviewLoadingMore(false);
+        }
+    };
+
     const closeFileStorePreview = () => {
         setFsPreviewOpen(false);
         setFsPreviewErr(null);
         setFsPreviewTable(null);
+        setFsPreviewReq(null);
+        setFsPreviewLoadingMore(false);
     };
 
     const backupKey = (locatario: string, zona: 'pendiente' | 'consolidado', filename: string) =>
@@ -1350,31 +1583,93 @@ const LegacyFlow: React.FC = () => {
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 h-full">
             <div className="xl:col-span-8 space-y-8">
                 <div className="bg-app-card border border-app-border rounded-[28px] p-5 space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">Guía del proceso</p>
-                    <ol className="text-[10px] text-app-muted space-y-1.5 list-decimal pl-4 leading-relaxed">
-                        <li>
-                            <strong className="text-app-text">Subir reportes</strong> (página Fuentes o botón Subir) → quedan en{' '}
-                            <span className="text-emerald-500">Pendientes</span>.
-                        </li>
-                        <li>
-                            <strong className="text-app-text">Consolidar</strong> (paso 1) → genera CSV en{' '}
-                            <span className="text-amber-400">Consolidados</span> (carpeta _consolidados).
-                        </li>
-                        <li>
-                            <strong className="text-app-text">Asociar</strong> (paso 2) → vincula consolidados con negocios en{' '}
-                            <span className="text-sky-400">ConfiguracionWeb.xlsx</span>.
-                        </li>
-                        <li>
-                            <strong className="text-app-text">Procesar ventas</strong> (paso 3) → escribe sales_df en ConfiguracionWeb.
-                        </li>
-                        <li>
-                            <strong className="text-app-text">BigQuery</strong> (paso 4) → append en stg_sales_silver (capa silver).
-                        </li>
-                    </ol>
-                    <p className="text-[9px] text-app-muted">
-                        En <strong className="text-app-text">Gestionar archivos</strong> verá las tres zonas por local. Los resultados finales van a{' '}
-                        <strong className="text-app-text">Procesados</strong> tras cargar ventas.
-                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">Panel operativo</p>
+                            <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                                Trabaja de izquierda a derecha: <strong className="text-app-text">Consolidar</strong>,{' '}
+                                <strong className="text-app-text">Asociar</strong>, <strong className="text-app-text">Ventas</strong> y{' '}
+                                <strong className="text-app-text">BigQuery</strong>. Usa la simulación antes de escribir CSV cuando haya dudas.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsGuideModalOpen(true)}
+                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-input px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-muted transition-colors hover:text-app-accent"
+                            >
+                                <HelpCircle size={14} />
+                                Ver guía
+                            </button>
+                            <button
+                                type="button"
+                                onClick={openPendientesModal}
+                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-app-accent-muted bg-app-accent-muted-bg px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent-muted-bg-hover"
+                                title="Revisar pendientes por día (modal)"
+                            >
+                                <BellRing size={14} />
+                                Pendientes por día
+                            </button>
+                        </div>
+                    </div>
+                    {stagingStatus?.success && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[8px] font-black uppercase tracking-widest ${
+                                    stagingStatus.staging_mode === 'postgres'
+                                        ? 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+                                        : stagingStatus.staging_mode === 'dual'
+                                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                                          : 'border-sky-500/40 bg-sky-500/10 text-sky-300'
+                                }`}
+                                title="SALES_STAGING_MODE en el servidor"
+                            >
+                                <Database size={10} />
+                                Staging: {stagingStatus.staging_mode ?? 'excel'}
+                            </span>
+                            <span className="text-[8px] font-black uppercase tracking-widest text-app-muted">
+                                Lectura BQ/preview:{' '}
+                                <span className="text-app-text">
+                                    {stagingStatus.active_source === 'postgresql' ? 'PostgreSQL' : 'Excel'}
+                                </span>
+                            </span>
+                            <span className="text-[8px] text-app-muted">
+                                sales: Excel {stagingStatus.excel?.rows ?? 0} · PG {stagingStatus.postgresql?.rows ?? 0}
+                            </span>
+                            {stagingStatus.realizadas && (
+                                <span className="text-[8px] text-app-muted">
+                                    realizadas ({stagingStatus.realizadas.staging_mode ?? 'excel'}): Excel{' '}
+                                    {stagingStatus.realizadas.excel?.rows ?? 0} · PG{' '}
+                                    {stagingStatus.realizadas.postgresql?.rows ?? 0}
+                                    {(stagingStatus.realizadas.postgresql?.pendientes_bq ?? 0) > 0
+                                        ? ` · ${stagingStatus.realizadas.postgresql?.pendientes_bq} pend. BQ`
+                                        : ''}
+                                </span>
+                            )}
+                            {user?.is_superuser && stagingStatus.staging_mode !== 'excel' && (
+                                <button
+                                    type="button"
+                                    onClick={() => void runImportStagingExcel()}
+                                    disabled={stagingImportBusy}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-app-border bg-app-input px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-muted hover:text-app-accent transition-colors disabled:opacity-40"
+                                >
+                                    <CloudSync size={10} />
+                                    {stagingImportBusy ? '…' : 'sales → PG'}
+                                </button>
+                            )}
+                            {user?.is_superuser && stagingStatus.realizadas?.staging_mode !== 'excel' && (
+                                <button
+                                    type="button"
+                                    onClick={() => void runImportRealizadasStagingExcel()}
+                                    disabled={stagingImportBusy}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-app-border bg-app-input px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-muted hover:text-app-accent transition-colors disabled:opacity-40"
+                                >
+                                    <CloudSync size={10} />
+                                    {stagingImportBusy ? '…' : 'realizadas → PG'}
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Rango para consolidar / asociar */}
@@ -1383,15 +1678,6 @@ const LegacyFlow: React.FC = () => {
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-app-accent flex items-center gap-2">
                             <CalendarRange size={14} /> Rango de proceso (Consolidar / Asociar)
                         </h3>
-                        <button
-                            type="button"
-                            onClick={openPendientesModal}
-                            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl border border-app-accent-muted bg-app-accent-muted-bg px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent-muted-bg-hover"
-                            title="Revisar pendientes por día (modal)"
-                        >
-                            <BellRing size={14} />
-                            Pendientes por día
-                        </button>
                     </div>
                     <div className="flex flex-wrap gap-4 items-center">
                         {(['semana_actual', 'ultima_semana', 'rango_libre'] as ModoRango[]).map((m) => (
@@ -1443,7 +1729,7 @@ const LegacyFlow: React.FC = () => {
                     />
                     <StepButton icon={<Link />} title="2. Asociar" desc="Consolidados → Activas" onClick={runAsociacion} loading={isProcessing === 'Asociación'} />
                     <StepButton icon={<Database />} title="3. Ventas" desc="→ ConfiguracionWeb" onClick={runVentasProtocol} loading={isProcessing === 'Ventas'} />
-                    <StepButton icon={<CloudSync />} title="4. BigQuery" desc="Excel → stg_sales_silver" onClick={runBigQuery} loading={isProcessing === 'BigQuery'} />
+                    <StepButton icon={<CloudSync />} title="4. BigQuery" desc="MERGE → stg_sales_silver" onClick={runBigQuery} loading={isProcessing === 'BigQuery'} />
                     <StepButton
                         icon={<FileCode />}
                         title="Extra: Convertir"
@@ -1461,26 +1747,28 @@ const LegacyFlow: React.FC = () => {
                         disabled={isProcessing === 'Simulación' || isProcessing === 'Consolidación'}
                         className="text-[9px] font-black uppercase tracking-widest text-app-accent border border-app-accent-muted rounded-xl px-3 py-2 hover:bg-app-accent-muted-bg disabled:opacity-50"
                     >
-                        {isProcessing === 'Simulación' ? 'Simulando…' : 'Simular consolidación (sin guardar)'}
+                        {isProcessing === 'Simulación' ? 'Simulando…' : 'Simular antes de consolidar'}
                     </button>
                     <span className="text-[9px] text-app-muted max-w-md leading-snug">
-                        Revisa por local y por archivo por qué se procesó o no, antes de escribir CSV.
+                        Abre el resumen por local y archivo sin guardar CSV; desde el resultado puedes ejecutar la consolidación real.
                     </span>
                 </div>
 
-                <label className="flex items-start gap-2 mt-3 px-1 cursor-pointer select-none max-w-xl">
-                    <input
-                        type="checkbox"
-                        className="mt-0.5 rounded border-app-border"
-                        checked={archivarPendientesTrasConsolidado}
-                        onChange={(e) => setArchivarPendientesTrasConsolidado(e.target.checked)}
-                    />
-                    <span className="text-[10px] text-app-muted leading-snug">
-                        Al procesar un <strong className="text-app-text">consolidado</strong>, archivar también todos los{' '}
-                        <strong className="text-app-text">pendientes/cierre_caja</strong> (.csv/.xlsx) del mismo locatario. Solo si ya están absorbidos en
-                        el consolidado; puede archivar archivos de otra semana si siguen en la carpeta.
-                    </span>
-                </label>
+                <div className="rounded-2xl border border-amber-500/15 bg-amber-500/5 px-4 py-3">
+                    <label className="flex items-start gap-3 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            className="mt-0.5 rounded border-app-border accent-amber-500"
+                            checked={archivarPendientesTrasConsolidado}
+                            onChange={(e) => setArchivarPendientesTrasConsolidado(e.target.checked)}
+                        />
+                        <span className="text-[10px] text-app-muted leading-snug">
+                            <strong className="text-amber-300">Opción avanzada:</strong> al procesar un{' '}
+                            <strong className="text-app-text">consolidado</strong>, mover también los pendientes del mismo locatario a Procesados.
+                            Déjalo apagado salvo que ya verificaste que esos pendientes están absorbidos en el CSV consolidado.
+                        </span>
+                    </label>
+                </div>
 
                 <div className="bg-app-card p-6 sm:p-10 rounded-[40px] border border-app-border grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
                     <div className="space-y-6">
@@ -1665,12 +1953,79 @@ const LegacyFlow: React.FC = () => {
             </div>
 
             <AnimatePresence>
+                {isGuideModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-10050 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xl"
+                        onClick={() => setIsGuideModalOpen(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 10 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95, y: 10 }}
+                            className="bg-app-panel border border-app-border w-full max-w-2xl rounded-[30px] overflow-hidden shadow-xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-6 border-b border-app-border flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">Guía rápida del proceso</p>
+                                    <p className="text-[10px] text-app-muted mt-1">
+                                        Pensada para operación diaria: revisar, consolidar, asociar, procesar y sincronizar.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsGuideModalOpen(false)}
+                                    className="p-2 rounded-lg text-app-muted hover:bg-app-input"
+                                    aria-label="Cerrar guía"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <ol className="space-y-3 text-[11px] text-app-muted leading-relaxed">
+                                    <li>
+                                        <strong className="text-app-text">1. Subir reportes:</strong> quedan en Pendientes por locatario.
+                                    </li>
+                                    <li>
+                                        <strong className="text-app-text">2. Simular:</strong> revisa qué locales entran, cuáles se omiten y qué archivos
+                                        tienen observaciones sin escribir CSV.
+                                    </li>
+                                    <li>
+                                        <strong className="text-app-text">3. Consolidar:</strong> genera un CSV por local en _consolidados para el rango elegido.
+                                    </li>
+                                    <li>
+                                        <strong className="text-app-text">4. Asociar:</strong> vincula los consolidados con su CodigoNegocio en Activas.
+                                    </li>
+                                    <li>
+                                        <strong className="text-app-text">5. Ventas:</strong> procesa Activas y escribe sales_df
+                                        {stagingStatus?.staging_mode === 'postgres'
+                                            ? ' en PostgreSQL.'
+                                            : stagingStatus?.staging_mode === 'dual'
+                                              ? ' en Excel y PostgreSQL.'
+                                              : ' en ConfiguracionWeb.'}
+                                    </li>
+                                    <li>
+                                        <strong className="text-app-text">6. BigQuery:</strong> envía solo Realizadas pendientes con MERGE idempotente.
+                                    </li>
+                                </ol>
+                                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[10px] text-app-muted leading-relaxed">
+                                    Usa <strong className="text-app-text">Limpiar y cargar</strong> solo para reprocesos controlados. Para carga diaria,
+                                    lo normal es <strong className="text-app-text">Añadir sin limpiar</strong>.
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+
                 {isFilesModalOpen && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xl"
+                        className="fixed inset-0 z-10050 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xl"
                         onClick={() => setIsFilesModalOpen(false)}
                     >
                         <motion.div
@@ -2394,7 +2749,7 @@ const LegacyFlow: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10058] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+                        className="fixed inset-0 z-10058 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
                         onClick={closePendientesModal}
                     >
                         <motion.div
@@ -2651,7 +3006,7 @@ const LegacyFlow: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10059] flex items-center justify-center px-4 pb-10 bg-black/40 backdrop-blur-xs"
+                        className="fixed inset-0 z-10059 flex items-center justify-center px-4 pb-10 bg-black/40 backdrop-blur-xs"
                         onClick={() => setIsEnvioN8nModalOpen(false)}
                     >
                         <motion.div
@@ -2914,18 +3269,49 @@ const LegacyFlow: React.FC = () => {
                                 )}
                             </div>
                             <div className="p-3 sm:p-4 border-t border-app-border flex flex-wrap items-center justify-between gap-2 bg-app-input/50">
-                                <p className="text-[9px] text-app-muted">
-                                    {fsPreviewTable
-                                        ? `${fsPreviewTable.filename} · ${fsPreviewTable.rows.length} fila(s) mostrada(s)${fsPreviewTable.truncated ? ' (hay más en el archivo)' : ''}`
-                                        : 'CSV / XLSX · máx. ~80 filas · archivos hasta 25 MB'}
-                                </p>
-                                <button
-                                    type="button"
-                                    onClick={closeFileStorePreview}
-                                    className="px-5 py-2 bg-teal-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-90"
-                                >
-                                    Cerrar
-                                </button>
+                                <div className="text-[9px] text-app-muted space-y-1">
+                                    {fsPreviewTable ? (
+                                        <>
+                                            <p>
+                                                {fsPreviewTable.filename} · {fsPreviewTable.rows.length}
+                                                {fsPreviewTable.total_rows != null ? ` / ${fsPreviewTable.total_rows}` : ''} fila(s)
+                                            </p>
+                                            {fsPreviewTable.monto_total != null ? (
+                                                <p>
+                                                    Total {fsPreviewTable.monto_column ?? 'Monto'}:{' '}
+                                                    <span className="text-app-text font-mono">S/ {formatMontoTotal(fsPreviewTable.monto_total)}</span>
+                                                </p>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <p>CSV / XLSX · paginado · archivos hasta 25 MB</p>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {fsPreviewTable?.has_more ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => void loadMoreFileStorePreview()}
+                                            disabled={fsPreviewLoadingMore}
+                                            className="px-4 py-2 bg-app-surface border border-app-border text-app-text rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-teal-500/50 disabled:opacity-40 flex items-center gap-2"
+                                        >
+                                            {fsPreviewLoadingMore ? (
+                                                <>
+                                                    <RefreshCcw className="animate-spin" size={14} /> Cargando…
+                                                </>
+                                            ) : (
+                                                'Cargar más'
+                                            )}
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={closeFileStorePreview}
+                                        className="px-5 py-2 bg-teal-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-90"
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
                             </div>
                         </motion.div>
                     </motion.div>
@@ -2938,7 +3324,7 @@ const LegacyFlow: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl"
+                        className="fixed inset-0 z-10000 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl"
                     >
                         <motion.div
                             initial={{ scale: 0.9, y: 20 }}
@@ -2956,9 +3342,22 @@ const LegacyFlow: React.FC = () => {
                                             Vista previa: {previewType === 'sales' ? 'sales_df' : 'Realizadas'}
                                         </h3>
                                         <p className="text-[10px] text-app-muted truncate max-w-md" title={previewData?.config_source}>
-                                            {previewData?.config_source
-                                                ? previewData.config_source.replace(/\\/g, '/').split('/').slice(-3).join('/')
-                                                : 'ConfiguracionWeb.xlsx'}
+                                            {previewData?.staging_source
+                                                ? `Fuente: ${
+                                                      previewData.staging_source === 'postgresql'
+                                                          ? previewType === 'sales'
+                                                              ? 'PostgreSQL (stg_sales)'
+                                                              : 'PostgreSQL (stg_realizadas)'
+                                                          : 'Excel'
+                                                  }`
+                                                : previewData?.config_source
+                                                  ? previewData.config_source.replace(/\\/g, '/').split('/').slice(-3).join('/')
+                                                  : 'ConfiguracionWeb.xlsx'}
+                                            {previewData?.staging_mode ? ` · modo ${previewData.staging_mode}` : ''}
+                                            {previewType === 'realizadas' &&
+                                            (previewData?.pendientes_bq ?? 0) > 0
+                                                ? ` · ${previewData.pendientes_bq} pend. BQ`
+                                                : ''}
                                             {previewType === 'sales' && previewData?.total_rows != null
                                                 ? ` · ${previewData?.data?.length ?? 0} / ${previewData.total_rows}`
                                                 : previewData?.total_rows != null
@@ -3012,6 +3411,12 @@ const LegacyFlow: React.FC = () => {
                             <div className="p-4 sm:p-6 border-t border-app-border bg-app-input flex flex-col sm:flex-row gap-4 justify-between items-center px-6 sm:px-10 flex-wrap">
                                 <div className="text-[10px] text-app-muted font-mono">
                                     Total filas en hoja: <span className="text-app-text">{previewData?.total_rows ?? 0}</span>
+                                    {previewType === 'sales' && previewData?.monto_total != null ? (
+                                        <span className="block mt-1">
+                                            Total {previewData?.monto_column ?? 'Monto'}:{' '}
+                                            <span className="text-app-text">S/ {formatMontoTotal(previewData.monto_total)}</span>
+                                        </span>
+                                    ) : null}
                                     {previewType === 'sales' && !previewLoading && previewData && !previewHasMore && (previewData.total_rows ?? 0) > 0 ? (
                                         <span className="block text-[9px] mt-1 text-app-muted max-w-md">
                                             Sin más bloques hacia atrás. El botón &quot;Cargar más&quot; solo aparece si hay más de {PREVIEW_PAGE_SIZE}{' '}
@@ -3053,6 +3458,11 @@ const LegacyFlow: React.FC = () => {
             <ConsolidacionResultModal
                 open={isConsolidacionModalOpen}
                 data={consolidacionResult}
+                onRunConsolidation={() => {
+                    setIsConsolidacionModalOpen(false);
+                    setConsolidacionResult(null);
+                    void runConsolidacion(false);
+                }}
                 onClose={() => {
                     setIsConsolidacionModalOpen(false);
                     setConsolidacionResult(null);

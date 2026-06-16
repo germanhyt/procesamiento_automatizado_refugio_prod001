@@ -26,6 +26,7 @@ export interface ConsolidacionLocatarioDetalle {
     archivos_detalle?: ConsolidacionArchivoDetalle[];
     consolidados_previos?: string[];
     duplicados_eliminados?: number;
+    claves_dedup?: string[];
     archivo?: string | null;
     escrito?: boolean;
     rango_inicio?: string;

@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import type { AgendaCategoriaLugar, AgendaModo } from '@/constants/agendaDeportiva';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 
 export interface AgendaConfig {
     playlist_publica_habilitada: boolean;

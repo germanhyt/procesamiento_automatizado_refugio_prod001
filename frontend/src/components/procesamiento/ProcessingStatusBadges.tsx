@@ -3,8 +3,7 @@ import axios from 'axios';
 import { useQuery } from '@tanstack/react-query';
 
 import StatusBadge from '@/components/layout/StatusBadge';
-
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080/api`;
+import { API_URL } from '@/config/api';
 
 /** Estado Drive + Config — mostrado en la vista de procesamiento manual (Legacy). */
 const ProcessingStatusBadges: React.FC<{ className?: string }> = ({ className }) => {
