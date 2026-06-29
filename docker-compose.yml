@@ -25,6 +25,7 @@ services:
       args:
         - VITE_API_URL=https://api.datarefugio.gcbprojects.site/api
         - VITE_WS_URL=wss://api.datarefugio.gcbprojects.site
+        - VITE_DELIVERY_CONTROL_USE_MOCK=false
     container_name: datarefugio_frontend
     restart: always
     networks:

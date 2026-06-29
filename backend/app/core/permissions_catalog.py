@@ -22,6 +22,12 @@ ALL_PERMISSIONS: list[dict[str, str]] = [
     {"name": "Ver Delivery", "codename": "delivery:view", "module": "delivery"},
     {"name": "Operar Delivery", "codename": "delivery:operate", "module": "delivery"},
     {"name": "Administrar Delivery", "codename": "delivery:admin", "module": "delivery"},
+    {"name": "Centro de control Delivery", "codename": "delivery:control", "module": "delivery"},
+    {
+        "name": "Acciones centro de control Delivery",
+        "codename": "delivery:control:actions",
+        "module": "delivery",
+    },
     {"name": "Configurar Kiosk Delivery", "codename": "delivery:settings:update", "module": "delivery"},
     {
         "name": "Simular pedido listo (Runner)",

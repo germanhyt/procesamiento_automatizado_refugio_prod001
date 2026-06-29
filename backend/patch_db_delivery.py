@@ -6,6 +6,7 @@ from app.models.auth import Permission, Role
 # al importar la clase, SQLAlchemy registra su tabla en Base.metadata y create_all() crea delivery_runner_push_tokens.
 from app.models.delivery import (  # noqa: F401
     DeliveryConfig,
+    DeliveryControlAuditLog,
     DeliveryRunnerPushToken,
     Restaurant,
     RestaurantNotificationEmail,
@@ -161,6 +162,12 @@ def ensure_permissions_and_roles():
             {"name": "Ver Delivery", "codename": "delivery:view", "module": "delivery"},
             {"name": "Operar Delivery", "codename": "delivery:operate", "module": "delivery"},
             {"name": "Administrar Delivery", "codename": "delivery:admin", "module": "delivery"},
+            {"name": "Centro de control Delivery", "codename": "delivery:control", "module": "delivery"},
+            {
+                "name": "Acciones centro de control Delivery",
+                "codename": "delivery:control:actions",
+                "module": "delivery",
+            },
             {"name": "Configurar Kiosk Delivery", "codename": "delivery:settings:update", "module": "delivery"},
             {
                 "name": "Simular pedido listo (Runner)",
@@ -189,6 +196,7 @@ def ensure_permissions_and_roles():
                 "delivery:view",
                 "delivery:operate",
                 "delivery:admin",
+                "delivery:control",
                 "delivery:settings:update",
                 "delivery:simulate_order_ready",
             ]:

@@ -171,3 +171,23 @@ class RunnerNotification(Base):
         UniqueConstraint("user_id", "dedupe_key", name="uq_delivery_runner_notifications_user_dedupe"),
         Index("ix_delivery_runner_notifications_user_created", "user_id", "created_at"),
     )
+
+
+class DeliveryControlAuditLog(Base):
+    """Auditoría de acciones de supervisión (centro de control / panel admin)."""
+
+    __tablename__ = "delivery_control_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    username = Column(String(80), nullable=True)
+    action = Column(String(40), nullable=False, index=True)
+    source = Column(String(40), nullable=False, default="admin_panel", index=True)
+    order_id = Column(Integer, ForeignKey("delivery_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    driver_arrival_id = Column(
+        Integer, ForeignKey("delivery_driver_arrivals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    detail = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    user = relationship(User, foreign_keys=[user_id])

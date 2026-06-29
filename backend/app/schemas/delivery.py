@@ -200,6 +200,57 @@ class DeliveryStatus(BaseModel):
     timestamp: datetime
 
 
+class ControlAlertOut(BaseModel):
+    type: str
+    order_id: Optional[int] = None
+    driver_arrival_id: Optional[int] = None
+    minutes: int
+    severity: Literal["warning", "critical"]
+    message: str
+
+
+class ControlCountsOut(BaseModel):
+    orders_active: int
+    orders_with_runner: int
+    orders_matched: int
+    orders_with_alerts: int
+    drivers_esperando: int
+    drivers_en_match: int
+    drivers_total: int
+    alerts_total: int
+
+
+class ControlSnapshotOut(BaseModel):
+    operational_day: str
+    orders: List[OrderOut]
+    drivers: List[DriverArrivalOut]
+    alerts: List[ControlAlertOut]
+    counts: ControlCountsOut
+    generated_at: datetime
+    mock: bool = False
+
+
+class ControlAuditOut(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    action: str
+    source: str
+    order_id: Optional[int] = None
+    driver_arrival_id: Optional[int] = None
+    detail: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
+
+
+class ControlAuditListOut(BaseModel):
+    items: List[ControlAuditOut]
+    total: int
+
+
 class FidelioOrderReadyIn(BaseModel):
     restaurant_fidelio_id: str
     plataforma: str
@@ -410,6 +461,39 @@ class AdminForceEntregadoIn(AdminNoteIn):
         if v is None or not str(v).strip():
             raise ValueError("Motivo obligatorio")
         return str(v).strip()
+
+
+class AdminOrderUpdateIn(BaseModel):
+    """Edición de datos principales del pedido desde panel admin."""
+
+    codigo_pedido: Optional[str] = None
+    plataforma: Optional[str] = None
+    restaurant_id: Optional[int] = None
+    numero_bolsas: Optional[int] = None
+
+    @validator("codigo_pedido", pre=True)
+    def _strip_codigo(cls, v):
+        if v is None:
+            return v
+        s = str(v).strip()
+        if not s:
+            raise ValueError("Código de pedido vacío")
+        return s
+
+    @validator("plataforma", pre=True)
+    def _strip_plataforma(cls, v):
+        if v is None:
+            return v
+        s = str(v).strip().upper()
+        if not s:
+            raise ValueError("Plataforma vacía")
+        return s
+
+    @validator("numero_bolsas")
+    def _bags_nonneg(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Número de bolsas inválido")
+        return v
 
 
 class RunnerPushRegisterIn(BaseModel):

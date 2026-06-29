@@ -37,6 +37,18 @@ from app.core.delivery_constants import (
     DRIVER_DOCUMENTO_TIPO_CE,
     PERMISSION_DELIVERY_OPERATE,
     PERMISSION_DELIVERY_SIMULATE_ORDER_READY,
+    PERMISSION_DELIVERY_CONTROL,
+    PERMISSION_DELIVERY_CONTROL_ACTIONS,
+    DELIVERY_AUDIT_HEADER,
+    DELIVERY_AUDIT_SOURCE_ADMIN,
+    DELIVERY_AUDIT_SOURCE_CONTROL,
+    DELIVERY_AUDIT_ACTION_UNLOCK,
+    DELIVERY_AUDIT_ACTION_CANCEL,
+    DELIVERY_AUDIT_ACTION_FORCE_ENTREGADO,
+    DELIVERY_AUDIT_ACTION_MARK_DEVOLUCION,
+    DELIVERY_AUDIT_ACTION_MANUAL_MATCH,
+    DELIVERY_AUDIT_ACTION_UPDATE_ORDER,
+    EVENT_CONTROL_SNAPSHOT_CHANGED,
 )
 from app.database import db_session, get_db, SessionLocal
 from app.api.auth import authenticate_token, get_current_user, oauth2_scheme
@@ -63,6 +75,7 @@ from app.schemas.delivery import (
     AdminCancelIn,
     AdminUnlockIn,
     AdminForceEntregadoIn,
+    AdminOrderUpdateIn,
     OrderOut,
     PaginatedOrders,
     DriverArrivalOut,
@@ -82,9 +95,15 @@ from app.schemas.delivery import (
     KioskConfigPatchIn,
     AdminAppConfigOut,
     RunnerFeatureFlagsOut,
+    ControlSnapshotOut,
+    ControlAuditListOut,
+    ControlAuditOut,
 )
 
 from app.services.delivery_metrics_service import compute_delivery_metrics
+from app.services.delivery_control_service import build_control_snapshot
+from app.services.delivery_control_mock import build_control_snapshot_mock, build_control_audit_mock
+from app.services.delivery_control_audit import log_delivery_control_action, list_control_audit_logs
 from app.services.delivery_push import (
     notify_runners_kiosk_match_sync,
     notify_runners_new_driver_waiting_sync,
@@ -111,6 +130,9 @@ EVENT_PRIORITY_UPDATE = "PRIORITY_UPDATE"
 EVENT_ORDER_UPDATED = "ORDER_UPDATED"
 EVENT_DRIVER_UPDATED = "DRIVER_UPDATED"
 EVENT_TIMEOUTS_APPLIED = "TIMEOUTS_APPLIED"
+_CONTROL_REFRESH_EVENTS = frozenset(
+    {EVENT_PRIORITY_UPDATE, EVENT_ORDER_UPDATED, EVENT_DRIVER_UPDATED, EVENT_TIMEOUTS_APPLIED}
+)
 
 
 class DeliveryConnectionManager:
@@ -139,13 +161,22 @@ ws_manager = DeliveryConnectionManager()
 
 
 async def _emit(event_type: str, payload: Dict[str, Any]) -> None:
+    ts = _utcnow().isoformat()
     await ws_manager.broadcast(
         {
             "type": event_type,
-            "ts": _utcnow().isoformat(),
+            "ts": ts,
             "payload": payload,
         }
     )
+    if event_type in _CONTROL_REFRESH_EVENTS:
+        await ws_manager.broadcast(
+            {
+                "type": EVENT_CONTROL_SNAPSHOT_CHANGED,
+                "ts": ts,
+                "payload": {},
+            }
+        )
 
 
 async def _emit_nuevo_driver_esperando(
@@ -1145,13 +1176,14 @@ async def list_active_orders(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Pedidos activos para operación (runner).
-    En esta iteración: excluye ENTREGADO y CANCELADO.
+    Pedidos activos para operación (runner / panel).
+    Excluye ENTREGADO y CANCELADO; solo del día operativo (America/Lima).
     """
     _require_permission(current_user, "delivery:view")
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+    start_utc, end_utc = _lima_today_range_utc()
     orders = (
         db.query(Order)
         .options(
@@ -1159,7 +1191,11 @@ async def list_active_orders(
             joinedload(Order.restaurant),
             joinedload(Order.locked_by_runner),
         )
-        .filter(Order.estado.notin_([ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO]))
+        .filter(
+            Order.estado.notin_([ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO]),
+            Order.created_at >= start_utc,
+            Order.created_at < end_utc,
+        )
         .order_by(Order.id.desc())
         .limit(DEFAULT_QUERY_LIMIT)
         .all()
@@ -1232,6 +1268,58 @@ async def kiosk_list_waiting_drivers(
         .all()
     )
     return [driver_arrival_orm_to_dict(d) for d in drivers]
+
+
+@router.get("/control/snapshot", response_model=ControlSnapshotOut)
+async def control_snapshot(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Vista agregada para centro de control: pedidos y drivers del día operativo + alertas.
+    Requiere `delivery:control` o `delivery:admin`.
+    """
+    _require_control_access(current_user)
+    timeouts_res = apply_timeouts(db)
+    if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
+        await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
+    start_utc, end_utc = _lima_today_range_utc()
+    return build_control_snapshot(db, start_utc=start_utc, end_utc=end_utc)
+
+
+@router.get("/control/snapshot/mock", response_model=ControlSnapshotOut)
+async def control_snapshot_mock(
+    current_user: User = Depends(get_current_user),
+):
+    """Snapshot de demostración (sin BD). Requiere `delivery:control` o `delivery:admin`."""
+    _require_control_access(current_user)
+    return build_control_snapshot_mock()
+
+
+@router.get("/control/audit", response_model=ControlAuditListOut)
+async def control_audit_list(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Historial reciente de acciones de supervisión."""
+    _require_control_access(current_user)
+    rows = list_control_audit_logs(db, limit=limit)
+    from app.services.delivery_control_audit import audit_row_to_dict
+
+    items = [ControlAuditOut(**audit_row_to_dict(r)) for r in rows]
+    return ControlAuditListOut(items=items, total=len(items))
+
+
+@router.get("/control/audit/mock", response_model=ControlAuditListOut)
+async def control_audit_mock(
+    current_user: User = Depends(get_current_user),
+):
+    """Auditoría de demostración (sin BD)."""
+    _require_control_access(current_user)
+    data = build_control_audit_mock()
+    items = [ControlAuditOut(**row) for row in data["items"]]
+    return ControlAuditListOut(items=items, total=data["total"])
 
 
 @router.get("/kiosk/orders/delivered/today", response_model=List[OrderOut])
@@ -1320,12 +1408,17 @@ async def manual_match_order(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
 ):
     """
     Match manual: enlaza un driver_arrival existente con un order existente.
     Útil cuando el fuzzy match no supera el umbral.
     """
-    _require_permission(current_user, "delivery:operate")
+    audit_src = _resolve_audit_source(x_delivery_audit_source)
+    if audit_src == DELIVERY_AUDIT_SOURCE_CONTROL:
+        _require_control_actions(current_user)
+    else:
+        _require_operate_or_admin(current_user)
     timeouts_res = apply_timeouts(db)
     if timeouts_res.get("expired_orders") or timeouts_res.get("expired_drivers"):
         await _emit(EVENT_TIMEOUTS_APPLIED, timeouts_res)
@@ -1363,6 +1456,15 @@ async def manual_match_order(
     now = _utcnow()
     _apply_order_driver_match(order, arrival, now)
 
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_MANUAL_MATCH,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+        driver_arrival_id=arrival.id,
+        detail=f"manual_match driver={arrival.id}",
+    )
     db.commit()
     db.refresh(arrival)
     db.refresh(order)
@@ -1557,6 +1659,72 @@ def _require_permission(current_user: User, codename: str) -> None:
         raise HTTPException(status_code=403, detail="No tiene permisos")
 
 
+def _require_control_access(current_user: User) -> None:
+    """Centro de control: lectura con delivery:control o delivery:admin."""
+    if current_user.is_superuser:
+        return
+    if _user_has_permission(current_user, "delivery:admin"):
+        return
+    if _user_has_permission(current_user, PERMISSION_DELIVERY_CONTROL):
+        return
+    raise HTTPException(status_code=403, detail="No tiene permisos de centro de control")
+
+
+def _require_control_actions(current_user: User) -> None:
+    """Acciones desde centro de control: solo delivery:control:actions (no hereda delivery:admin)."""
+    if current_user.is_superuser:
+        return
+    if _user_has_permission(current_user, PERMISSION_DELIVERY_CONTROL_ACTIONS):
+        return
+    raise HTTPException(status_code=403, detail="No tiene permisos para acciones del centro de control")
+
+
+def _require_admin_mutation(current_user: User, audit_source: Optional[str]) -> None:
+    """Mutaciones admin: panel exige delivery:admin; centro de control exige control:actions."""
+    if _resolve_audit_source(audit_source) == DELIVERY_AUDIT_SOURCE_CONTROL:
+        _require_control_actions(current_user)
+    else:
+        _require_permission(current_user, "delivery:admin")
+
+
+def _require_operate_or_admin(current_user: User) -> None:
+    if current_user.is_superuser:
+        return
+    if _user_has_permission(current_user, "delivery:admin"):
+        return
+    if _user_has_permission(current_user, PERMISSION_DELIVERY_OPERATE):
+        return
+    raise HTTPException(status_code=403, detail="No tiene permisos")
+
+
+def _resolve_audit_source(header_value: Optional[str]) -> str:
+    src = (header_value or "").strip().lower()
+    if src in ("control_center", "control-center", "control"):
+        return "control_center"
+    return DELIVERY_AUDIT_SOURCE_ADMIN
+
+
+def _log_control_audit(
+    db: Session,
+    user: User,
+    *,
+    action: str,
+    audit_source: Optional[str],
+    order_id: Optional[int] = None,
+    driver_arrival_id: Optional[int] = None,
+    detail: Optional[str] = None,
+) -> None:
+    log_delivery_control_action(
+        db,
+        user,
+        action=action,
+        source=_resolve_audit_source(audit_source),
+        order_id=order_id,
+        driver_arrival_id=driver_arrival_id,
+        detail=detail,
+    )
+
+
 def _admin_orders_query(
     db: Session,
     *,
@@ -1719,12 +1887,12 @@ async def admin_driver_arrival_photo_file(
     token: str = Depends(oauth2_scheme),
 ):
     """
-    Sirve el archivo de foto del conductor (kiosk) para el panel admin.
-    Solo `delivery:admin`; ruta acotada bajo delivery/driver_photos/.
+    Sirve el archivo de foto del conductor (kiosk) para panel admin / centro de control.
+    Requiere `delivery:control` o `delivery:admin`.
     """
     with db_session() as db:
         user = authenticate_token(db, token)
-        _require_permission(user, "delivery:admin")
+        _require_control_access(user)
         arrival = db.query(DriverArrival).filter(DriverArrival.id == arrival_id).first()
         if not arrival:
             raise HTTPException(status_code=404, detail="Arribo no encontrado")
@@ -1750,8 +1918,9 @@ async def admin_mark_devolucion(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
 ):
-    _require_permission(current_user, "delivery:admin")
+    _require_admin_mutation(current_user, x_delivery_audit_source)
     apply_timeouts(db)
     order = (
         db.query(Order)
@@ -1768,6 +1937,13 @@ async def admin_mark_devolucion(
     order.estado = ORDER_STATUS_DEVOLUCION
     order.estado_changed_at = t_dev
     order.devolucion_at = t_dev
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_MARK_DEVOLUCION,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+    )
     db.commit()
     db.refresh(order)
     await _emit(EVENT_ORDER_UPDATED, {"order_id": order.id, "estado": order.estado, "source": "admin_mark_devolucion"})
@@ -1780,13 +1956,14 @@ async def admin_force_entregado(
     payload: AdminForceEntregadoIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
 ):
     """
     Cierra el pedido como ENTREGADO sin exigir driver matcheado.
     Si ya hay match activo, despacha al conductor igual que el flujo runner.
-    Requiere motivo (auditoría). Solo `delivery:admin`.
+    Requiere motivo (auditoría). Panel admin o centro de control (permiso acciones).
     """
-    _require_permission(current_user, "delivery:admin")
+    _require_admin_mutation(current_user, x_delivery_audit_source)
     apply_timeouts(db)
     order = (
         db.query(Order)
@@ -1817,6 +1994,18 @@ async def admin_force_entregado(
         arrival.estado_changed_at = now
         arrival.despachado_at = now
 
+    detail = payload.reason
+    if payload.note:
+        detail = f"{payload.reason} | {payload.note}"
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_FORCE_ENTREGADO,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+        driver_arrival_id=arrival.id if arrival else None,
+        detail=detail[:500],
+    )
     db.commit()
     db.refresh(order)
     await _emit(
@@ -1849,8 +2038,9 @@ async def admin_cancel_order(
     payload: AdminCancelIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
 ):
-    _require_permission(current_user, "delivery:admin")
+    _require_admin_mutation(current_user, x_delivery_audit_source)
     apply_timeouts(db)
     order = (
         db.query(Order)
@@ -1869,6 +2059,17 @@ async def admin_cancel_order(
     order.cancelado_at = t_can
     # liberamos lock si existía
     order.locked_by_runner_id = None
+    detail = (payload.reason or "").strip()
+    if payload.note:
+        detail = f"{detail} | {payload.note}".strip(" |")
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_CANCEL,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+        detail=detail[:500] or None,
+    )
     db.commit()
     db.refresh(order)
     await _emit(
@@ -1890,8 +2091,9 @@ async def admin_unlock_order(
     payload: AdminUnlockIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
 ):
-    _require_permission(current_user, "delivery:admin")
+    _require_admin_mutation(current_user, x_delivery_audit_source)
     apply_timeouts(db)
     order = (
         db.query(Order)
@@ -1903,11 +2105,81 @@ async def admin_unlock_order(
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     order.locked_by_runner_id = None
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_UNLOCK,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+        detail=(payload.note or "")[:500] or None,
+    )
     db.commit()
     db.refresh(order)
     await _emit(
         EVENT_ORDER_UPDATED,
         {"order_id": order.id, "estado": order.estado, "locked_by_runner_id": None, "note": payload.note, "source": "admin_unlock"},
+    )
+    return _load_order_dict(db, order.id)
+
+
+@router.patch("/admin/orders/{order_id}", response_model=OrderOut)
+async def admin_update_order(
+    order_id: int,
+    payload: AdminOrderUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_delivery_audit_source: Optional[str] = Header(default=None, alias=DELIVERY_AUDIT_HEADER),
+):
+    """Actualiza datos principales del pedido (código, plataforma, local, bolsas)."""
+    _require_permission(current_user, "delivery:admin")
+    data = payload.dict(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="Sin campos para actualizar")
+
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    changes: list[str] = []
+    if "restaurant_id" in data:
+        rest = db.query(Restaurant).filter(Restaurant.id == data["restaurant_id"]).first()
+        if not rest:
+            raise HTTPException(status_code=400, detail="Restaurante no encontrado")
+        if order.restaurant_id != data["restaurant_id"]:
+            changes.append(f"restaurant_id {order.restaurant_id}->{data['restaurant_id']}")
+            order.restaurant_id = data["restaurant_id"]
+    if "codigo_pedido" in data and order.codigo_pedido != data["codigo_pedido"]:
+        changes.append(f"codigo {order.codigo_pedido}->{data['codigo_pedido']}")
+        order.codigo_pedido = data["codigo_pedido"]
+    if "plataforma" in data and order.plataforma != data["plataforma"]:
+        changes.append(f"plataforma {order.plataforma}->{data['plataforma']}")
+        order.plataforma = data["plataforma"]
+    if "numero_bolsas" in data and order.numero_bolsas != data["numero_bolsas"]:
+        changes.append(f"bolsas {order.numero_bolsas}->{data['numero_bolsas']}")
+        order.numero_bolsas = data["numero_bolsas"]
+
+    if not changes:
+        return _load_order_dict(db, order.id)
+
+    detail = "; ".join(changes)[:500]
+    _log_control_audit(
+        db,
+        current_user,
+        action=DELIVERY_AUDIT_ACTION_UPDATE_ORDER,
+        audit_source=x_delivery_audit_source,
+        order_id=order.id,
+        detail=detail,
+    )
+    db.commit()
+    db.refresh(order)
+    await _emit(
+        EVENT_ORDER_UPDATED,
+        {"order_id": order.id, "estado": order.estado, "source": "admin_update_order"},
     )
     return _load_order_dict(db, order.id)
 
