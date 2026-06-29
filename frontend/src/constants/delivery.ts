@@ -44,6 +44,9 @@ export const DELIVERY_PERMISSIONS = {
     VIEW: 'delivery:view',
     OPERATE: 'delivery:operate',
     ADMIN: 'delivery:admin',
+    CONTROL: 'delivery:control',
+    /** Liberar, vincular, cancelar, etc. desde el centro de control (no incluido por defecto). */
+    CONTROL_ACTIONS: 'delivery:control:actions',
     /** Cambiar flags de producto en `delivery_config` (kiosk RENIEC/foto, simular listo vía operador). */
     SETTINGS_UPDATE: 'delivery:settings:update',
     /** Simular webhook Fidelio "pedido listo" desde la app Runner. */

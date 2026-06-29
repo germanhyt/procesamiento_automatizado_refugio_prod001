@@ -108,6 +108,76 @@ export interface AdminUnlockIn {
     note?: string | null;
 }
 
+export interface AdminForceEntregadoIn {
+    reason: string;
+    note?: string | null;
+}
+
+export interface AdminOrderUpdateIn {
+    codigo_pedido?: string;
+    plataforma?: string;
+    restaurant_id?: number;
+    numero_bolsas?: number | null;
+}
+
+export type ControlAlertSeverity = 'warning' | 'critical';
+
+export type ControlAlertType =
+    | 'ORDER_NO_RUNNER'
+    | 'ORDER_LISTO_NO_MATCH'
+    | 'MATCH_NO_DELIVERY'
+    | 'DRIVER_WAITING_LONG';
+
+export interface ControlAlert {
+    type: ControlAlertType | string;
+    order_id?: number | null;
+    driver_arrival_id?: number | null;
+    minutes: number;
+    severity: ControlAlertSeverity;
+    message: string;
+}
+
+export interface ControlCounts {
+    orders_active: number;
+    orders_with_runner: number;
+    orders_matched: number;
+    orders_with_alerts: number;
+    drivers_esperando: number;
+    drivers_en_match: number;
+    drivers_total: number;
+    alerts_total: number;
+}
+
+export interface ControlSnapshot {
+    operational_day: string;
+    orders: Order[];
+    drivers: DriverArrival[];
+    alerts: ControlAlert[];
+    counts: ControlCounts;
+    generated_at: string;
+    mock?: boolean;
+}
+
+export interface ControlAuditEntry {
+    id: number;
+    user_id?: number | null;
+    username?: string | null;
+    action: string;
+    source: string;
+    order_id?: number | null;
+    driver_arrival_id?: number | null;
+    detail?: string | null;
+    created_at: string;
+}
+
+export interface ControlAuditList {
+    items: ControlAuditEntry[];
+    total: number;
+}
+
+export const DELIVERY_AUDIT_SOURCE_CONTROL = 'control_center';
+export const DELIVERY_AUDIT_HEADER = 'X-Delivery-Audit-Source';
+
 export interface PaginatedOrders {
     items: Order[];
     total: number;
@@ -173,8 +243,10 @@ export interface DeliveryMetricsParams {
     runner?: string;
 }
 
-function authHeaders(token: string | null) {
-    return token ? { Authorization: `Bearer ${token}` } : {};
+function authHeaders(token: string | null, auditSource?: string) {
+    const h: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    if (auditSource) h[DELIVERY_AUDIT_HEADER] = auditSource;
+    return h;
 }
 
 export const deliveryService = {
@@ -194,6 +266,31 @@ export const deliveryService = {
         return res.data;
     },
 
+    async getControlSnapshot(token: string) {
+        const res = await axios.get<ControlSnapshot>(`${API_URL}/delivery/control/snapshot`, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async getControlSnapshotMock(token: string) {
+        const res = await axios.get<ControlSnapshot>(`${API_URL}/delivery/control/snapshot/mock`, { headers: authHeaders(token) });
+        return res.data;
+    },
+
+    async getControlAuditLog(token: string, limit = 50) {
+        const res = await axios.get<ControlAuditList>(`${API_URL}/delivery/control/audit`, {
+            headers: authHeaders(token),
+            params: { limit },
+        });
+        return res.data;
+    },
+
+    async getControlAuditMock(token: string) {
+        const res = await axios.get<ControlAuditList>(`${API_URL}/delivery/control/audit/mock`, {
+            headers: authHeaders(token),
+        });
+        return res.data;
+    },
+
     async acceptOrder(token: string, orderId: number) {
         const res = await axios.post<Order>(`${API_URL}/delivery/orders/${orderId}/accept`, null, { headers: authHeaders(token) });
         return res.data;
@@ -209,8 +306,10 @@ export const deliveryService = {
         return res.data;
     },
 
-    async manualMatch(token: string, orderId: number, payload: ManualMatchIn) {
-        const res = await axios.post(`${API_URL}/delivery/orders/${orderId}/manual-match`, payload, { headers: authHeaders(token) });
+    async manualMatch(token: string, orderId: number, payload: ManualMatchIn, auditSource?: string) {
+        const res = await axios.post(`${API_URL}/delivery/orders/${orderId}/manual-match`, payload, {
+            headers: authHeaders(token, auditSource),
+        });
         return res.data;
     },
 
@@ -252,27 +351,40 @@ export const deliveryService = {
         return res.data;
     },
 
-    async adminMarkDevolucion(token: string, orderId: number) {
-        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/mark-devolucion`, null, { headers: authHeaders(token) });
+    async adminMarkDevolucion(token: string, orderId: number, auditSource?: string) {
+        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/mark-devolucion`, null, {
+            headers: authHeaders(token, auditSource),
+        });
         return res.data;
     },
 
-    async adminForceEntregado(token: string, orderId: number, payload: AdminForceEntregadoIn) {
+    async adminForceEntregado(token: string, orderId: number, payload: AdminForceEntregadoIn, auditSource?: string) {
         const res = await axios.post<Order>(
             `${API_URL}/delivery/admin/orders/${orderId}/force-entregado`,
             payload,
-            { headers: authHeaders(token) }
+            { headers: authHeaders(token, auditSource) }
         );
         return res.data;
     },
 
-    async adminCancelOrder(token: string, orderId: number, payload: AdminCancelIn) {
-        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/cancel`, payload, { headers: authHeaders(token) });
+    async adminCancelOrder(token: string, orderId: number, payload: AdminCancelIn, auditSource?: string) {
+        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/cancel`, payload, {
+            headers: authHeaders(token, auditSource),
+        });
         return res.data;
     },
 
-    async adminUnlockOrder(token: string, orderId: number, payload: AdminUnlockIn) {
-        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/unlock`, payload, { headers: authHeaders(token) });
+    async adminUnlockOrder(token: string, orderId: number, payload: AdminUnlockIn, auditSource?: string) {
+        const res = await axios.post<Order>(`${API_URL}/delivery/admin/orders/${orderId}/unlock`, payload, {
+            headers: authHeaders(token, auditSource),
+        });
+        return res.data;
+    },
+
+    async adminUpdateOrder(token: string, orderId: number, payload: AdminOrderUpdateIn, auditSource?: string) {
+        const res = await axios.patch<Order>(`${API_URL}/delivery/admin/orders/${orderId}`, payload, {
+            headers: authHeaders(token, auditSource),
+        });
         return res.data;
     },
 

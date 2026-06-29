@@ -1,13 +1,26 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '@/config/api';
+
+interface Permission {
+    id: number;
+    codename: string;
+    name: string;
+    module?: string | null;
+}
+
+interface Role {
+    id: number;
+    name: string;
+    permissions?: Permission[];
+}
 
 interface User {
     id: number;
     username: string;
     email: string;
     is_superuser: boolean;
-    roles: Array<{ name: string; id: number }>;
+    roles: Role[];
 }
 
 interface AuthContextType {
@@ -15,6 +28,7 @@ interface AuthContextType {
     token: string | null;
     login: (token: string) => Promise<void>;
     logout: () => void;
+    refreshUser: () => Promise<void>;
     isLoading: boolean;
 }
 
@@ -59,8 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
     };
 
+    const refreshUser = useCallback(async () => {
+        const authToken = token ?? localStorage.getItem('token');
+        if (authToken) await fetchUser(authToken);
+    }, [token]);
+
     return (
-        <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, token, login, logout, refreshUser, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

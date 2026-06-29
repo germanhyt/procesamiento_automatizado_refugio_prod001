@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import AppSelect from '@/components/ui/AppSelect';
 import DeliveryAdminTable from '@/pages/delivery/DeliveryAdminTable';
 import DeliveryKioskAppsModal from '@/pages/delivery/DeliveryKioskAppsModal';
 import DeliveryMetricsModal from '@/pages/delivery/DeliveryMetricsModal';
+import DeliveryControlCenter from '@/pages/delivery/DeliveryControlCenter';
 import DeliveryRestaurantsModal from '@/pages/delivery/DeliveryRestaurantsModal';
 import { useDeliveryWS } from '@/hooks/useDeliveryWS';
 import {
@@ -10,6 +11,8 @@ import {
     useAdminActions,
     useAdminOrders,
     ADMIN_ORDERS_FILTER_ALL,
+    useControlAdminActions,
+    useControlManualMatch,
     useManualMatch,
     useRunnerActions,
     useWaitingDrivers,
@@ -23,13 +26,7 @@ import {
     orderStatusBadgeClass,
 } from '@/constants/delivery';
 import type { DriverArrival, Order } from '@/services/deliveryService';
-
-function hasPermission(user: any, codename: string): boolean {
-    if (!user) return false;
-    if (user.is_superuser) return true;
-    const roles = (user as { roles?: Array<{ permissions?: Array<{ codename: string }> }> }).roles;
-    return roles?.some((role) => role.permissions?.some((p) => p.codename === codename)) ?? false;
-}
+import { hasPermission } from '@/utils/permissions';
 
 function minutesSince(iso: string | null | undefined) {
     if (!iso) return null;
@@ -68,23 +65,101 @@ function formatDriverDocumentSuffix(d: DriverArrival): string {
     return '';
 }
 
+function resolveDeliveryTab(
+    canOperate: boolean,
+    canControl: boolean,
+    canAdmin: boolean
+): 'runner' | 'admin' | 'control' {
+    if (canOperate) return 'runner';
+    if (canControl) return 'control';
+    if (canAdmin) return 'admin';
+    return 'control';
+}
+
+function DeliveryLiveBadge({
+    wsOpen,
+    wsState,
+}: {
+    wsOpen: boolean;
+    wsState: 'idle' | 'connecting' | 'open' | 'closed' | 'error';
+}) {
+    const isLive = wsOpen;
+    const isConnecting = wsState === 'connecting';
+
+    const label = isLive ? 'En vivo' : isConnecting ? 'Conectando…' : 'Actualización automática';
+    const hint = isLive
+        ? 'Los datos se actualizan al instante'
+        : isConnecting
+            ? 'Estableciendo conexión en tiempo real…'
+            : 'Sincronización periódica mientras no hay enlace en vivo';
+
+    return (
+        <div
+            className={`inline-flex items-center gap-2 mt-2 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-colors ${isLive
+                    ? 'border-app-delivery-muted bg-app-delivery-muted-bg text-app-delivery'
+                    : isConnecting
+                        ? 'border-app-warning/40 bg-app-warning-muted/40 text-app-warning'
+                        : 'border-app-border/80 bg-app-input/40 text-app-muted'
+                }`}
+            title={hint}
+            aria-live="polite"
+        >
+            <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+                {isLive && (
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-app-delivery animate-ping opacity-50" />
+                )}
+                {isConnecting && (
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-app-warning animate-ping opacity-40" />
+                )}
+                <span
+                    className={`relative inline-flex h-2 w-2 rounded-full ${isLive
+                            ? 'bg-app-delivery shadow-[0_0_6px_var(--app-delivery-accent)] animate-pulse'
+                            : isConnecting
+                                ? 'bg-app-warning animate-pulse'
+                                : 'bg-app-muted'
+                        }`}
+                />
+            </span>
+            <span>{label}</span>
+        </div>
+    );
+}
+
 const DeliveryPanel: React.FC = () => {
-    const { user, token } = useAuth();
-    const { state, attempts } = useDeliveryWS();
-    const isWsOpen = state === 'open';
-    const polling = isWsOpen ? false : 5000;
+    const { user, token, refreshUser, isLoading } = useAuth();
+    const { state, pollingInterval: polling } = useDeliveryWS();
 
     const orders = useActiveOrders(polling);
     const drivers = useWaitingDrivers(polling);
     const runner = useRunnerActions();
     const admin = useAdminActions();
     const manualMatch = useManualMatch();
+    const controlAdmin = useControlAdminActions();
+    const controlManualMatch = useControlManualMatch();
 
     const canOperate = hasPermission(user, DELIVERY_PERMISSIONS.OPERATE);
     const canAdmin = hasPermission(user, DELIVERY_PERMISSIONS.ADMIN);
+    const canControl = canAdmin || hasPermission(user, DELIVERY_PERMISSIONS.CONTROL);
+    /** Acciones del centro de control: permiso explícito (no hereda delivery:admin). */
+    const canControlActions = hasPermission(user, DELIVERY_PERMISSIONS.CONTROL_ACTIONS);
     const canUpdateKioskSettings = hasPermission(user, DELIVERY_PERMISSIONS.SETTINGS_UPDATE);
 
-    const [tab, setTab] = useState<'runner' | 'admin'>(() => (canAdmin && !canOperate ? 'admin' : 'runner'));
+    useEffect(() => {
+        void refreshUser();
+    }, [refreshUser]);
+
+    const [tab, setTab] = useState<'runner' | 'admin' | 'control'>('control');
+
+    useEffect(() => {
+        if (isLoading || user == null) return;
+        setTab((current) => {
+            const allowed =
+                (current === 'runner' && canOperate) ||
+                (current === 'control' && canControl) ||
+                (current === 'admin' && canAdmin);
+            return allowed ? current : resolveDeliveryTab(canOperate, canControl, canAdmin);
+        });
+    }, [isLoading, user, canOperate, canControl, canAdmin]);
     const [kioskAppsModalOpen, setKioskAppsModalOpen] = useState(false);
 
     const [adminStatus, setAdminStatus] = useState<string>(ADMIN_ORDERS_FILTER_ALL);
@@ -241,13 +316,12 @@ const DeliveryPanel: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-                <div>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className='flex items-center gap-2'>
                     <h1 className="text-xl font-black tracking-tighter uppercase text-app-text">Delivery</h1>
-                    <p className="text-[10px] text-app-muted font-mono">
-                        WS: {state} {attempts ? `(reintentos: ${attempts}/3)` : ''}
-                    </p>
-                </div>
+                    <div className="mb-4">
+                        <DeliveryLiveBadge wsOpen={state === 'open'} wsState={state} />
+                    </div>                </div>
                 <div className="flex gap-2">
 
                     {canAdmin && (
@@ -293,21 +367,35 @@ const DeliveryPanel: React.FC = () => {
 
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setTab('runner')}
-                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'runner'
-                            ? 'bg-app-delivery text-white border-app-delivery-muted'
-                            : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
-                            }`}
-                    >
-                        Runner
-                    </button>
+                    {canOperate && (
+                        <button
+                            type="button"
+                            onClick={() => setTab('runner')}
+                            className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${tab === 'runner'
+                                ? 'bg-app-delivery text-white border-app-delivery-muted'
+                                : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
+                                }`}
+                        >
+                            Runner
+                        </button>
+                    )}
+                    {canControl && (
+                        <button
+                            type="button"
+                            onClick={() => setTab('control')}
+                            className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${tab === 'control'
+                                ? 'bg-app-delivery text-white border-app-delivery-muted'
+                                : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
+                                }`}
+                        >
+                            Control
+                        </button>
+                    )}
                     {canAdmin && (
                         <button
                             type="button"
                             onClick={() => setTab('admin')}
-                            className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${tab === 'admin'
+                            className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${tab === 'admin'
                                 ? 'bg-app-delivery text-white border-app-delivery-muted'
                                 : 'bg-app-input hover:bg-app-surface text-app-text border-app-border'
                                 }`}
@@ -319,7 +407,7 @@ const DeliveryPanel: React.FC = () => {
 
             </div>
 
-            {tab === 'runner' && (
+            {tab === 'runner' && canOperate && (
                 <div className="space-y-6">
                     <div className="bg-app-card border border-app-border rounded-3xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -560,6 +648,19 @@ const DeliveryPanel: React.FC = () => {
                         ))}
                     </div>
                 </div>
+            )}
+
+            {tab === 'control' && canControl && (
+                <DeliveryControlCenter
+                    refetchIntervalMs={polling}
+                    canControlActions={canControlActions}
+                    authToken={token}
+                    admin={controlAdmin}
+                    manualMatch={controlManualMatch}
+                    confirm={confirm}
+                    promptText={promptText}
+                    toast={toast}
+                />
             )}
 
             {tab === 'admin' && canAdmin && (

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     AdminCancelIn,
     AdminForceEntregadoIn,
+    AdminOrderUpdateIn,
     AdminOrdersListParams,
     AdminUnlockIn,
     DeliveryMetricsParams,
@@ -10,8 +11,10 @@ import {
     deliveryService,
 } from '@/services/deliveryService';
 import { useAuth } from '@/context/AuthContext';
+import { buildLocalControlSnapshotMock, buildLocalControlAuditMock, isControlDemoDefaultEnabled } from '@/pages/delivery/mockControlSnapshot';
+import { DELIVERY_AUDIT_SOURCE_CONTROL } from '@/services/deliveryService';
 
-export function useActiveOrders(refetchIntervalMs: number | false = 5000) {
+export function useActiveOrders(refetchIntervalMs: number | false = DELIVERY_POLLING_MS) {
     const { token } = useAuth();
     return useQuery({
         queryKey: ['delivery', 'orders', 'active'],
@@ -21,13 +24,65 @@ export function useActiveOrders(refetchIntervalMs: number | false = 5000) {
     });
 }
 
-export function useWaitingDrivers(refetchIntervalMs: number | false = 5000) {
+export function useWaitingDrivers(refetchIntervalMs: number | false = DELIVERY_POLLING_MS) {
     const { token } = useAuth();
     return useQuery({
         queryKey: ['delivery', 'drivers', 'waiting'],
         queryFn: async () => deliveryService.listWaitingDrivers(token as string),
         enabled: !!token,
         refetchInterval: refetchIntervalMs,
+    });
+}
+
+export function useControlSnapshot(
+    enabled: boolean,
+    refetchIntervalMs: number | false = DELIVERY_POLLING_MS,
+    useMock = false
+) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: ['delivery', 'control', 'snapshot', useMock ? 'mock' : 'live'],
+        queryFn: async () => {
+            if (useMock) {
+                if (token) {
+                    try {
+                        return await deliveryService.getControlSnapshotMock(token);
+                    } catch {
+                        return buildLocalControlSnapshotMock();
+                    }
+                }
+                return buildLocalControlSnapshotMock();
+            }
+            return deliveryService.getControlSnapshot(token as string);
+        },
+        enabled: enabled && (useMock || !!token),
+        refetchInterval: useMock ? false : refetchIntervalMs,
+    });
+}
+
+export function useControlAudit(
+    enabled: boolean,
+    refetchIntervalMs: number | false = DELIVERY_POLLING_MS,
+    useMock = false
+) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: ['delivery', 'control', 'audit', useMock ? 'mock' : 'live'],
+        queryFn: async () => {
+            if (useMock) {
+                if (token) {
+                    try {
+                        return await deliveryService.getControlAuditMock(token);
+                    } catch {
+                        return buildLocalControlAuditMock();
+                    }
+                }
+                return buildLocalControlAuditMock();
+            }
+            return deliveryService.getControlAuditLog(token as string);
+        },
+        enabled: enabled && (useMock || !!token),
+        refetchInterval: useMock ? false : refetchIntervalMs,
     });
 }
 
@@ -58,17 +113,20 @@ export function useRunnerActions() {
     return { accept, shelf, deliver };
 }
 
-export function useManualMatch() {
+export function useManualMatch(auditSource?: string) {
     const { token } = useAuth();
     const qc = useQueryClient();
+    const src = auditSource ?? undefined;
 
     return useMutation({
         mutationFn: async ({ orderId, driverArrivalId }: { orderId: number; driverArrivalId: number }) =>
-            deliveryService.manualMatch(token as string, orderId, { driver_arrival_id: driverArrivalId }),
+            deliveryService.manualMatch(token as string, orderId, { driver_arrival_id: driverArrivalId }, src),
         onSuccess: async () => {
             await Promise.all([
                 qc.invalidateQueries({ queryKey: ['delivery', 'orders'] }),
                 qc.invalidateQueries({ queryKey: ['delivery', 'drivers'] }),
+                qc.invalidateQueries({ queryKey: ['delivery', 'control', 'snapshot'] }),
+                qc.invalidateQueries({ queryKey: ['delivery', 'control', 'audit'] }),
             ]);
         },
     });
@@ -79,7 +137,7 @@ export const ADMIN_ORDERS_FILTER_ALL = 'ALL';
 
 export function useAdminOrders(
     status: string,
-    refetchIntervalMs: number | false = 5000,
+    refetchIntervalMs: number | false = DELIVERY_POLLING_MS,
     params: AdminOrdersListParams = { skip: 0, limit: 500 }
 ) {
     const { token } = useAuth();
@@ -133,42 +191,71 @@ export function useDeliveryMetrics(
     });
 }
 
-export function useAdminActions() {
+export function useAdminActions(auditSource?: string) {
     const { token } = useAuth();
     const qc = useQueryClient();
+    const src = auditSource ?? undefined;
 
     const invalidate = async () => {
         await Promise.all([
             qc.invalidateQueries({ queryKey: ['delivery', 'orders'] }),
             qc.invalidateQueries({ queryKey: ['delivery', 'drivers'] }),
             qc.invalidateQueries({ queryKey: ['delivery', 'admin'] }),
+            qc.invalidateQueries({ queryKey: ['delivery', 'control', 'snapshot'] }),
+            qc.invalidateQueries({ queryKey: ['delivery', 'control', 'audit'] }),
         ]);
     };
 
     const markDevolucion = useMutation({
-        mutationFn: async (orderId: number) => deliveryService.adminMarkDevolucion(token as string, orderId),
+        mutationFn: async (orderId: number) => deliveryService.adminMarkDevolucion(token as string, orderId, src),
         onSuccess: invalidate,
     });
 
     const forceEntregado = useMutation({
         mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminForceEntregadoIn }) =>
-            deliveryService.adminForceEntregado(token as string, orderId, payload),
+            deliveryService.adminForceEntregado(token as string, orderId, payload, src),
         onSuccess: invalidate,
     });
 
     const cancel = useMutation({
         mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminCancelIn }) =>
-            deliveryService.adminCancelOrder(token as string, orderId, payload),
+            deliveryService.adminCancelOrder(token as string, orderId, payload, src),
         onSuccess: invalidate,
     });
 
     const unlock = useMutation({
         mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminUnlockIn }) =>
-            deliveryService.adminUnlockOrder(token as string, orderId, payload),
+            deliveryService.adminUnlockOrder(token as string, orderId, payload, src),
         onSuccess: invalidate,
     });
 
     return { markDevolucion, forceEntregado, cancel, unlock };
+}
+
+export function useAdminOrderUpdate() {
+    const { token } = useAuth();
+    const qc = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ orderId, payload }: { orderId: number; payload: AdminOrderUpdateIn }) =>
+            deliveryService.adminUpdateOrder(token as string, orderId, payload),
+        onSuccess: async () => {
+            await Promise.all([
+                qc.invalidateQueries({ queryKey: ['delivery', 'admin'] }),
+                qc.invalidateQueries({ queryKey: ['delivery', 'orders'] }),
+                qc.invalidateQueries({ queryKey: ['delivery', 'control', 'snapshot'] }),
+            ]);
+        },
+    });
+}
+
+/** Acciones admin desde centro de control (auditoría con source control_center). */
+export function useControlAdminActions() {
+    return useAdminActions(DELIVERY_AUDIT_SOURCE_CONTROL);
+}
+
+export function useControlManualMatch() {
+    return useManualMatch(DELIVERY_AUDIT_SOURCE_CONTROL);
 }
 
 export function useAdminRestaurants(open: boolean) {

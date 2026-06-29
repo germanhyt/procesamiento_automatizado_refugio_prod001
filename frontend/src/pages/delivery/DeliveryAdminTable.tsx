@@ -14,7 +14,7 @@ import { ORDER_STATUS } from '@/constants/delivery';
 import type { AdminCancelIn, DriverArrival, Order } from '@/services/deliveryService';
 import { deliveryService } from '@/services/deliveryService';
 import { orderStatusBadgeClass } from '@/constants/delivery';
-import { ADMIN_ORDERS_FILTER_ALL } from '@/hooks/useDelivery';
+import { ADMIN_ORDERS_FILTER_ALL, useAdminOrderUpdate, useAdminRestaurants } from '@/hooks/useDelivery';
 import { formatRegistrationDateTime } from '@/utils/formatDateTime';
 
 const ORDER_TERMINAL_STATUSES: readonly string[] = [
@@ -24,6 +24,8 @@ const ORDER_TERMINAL_STATUSES: readonly string[] = [
 ];
 
 const ADMIN_PAGE_SIZE = 20;
+
+const PLATFORM_EDIT_OPTIONS = ['RAPPI', 'PEDIDOSYA', 'DIDI', 'OTROS'] as const;
 
 function diffMinutes(from: string | null | undefined, to: string | null | undefined): string {
     if (!from || !to) return '—';
@@ -137,6 +139,16 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
     const [photoViewer, setPhotoViewer] = useState<{ title: string; objectUrl: string } | null>(null);
     const [photoLoading, setPhotoLoading] = useState(false);
     const [driverDetailsForOrder, setDriverDetailsForOrder] = useState<Order | null>(null);
+    const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
+    const [editForm, setEditForm] = useState({
+        codigo_pedido: '',
+        plataforma: '',
+        restaurant_id: 0,
+        numero_bolsas: '' as string,
+    });
+
+    const updateOrder = useAdminOrderUpdate();
+    const restaurantsQuery = useAdminRestaurants(orderToEdit != null);
 
     useEffect(() => {
         setPagination((p) => ({ ...p, pageIndex: 0 }));
@@ -210,6 +222,35 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
         [authToken, toast, closePhotoViewer]
     );
 
+    const openEditModal = useCallback((order: Order) => {
+        setOrderToEdit(order);
+        setEditForm({
+            codigo_pedido: order.codigo_pedido,
+            plataforma: order.plataforma,
+            restaurant_id: order.restaurant_id,
+            numero_bolsas: order.numero_bolsas != null ? String(order.numero_bolsas) : '',
+        });
+    }, []);
+
+    const closeEditModal = useCallback(() => {
+        setOrderToEdit(null);
+    }, []);
+
+    const platformEditOptions = useMemo(() => {
+        const set = new Set<string>(PLATFORM_EDIT_OPTIONS);
+        for (const o of filterMetaQuery.data?.items ?? []) {
+            if (o.plataforma?.trim()) set.add(o.plataforma.trim().toUpperCase());
+        }
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [filterMetaQuery.data?.items]);
+
+    const restaurantEditOptions = useMemo(() => {
+        return (restaurantsQuery.data ?? [])
+            .filter((r) => r.is_active)
+            .map((r) => ({ value: r.id, label: r.nombre }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }, [restaurantsQuery.data]);
+
     const platformOptions = useMemo(() => {
         const list = Array.from(
             new Set((filterMetaQuery.data?.items ?? []).map((order) => order.plataforma?.trim()).filter(Boolean) as string[])
@@ -235,17 +276,16 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 cell: (info) => <span className="font-mono text-app-muted">{info.getValue()}</span>,
                 size: 56,
             }),
-            columnHelper.accessor('created_at', {
-                header: 'Registro',
-                cell: (info) => (
-                    <span className="text-[10px] font-mono text-app-muted whitespace-nowrap">
-                        {formatRegistrationDateTime(info.getValue())}
-                    </span>
-                ),
-            }),
             columnHelper.accessor('codigo_pedido', {
                 header: 'Código',
-                cell: (info) => <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>,
+                cell: (info) => (
+                    <div className="min-w-[120px]">
+                        <span className="font-bold text-app-text truncate max-w-[140px] block">{info.getValue()}</span>
+                        <p className="text-[10px] font-mono text-app-muted whitespace-nowrap mt-0.5">
+                            {formatRegistrationDateTime(info.row.original.created_at)}
+                        </p>
+                    </div>
+                ),
             }),
             columnHelper.display({
                 id: 'restaurant_nombre',
@@ -298,14 +338,21 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                         );
                     }
                     return (
-                        <button
-                            type="button"
-                            onClick={() => setDriverDetailsForOrder(o)}
-                            className="text-left text-[10px] text-app-delivery hover:underline truncate max-w-[120px] block w-full font-medium"
-                            title={`Ver datos del conductor · ${label}`}
-                        >
-                            {label}
-                        </button>
+                        <div className="min-w-[120px]">
+                            <button
+                                type="button"
+                                onClick={() => setDriverDetailsForOrder(o)}
+                                className="text-left text-[10px] text-app-delivery hover:underline truncate max-w-[120px] block w-full font-medium"
+                                title={`Ver datos del conductor · ${label}`}
+                            >
+                                {label}
+                            </button>
+                            {da.created_at ? (
+                                <p className="text-[10px] font-mono text-app-muted whitespace-nowrap mt-0.5">
+                                    {formatRegistrationDateTime(da.created_at)}
+                                </p>
+                            ) : null}
+                        </div>
                     );
                 },
             }),
@@ -384,6 +431,13 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                     const isTerminal = ORDER_TERMINAL_STATUSES.includes(o.estado);
                     return (
                         <div className="flex flex-wrap gap-1 justify-center">
+                            <button
+                                type="button"
+                                onClick={() => openEditModal(o)}
+                                className="px-2 py-1 rounded-lg border border-app-border bg-app-input text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface"
+                            >
+                                Editar
+                            </button>
                             {!isTerminal ? (
                                 <button
                                     type="button"
@@ -517,7 +571,7 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                 },
             }),
         ],
-        [admin, confirm, promptText, toast, openPhotoViewer]
+        [admin, confirm, promptText, toast, openPhotoViewer, openEditModal]
     );
 
     const table = useReactTable({
@@ -687,6 +741,11 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                             <div>
                                 <p className="text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">Nombre</p>
                                 <p className="font-semibold wrap-break-word">{driverDetailsFields.nombre}</p>
+                                {driverDetailsDa.created_at ? (
+                                    <p className="text-[10px] font-mono text-app-muted mt-0.5">
+                                        {formatRegistrationDateTime(driverDetailsDa.created_at)}
+                                    </p>
+                                ) : null}
                             </div>
                             <div>
                                 <p className="text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">Placa</p>
@@ -701,6 +760,131 @@ const DeliveryAdminTable: React.FC<DeliveryAdminTableProps> = ({
                                 <span className="font-mono text-app-text">{driverDetailsDa.codigo_ingresado}</span>
                             </div> */}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {orderToEdit && (
+                <div
+                    className="fixed inset-0 z-100 flex items-center justify-center bg-black/70 p-4"
+                    onClick={closeEditModal}
+                    role="presentation"
+                >
+                    <div
+                        className="bg-app-panel border border-app-border rounded-2xl shadow-xl max-w-md w-full flex flex-col overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Editar pedido"
+                    >
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-app-border shrink-0">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted truncate">
+                                Editar pedido · #{orderToEdit.id}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={closeEditModal}
+                                className="px-3 py-1.5 rounded-lg border border-app-border bg-app-input text-[9px] font-black uppercase tracking-widest text-app-text shrink-0"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                        <form
+                            className="p-4 space-y-3"
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                const bagsRaw = editForm.numero_bolsas.trim();
+                                const payload = {
+                                    codigo_pedido: editForm.codigo_pedido.trim(),
+                                    plataforma: editForm.plataforma.trim().toUpperCase(),
+                                    restaurant_id: editForm.restaurant_id,
+                                    numero_bolsas: bagsRaw === '' ? null : Number.parseInt(bagsRaw, 10),
+                                };
+                                if (!payload.codigo_pedido || !payload.plataforma || !payload.restaurant_id) {
+                                    void toast({ icon: 'warning', title: 'Completa código, plataforma y local' });
+                                    return;
+                                }
+                                if (payload.numero_bolsas != null && Number.isNaN(payload.numero_bolsas)) {
+                                    void toast({ icon: 'warning', title: 'Número de bolsas inválido' });
+                                    return;
+                                }
+                                updateOrder.mutate(
+                                    { orderId: orderToEdit.id, payload },
+                                    {
+                                        onSuccess: () => {
+                                            closeEditModal();
+                                            void toast({ icon: 'success', title: 'Pedido actualizado' });
+                                            void ordersQuery.refetch();
+                                        },
+                                        onError: () => void toast({ icon: 'error', title: 'No se pudo actualizar' }),
+                                    }
+                                );
+                            }}
+                        >
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">
+                                    Código de pedido
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editForm.codigo_pedido}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, codigo_pedido: e.target.value }))}
+                                    className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2 text-sm text-app-text"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">
+                                    Plataforma
+                                </label>
+                                <AppSelect
+                                    value={
+                                        editForm.plataforma
+                                            ? { value: editForm.plataforma, label: editForm.plataforma }
+                                            : null
+                                    }
+                                    onChange={(opt) => setEditForm((f) => ({ ...f, plataforma: opt?.value ?? '' }))}
+                                    options={platformEditOptions.map((p) => ({ value: p, label: p }))}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">
+                                    Local / restaurante
+                                </label>
+                                <AppSelect
+                                    value={
+                                        editForm.restaurant_id
+                                            ? restaurantEditOptions.find((r) => r.value === editForm.restaurant_id) ?? null
+                                            : null
+                                    }
+                                    onChange={(opt) => setEditForm((f) => ({ ...f, restaurant_id: opt?.value ?? 0 }))}
+                                    options={restaurantEditOptions}
+                                    placeholder="Elegir local…"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-app-muted mb-1">
+                                    Número de bolsas
+                                </label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    value={editForm.numero_bolsas}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, numero_bolsas: e.target.value }))}
+                                    placeholder="Opcional"
+                                    className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2 text-sm text-app-text"
+                                />
+                            </div>
+                            <p className="text-[10px] text-app-muted">
+                                Registro original: {formatRegistrationDateTime(orderToEdit.created_at)}
+                            </p>
+                            <button
+                                type="submit"
+                                disabled={updateOrder.isPending}
+                                className="w-full px-4 py-2 rounded-xl bg-app-delivery text-white text-[10px] font-black uppercase tracking-widest hover:bg-app-delivery-strong disabled:opacity-50"
+                            >
+                                {updateOrder.isPending ? 'Guardando…' : 'Guardar cambios'}
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}
