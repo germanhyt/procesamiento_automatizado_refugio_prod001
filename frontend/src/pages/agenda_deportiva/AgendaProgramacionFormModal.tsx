@@ -136,24 +136,6 @@ const AgendaProgramacionFormModal: React.FC<Props> = ({
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <label className="block space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">Título</span>
-                        <input
-                            className={inputCls}
-                            value={titulo}
-                            onChange={(e) => setTitulo(e.target.value)}
-                            placeholder="Ej. Semana 22 — Mayo"
-                        />
-                    </label>
-                    <label className="block space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">Modo</span>
-                        <AppSelect<AgendaModo>
-                            options={AGENDA_MODO_OPTIONS}
-                            value={AGENDA_MODO_OPTIONS.find((o) => o.value === modo) ?? AGENDA_MODO_OPTIONS[0]}
-                            onChange={(option) => handleModoChange(option?.value ?? AGENDA_MODO_WEEK)}
-                            isSearchable={false}
-                        />
-                    </label>
-                    <label className="block space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">
                             Categoría lugar
                         </span>
@@ -168,12 +150,21 @@ const AgendaProgramacionFormModal: React.FC<Props> = ({
                         />
                     </label>
                     <label className="block space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">Modo</span>
+                        <AppSelect<AgendaModo>
+                            options={AGENDA_MODO_OPTIONS}
+                            value={AGENDA_MODO_OPTIONS.find((o) => o.value === modo) ?? AGENDA_MODO_OPTIONS[0]}
+                            onChange={(option) => handleModoChange(option?.value ?? AGENDA_MODO_WEEK)}
+                            isSearchable={false}
+                        />
+                    </label>
+                    <label className="block space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">
                             {modo === AGENDA_MODO_DAY
                                 ? 'Fecha'
                                 : modo === AGENDA_MODO_MONTH
                                   ? 'Mes de referencia'
-                                  : 'Lunes (inicio semana)'}
+                                  : 'Inicio de semana (lunes)'}
                         </span>
                         <input
                             type="date"
@@ -183,9 +174,21 @@ const AgendaProgramacionFormModal: React.FC<Props> = ({
                             required
                         />
                     </label>
+                    <label className="block space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-muted">
+                            Título <span className="font-normal normal-case tracking-normal">(opcional)</span>
+                        </span>
+                        <input
+                            className={inputCls}
+                            value={titulo}
+                            onChange={(e) => setTitulo(e.target.value)}
+                            placeholder="Ej. Semana 22 — Mayo"
+                        />
+                    </label>
                     {modo === AGENDA_MODO_WEEK && (
                         <p className="text-xs text-app-muted">
-                            Rango: {fechaInicio} → {fechaFin} (7 días)
+                            Si eliges otro día de la semana, se ajusta al lunes correspondiente. Rango:{' '}
+                            {fechaInicio} → {fechaFin} (7 días)
                         </p>
                     )}
                     {modo === AGENDA_MODO_MONTH && (

@@ -248,20 +248,27 @@ def public_programacion(
 
 
 @router.get("/public/musica", response_model=AgendaPublicMusicaOut)
-def public_musica(request: Request, db: Session = Depends(get_db)):
+def public_musica(
+    request: Request,
+    categoria_lugar: str,
+    db: Session = Depends(get_db),
+):
+    # Obligatorio: cada cartelera reproduce SOLO el sonido de su categoría.
+    categoria_norm = (categoria_lugar or "").strip().lower()
+    if categoria_norm not in AGENDA_CATEGORIA_LUGARES:
+        raise HTTPException(status_code=400, detail="categoria_lugar inválida")
+
     config = get_or_create_config(db)
     if not config.playlist_publica_habilitada:
         return AgendaPublicMusicaOut(playlistEnabled=False, tracks=[])
 
-    tracks = (
-        db.query(AgendaTrack)
-        .filter(
-            AgendaTrack.habilitada.is_(True),
-            AgendaTrack.publica.is_(True),
-        )
-        .order_by(AgendaTrack.orden)
-        .all()
+    query = db.query(AgendaTrack).filter(
+        AgendaTrack.habilitada.is_(True),
+        AgendaTrack.publica.is_(True),
+        AgendaTrack.categoria_lugar == categoria_norm,
     )
+
+    tracks = query.order_by(AgendaTrack.orden).all()
 
     return AgendaPublicMusicaOut(
         playlistEnabled=True,
@@ -270,6 +277,7 @@ def public_musica(request: Request, db: Session = Depends(get_db)):
                 orden=t.orden,
                 title=t.titulo,
                 url=_public_archivo_url(request, AGENDA_ARCHIVO_TIPO_MUSIC, t.id),
+                categoria_lugar=t.categoria_lugar,
             )
             for t in tracks
         ],

@@ -178,6 +178,7 @@ class AgendaPublicTrackOut(BaseModel):
     orden: int
     title: str
     url: str
+    categoria_lugar: Optional[str] = None
 
 
 class AgendaPublicMusicaOut(BaseModel):
