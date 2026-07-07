@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FileText, Lightbulb, RefreshCcw, X } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Download, FileSpreadsheet, FileText, Lightbulb, RefreshCcw, Table2, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -8,8 +8,13 @@ import AppSelect from '@/components/ui/AppSelect';
 import { DRIVER_STATUS, ORDER_STATUSES_ADMIN, orderStatusBadgeClass } from '@/constants/delivery';
 import { useDeliveryMetrics } from '@/hooks/useDelivery';
 import { useAuth } from '@/context/AuthContext';
-import type { DeliveryMetricsRowApi, DriverArrival } from '@/services/deliveryService';
+import type { DeliveryMetricsRowApi, DeliveryMetricsTimeSeriesRow, DriverArrival } from '@/services/deliveryService';
 import { deliveryService } from '@/services/deliveryService';
+import {
+    chartAxisLabel,
+    resolveDeliveryTimeSeries,
+    type TimeGranularity,
+} from '@/utils/deliveryMetricsTimeSeries';
 import {
     defaultDeliveryMetricsDateRange,
     lastMonthDeliveryMetricsDateRange,
@@ -20,6 +25,7 @@ import {
 const ALL_VALUE = 'ALL';
 
 type Dimension = 'estado' | 'locatario' | 'plataforma' | 'driver' | 'runner';
+type VolumeView = 'chart' | 'table';
 
 type MetricRow = {
     group: string;
@@ -58,6 +64,12 @@ const DIMENSION_OPTIONS: Array<{ value: Dimension; label: string }> = [
     { value: 'plataforma', label: 'Plataforma' },
     { value: 'driver', label: 'Driver' },
     { value: 'runner', label: 'Runner' },
+];
+
+const TIME_GRANULARITY_OPTIONS: Array<{ value: TimeGranularity; label: string }> = [
+    { value: 'day', label: 'Por día' },
+    { value: 'week', label: 'Por semana (lun–vie)' },
+    { value: 'month', label: 'Por mes' },
 ];
 
 function cleanLabel(value: string | null | undefined, fallback: string) {
@@ -508,19 +520,22 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const [driver, setDriver] = useState(ALL_VALUE);
     const [runner, setRunner] = useState(ALL_VALUE);
     const [insightsModalOpen, setInsightsModalOpen] = useState(false);
+    const [volumeView, setVolumeView] = useState<VolumeView>('chart');
+    const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>('day');
 
     const metricsParams = useMemo(
         () => ({
             fecha_desde: fechaDesde,
             fecha_hasta: fechaHasta,
             dimension,
+            time_granularity: timeGranularity,
             ...(estado !== ALL_VALUE ? { estado } : {}),
             ...(locatario !== ALL_VALUE ? { locatario } : {}),
             ...(plataforma !== ALL_VALUE ? { plataforma } : {}),
             ...(driver !== ALL_VALUE ? { driver } : {}),
             ...(runner !== ALL_VALUE ? { runner } : {}),
         }),
-        [fechaDesde, fechaHasta, dimension, estado, locatario, plataforma, driver, runner]
+        [fechaDesde, fechaHasta, dimension, timeGranularity, estado, locatario, plataforma, driver, runner]
     );
 
     const metricsQuery = useDeliveryMetrics(open, metricsParams);
@@ -615,6 +630,29 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const insights = useMemo(() => buildInsights(summary, rows, dimensionLabel), [summary, rows, dimensionLabel]);
     const totalInRange = metricsQuery.data?.total_orders_in_range ?? 0;
     const totalFiltered = metricsQuery.data?.total_filtered ?? 0;
+    const { series: timeSeries, needsBackendUpdate } = useMemo(
+        () =>
+            resolveDeliveryTimeSeries(
+                fechaDesde,
+                fechaHasta,
+                timeGranularity,
+                metricsQuery.data?.time_series,
+                {
+                    total: summary.total,
+                    active: summary.active,
+                    delivered: summary.delivered,
+                    canceled: summary.canceled,
+                    returned: summary.returned,
+                }
+            ),
+        [fechaDesde, fechaHasta, timeGranularity, metricsQuery.data?.time_series, summary]
+    );
+    const maxSeriesTotal = useMemo(
+        () => timeSeries.reduce((max, row) => Math.max(max, row.total), 0),
+        [timeSeries]
+    );
+    const timeGranularityLabel =
+        TIME_GRANULARITY_OPTIONS.find((option) => option.value === timeGranularity)?.label ?? 'Por día';
 
     if (!open) return null;
 
@@ -776,6 +814,112 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                         <MetricCard label="Devoluciones" value={summary.returned} helper={formatPercent(summary.returned, summary.total)} />
                         <MetricCard label="Match driver" value={summary.matched} helper={formatPercent(summary.matched, summary.total)} />
                         <MetricCard label="Drivers live" value={driverStatusCounts.total} helper={`${driverStatusCounts.esperando} esp. · ${driverStatusCounts.enMatch} match`} />
+                    </div>
+
+                    <div className="mt-4 rounded-3xl border border-app-border bg-app-card p-4">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-muted">
+                                    Volumen de pedidos en el rango
+                                </h3>
+                                <p className="mt-1 text-[10px] font-mono text-app-muted">
+                                    {fechaDesde} → {fechaHasta} · {totalFiltered.toLocaleString('es-PE')} pedidos
+                                    {totalInRange !== totalFiltered ? ` (${totalInRange.toLocaleString('es-PE')} sin filtrar)` : ''}
+                                    {' · '}{timeGranularityLabel}
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="inline-flex rounded-xl border border-app-border bg-app-input p-1">
+                                    {TIME_GRANULARITY_OPTIONS.map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setTimeGranularity(option.value)}
+                                            className={`rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                                timeGranularity === option.value
+                                                    ? 'bg-app-delivery text-white'
+                                                    : 'text-app-muted hover:text-app-text'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="inline-flex rounded-xl border border-app-border bg-app-input p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setVolumeView('chart')}
+                                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                            volumeView === 'chart'
+                                                ? 'bg-app-delivery text-white'
+                                                : 'text-app-muted hover:text-app-text'
+                                        }`}
+                                    >
+                                        <BarChart3 size={13} /> Gráfico
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setVolumeView('table')}
+                                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                            volumeView === 'table'
+                                                ? 'bg-app-delivery text-white'
+                                                : 'text-app-muted hover:text-app-text'
+                                        }`}
+                                    >
+                                        <Table2 size={13} /> Tabla
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {needsBackendUpdate && totalFiltered > 0 && (
+                            <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-100">
+                                Distribución por día/semana/mes requiere backend actualizado. Mostrando total agregado del rango.
+                            </p>
+                        )}
+
+                        {isLoading ? (
+                            <p className="text-sm text-app-muted">Cargando volumen…</p>
+                        ) : isError ? (
+                            <p className="text-sm text-app-danger">No se pudo cargar la distribución temporal.</p>
+                        ) : summary.total === 0 && timeSeries.every((row) => row.total === 0) ? (
+                            <p className="text-sm text-app-muted">Sin pedidos en el rango seleccionado.</p>
+                        ) : volumeView === 'chart' ? (
+                            <OrdersVolumeChart
+                                series={timeSeries}
+                                maxTotal={maxSeriesTotal}
+                                granularity={timeGranularity}
+                            />
+                        ) : (
+                            <div className="overflow-x-auto rounded-2xl border border-app-border">
+                                <table className="w-full min-w-[640px] text-left text-xs">
+                                    <thead>
+                                        <tr className="border-b border-app-border bg-app-input/40">
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Período</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Pedidos</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Activos</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Entregados</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Cancel.</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">Dev.</th>
+                                            <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-table-head">% del total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {timeSeries.map((row) => (
+                                            <tr key={row.period} className="border-b border-app-border/80 hover:bg-app-input/20">
+                                                <td className="px-3 py-3 font-semibold text-app-text">{row.label}</td>
+                                                <td className="px-3 py-3 font-mono text-app-text">{row.total}</td>
+                                                <td className="px-3 py-3 font-mono text-app-muted">{row.active}</td>
+                                                <td className="px-3 py-3 font-mono text-app-muted">{row.delivered}</td>
+                                                <td className="px-3 py-3 font-mono text-app-muted">{row.canceled}</td>
+                                                <td className="px-3 py-3 font-mono text-app-muted">{row.returned}</td>
+                                                <td className="px-3 py-3 font-mono text-app-muted">{formatPercent(row.total, totalFiltered)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_2fr]">
@@ -984,5 +1128,91 @@ const SlaLine: React.FC<{ label: string; value: number | null }> = ({ label, val
         <span className="font-mono text-xs text-app-text">{formatMinutes(value)}</span>
     </div>
 );
+
+type OrdersVolumeChartProps = {
+    series: DeliveryMetricsTimeSeriesRow[];
+    maxTotal: number;
+    granularity: TimeGranularity;
+};
+
+const CHART_HEIGHT = 180;
+const BAR_WIDTH = 22;
+const BAR_GAP = 8;
+const CHART_PADDING = 12;
+
+const OrdersVolumeChart: React.FC<OrdersVolumeChartProps> = ({ series, maxTotal, granularity }) => {
+    const labelStride = series.length > 14 ? Math.ceil(series.length / 14) : 1;
+    const plotWidth = Math.max(series.length * (BAR_WIDTH + BAR_GAP) + CHART_PADDING * 2, 320);
+    const svgHeight = CHART_HEIGHT + 48;
+    const effectiveMax = maxTotal > 0 ? maxTotal : 1;
+
+    return (
+        <div className="overflow-x-auto rounded-2xl border border-app-border bg-app-input/20 p-3">
+            <svg
+                width={plotWidth}
+                height={svgHeight}
+                role="img"
+                aria-label="Gráfico de pedidos por período"
+                className="block"
+            >
+                <line
+                    x1={CHART_PADDING}
+                    y1={CHART_HEIGHT + 8}
+                    x2={plotWidth - CHART_PADDING}
+                    y2={CHART_HEIGHT + 8}
+                    stroke="var(--app-border)"
+                    strokeWidth={1}
+                />
+                {series.map((row, index) => {
+                    const barHeight = row.total > 0
+                        ? Math.max(8, (row.total / effectiveMax) * CHART_HEIGHT)
+                        : 2;
+                    const x = CHART_PADDING + index * (BAR_WIDTH + BAR_GAP);
+                    const y = CHART_HEIGHT + 8 - barHeight;
+                    const showLabel = index % labelStride === 0 || index === series.length - 1;
+                    const fill = row.total > 0 ? 'var(--app-delivery-accent)' : 'var(--app-border)';
+
+                    return (
+                        <g key={row.period}>
+                            <title>{`${row.label}: ${row.total} pedidos`}</title>
+                            <rect
+                                x={x}
+                                y={y}
+                                width={BAR_WIDTH}
+                                height={barHeight}
+                                rx={4}
+                                fill={fill}
+                            />
+                            {row.total > 0 && (
+                                <text
+                                    x={x + BAR_WIDTH / 2}
+                                    y={y - 4}
+                                    textAnchor="middle"
+                                    fontSize={9}
+                                    fill="var(--app-text)"
+                                    fontFamily="ui-monospace, monospace"
+                                >
+                                    {row.total}
+                                </text>
+                            )}
+                            {showLabel && (
+                                <text
+                                    x={x + BAR_WIDTH / 2}
+                                    y={svgHeight - 6}
+                                    textAnchor="middle"
+                                    fontSize={8}
+                                    fill="var(--app-muted)"
+                                    fontFamily="ui-monospace, monospace"
+                                >
+                                    {chartAxisLabel(row, granularity)}
+                                </text>
+                            )}
+                        </g>
+                    );
+                })}
+            </svg>
+        </div>
+    );
+};
 
 export default DeliveryMetricsModal;

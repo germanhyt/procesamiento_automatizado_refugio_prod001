@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,12 +18,16 @@ from app.core.delivery_constants import (
 from app.models.delivery import DriverArrival, Order
 
 Dimension = Literal["estado", "locatario", "plataforma", "driver", "runner"]
+TimeGranularity = Literal["day", "week", "month"]
+
+ZONA_LIMA = ZoneInfo("America/Lima")
 
 TERMINAL_STATUSES = frozenset(
     {ORDER_STATUS_ENTREGADO, ORDER_STATUS_CANCELADO, ORDER_STATUS_DEVOLUCION}
 )
 
 VALID_DIMENSIONS = frozenset({"estado", "locatario", "plataforma", "driver", "runner"})
+VALID_TIME_GRANULARITIES = frozenset({"day", "week", "month"})
 
 
 @dataclass
@@ -210,6 +215,109 @@ def _load_orders_in_range(db: Session, start_utc: datetime, end_utc: datetime) -
     )
 
 
+def _parse_lima_date(value: str) -> date:
+    return date.fromisoformat(value.strip())
+
+
+def _to_lima(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZONA_LIMA)
+
+
+def _monday_of(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def _period_key_for_order(order: Order, granularity: TimeGranularity) -> str:
+    lima = _to_lima(order.created_at)
+    d = lima.date()
+    if granularity == "day":
+        return d.isoformat()
+    if granularity == "week":
+        # Semana operativa lun–vie: sáb/dom se asignan al lunes de esa semana calendario
+        return _monday_of(d).isoformat()
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _period_label(period_key: str, granularity: TimeGranularity) -> str:
+    if granularity == "day":
+        return period_key
+    if granularity == "week":
+        monday = _parse_lima_date(period_key)
+        friday = monday + timedelta(days=4)
+        return f"{monday.strftime('%d/%m')} – {friday.strftime('%d/%m/%Y')}"
+    year, month = period_key.split("-", 1)
+    months = (
+        "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+        "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+    )
+    return f"{months[int(month) - 1]} {year}"
+
+
+def _iter_period_keys(
+    fecha_desde: str,
+    fecha_hasta: str,
+    granularity: TimeGranularity,
+) -> list[str]:
+    start = _parse_lima_date(fecha_desde)
+    end = _parse_lima_date(fecha_hasta)
+    keys: list[str] = []
+    if granularity == "day":
+        cursor = start
+        while cursor <= end:
+            keys.append(cursor.isoformat())
+            cursor += timedelta(days=1)
+        return keys
+    if granularity == "week":
+        cursor = _monday_of(start)
+        end_monday = _monday_of(end)
+        while cursor <= end_monday:
+            keys.append(cursor.isoformat())
+            cursor += timedelta(days=7)
+        return keys
+    cursor = date(start.year, start.month, 1)
+    end_month = date(end.year, end.month, 1)
+    while cursor <= end_month:
+        keys.append(f"{cursor.year:04d}-{cursor.month:02d}")
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return keys
+
+
+def _build_time_series(
+    orders: list[Order],
+    *,
+    fecha_desde: str,
+    fecha_hasta: str,
+    granularity: TimeGranularity,
+) -> list[dict[str, Any]]:
+    buckets: dict[str, MetricsAccumulator] = {}
+    for order in orders:
+        key = _period_key_for_order(order, granularity)
+        if key not in buckets:
+            buckets[key] = MetricsAccumulator()
+        buckets[key].add_order(order)
+
+    series: list[dict[str, Any]] = []
+    for key in _iter_period_keys(fecha_desde, fecha_hasta, granularity):
+        acc = buckets.get(key, MetricsAccumulator())
+        series.append(
+            {
+                "period": key,
+                "label": _period_label(key, granularity),
+                "total": acc.total,
+                "active": acc.active,
+                "delivered": acc.delivered,
+                "canceled": acc.canceled,
+                "returned": acc.returned,
+            }
+        )
+    return series
+
+
 def _drivers_live(db: Session) -> dict[str, int]:
     rows = db.query(DriverArrival.estado).filter(
         DriverArrival.estado.in_([DRIVER_STATUS_ESPERANDO, DRIVER_STATUS_EN_MATCH])
@@ -230,8 +338,14 @@ def compute_delivery_metrics(
     plataforma: Optional[str] = None,
     driver: Optional[str] = None,
     runner: Optional[str] = None,
+    time_granularity: str = "day",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
 ) -> dict[str, Any]:
     dim: Dimension = dimension if dimension in VALID_DIMENSIONS else "estado"
+    gran: TimeGranularity = (
+        time_granularity if time_granularity in VALID_TIME_GRANULARITIES else "day"
+    )
     orders = _load_orders_in_range(db, start_utc, end_utc)
 
     estados: set[str] = set()
@@ -275,6 +389,17 @@ def compute_delivery_metrics(
         for key in sorted(groups.keys(), key=lambda k: (-groups[k].total, k))
     ]
 
+    time_series = (
+        _build_time_series(
+            filtered,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+            granularity=gran,
+        )
+        if fecha_desde and fecha_hasta
+        else []
+    )
+
     return {
         "total_orders_in_range": len(orders),
         "total_filtered": len(filtered),
@@ -288,4 +413,6 @@ def compute_delivery_metrics(
             "runner": sorted(runners),
         },
         "drivers_live": _drivers_live(db),
+        "time_granularity": gran,
+        "time_series": time_series,
     }

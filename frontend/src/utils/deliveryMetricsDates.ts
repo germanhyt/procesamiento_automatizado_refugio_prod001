@@ -6,13 +6,16 @@ export function formatDateInputValue(date: Date): string {
     return `${y}-${m}-${d}`;
 }
 
-/** Lunes de la semana actual hasta hoy (inclusive). */
+/** Lunes a viernes de la semana actual (hasta hoy o viernes, lo que ocurra antes). */
 export function thisWeekDeliveryMetricsDateRange(): { fecha_desde: string; fecha_hasta: string } {
-    const hasta = new Date();
-    const desde = new Date(hasta);
+    const today = new Date();
+    const desde = new Date(today);
     const weekday = desde.getDay();
     const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
     desde.setDate(desde.getDate() - daysFromMonday);
+    const friday = new Date(desde);
+    friday.setDate(friday.getDate() + 4);
+    const hasta = today < friday ? today : friday;
     return {
         fecha_desde: formatDateInputValue(desde),
         fecha_hasta: formatDateInputValue(hasta),

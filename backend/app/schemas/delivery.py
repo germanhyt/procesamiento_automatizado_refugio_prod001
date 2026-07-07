@@ -183,6 +183,16 @@ class DeliveryDriversLiveOut(BaseModel):
     total: int
 
 
+class DeliveryMetricsTimeSeriesRowOut(BaseModel):
+    period: str
+    label: str
+    total: int
+    active: int
+    delivered: int
+    canceled: int
+    returned: int
+
+
 class DeliveryMetricsOut(BaseModel):
     fecha_desde: str
     fecha_hasta: str
@@ -192,6 +202,8 @@ class DeliveryMetricsOut(BaseModel):
     rows: List[DeliveryMetricsRowOut]
     filter_options: DeliveryMetricsFilterOptionsOut
     drivers_live: DeliveryDriversLiveOut
+    time_granularity: str = "day"
+    time_series: List[DeliveryMetricsTimeSeriesRowOut] = []
 
 
 class DeliveryStatus(BaseModel):

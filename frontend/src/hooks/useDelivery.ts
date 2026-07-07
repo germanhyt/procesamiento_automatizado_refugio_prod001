@@ -184,6 +184,7 @@ export function useDeliveryMetrics(
             params.plataforma ?? '',
             params.driver ?? '',
             params.runner ?? '',
+            params.time_granularity ?? 'day',
         ],
         queryFn: () => deliveryService.adminGetMetrics(token as string, params),
         enabled: !!token && open && !!params.fecha_desde && !!params.fecha_hasta,

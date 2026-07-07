@@ -211,6 +211,16 @@ export interface DeliveryMetricsRowApi {
     avg_ready_to_delivered: number | null;
 }
 
+export interface DeliveryMetricsTimeSeriesRow {
+    period: string;
+    label: string;
+    total: number;
+    active: number;
+    delivered: number;
+    canceled: number;
+    returned: number;
+}
+
 export interface DeliveryMetricsResponse {
     fecha_desde: string;
     fecha_hasta: string;
@@ -230,6 +240,8 @@ export interface DeliveryMetricsResponse {
         en_match: number;
         total: number;
     };
+    time_granularity: string;
+    time_series: DeliveryMetricsTimeSeriesRow[];
 }
 
 export interface DeliveryMetricsParams {
@@ -241,6 +253,7 @@ export interface DeliveryMetricsParams {
     plataforma?: string;
     driver?: string;
     runner?: string;
+    time_granularity?: 'day' | 'week' | 'month';
 }
 
 function authHeaders(token: string | null, auditSource?: string) {
@@ -338,6 +351,7 @@ export const deliveryService = {
             fecha_desde: params.fecha_desde,
             fecha_hasta: params.fecha_hasta,
             dimension: params.dimension ?? 'estado',
+            time_granularity: params.time_granularity ?? 'day',
         };
         if (params.estado) query.estado = params.estado;
         if (params.locatario) query.locatario = params.locatario;

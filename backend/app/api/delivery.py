@@ -1850,6 +1850,7 @@ async def admin_delivery_metrics(
     plataforma: Optional[str] = Query(default=None),
     driver: Optional[str] = Query(default=None),
     runner: Optional[str] = Query(default=None),
+    time_granularity: str = Query("day", description="day|week|month — volumen de pedidos en el rango"),
 ):
     """
     Métricas agregadas en servidor para Dashboard Delivery.
@@ -1870,6 +1871,9 @@ async def admin_delivery_metrics(
         plataforma=plataforma or None,
         driver=driver or None,
         runner=runner or None,
+        time_granularity=time_granularity,
+        fecha_desde=fecha_desde.strip(),
+        fecha_hasta=fecha_hasta.strip(),
     )
     return DeliveryMetricsOut(
         fecha_desde=fecha_desde.strip(),
