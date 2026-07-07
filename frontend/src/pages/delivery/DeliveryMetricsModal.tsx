@@ -13,10 +13,12 @@ import { deliveryService } from '@/services/deliveryService';
 import DeliveryOrdersVolumeChart from '@/pages/delivery/DeliveryOrdersVolumeChart';
 import { resolveDeliveryTimeSeries, type TimeGranularity } from '@/utils/deliveryMetricsTimeSeries';
 import {
+    coerceMetricsDateRange,
     defaultDeliveryMetricsDateRange,
     lastMonthDeliveryMetricsDateRange,
     thisMonthDeliveryMetricsDateRange,
     thisWeekDeliveryMetricsDateRange,
+    validateMetricsDateRange,
 } from '@/utils/deliveryMetricsDates';
 
 const ALL_VALUE = 'ALL';
@@ -520,6 +522,11 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const [volumeView, setVolumeView] = useState<VolumeView>('chart');
     const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>('day');
 
+    const dateRangeError = useMemo(
+        () => validateMetricsDateRange(fechaDesde, fechaHasta),
+        [fechaDesde, fechaHasta]
+    );
+
     const metricsParams = useMemo(
         () => ({
             fecha_desde: fechaDesde,
@@ -535,7 +542,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
         [fechaDesde, fechaHasta, dimension, timeGranularity, estado, locatario, plataforma, driver, runner]
     );
 
-    const metricsQuery = useDeliveryMetrics(open, metricsParams);
+    const metricsQuery = useDeliveryMetrics(open, metricsParams, !dateRangeError);
     const driversQuery = useQuery({
         queryKey: ['delivery', 'drivers', 'waiting', 'metrics'],
         queryFn: () => deliveryService.listWaitingDrivers(token as string),
@@ -546,6 +553,21 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const drivers = driversQuery.data ?? [];
     const isLoading = metricsQuery.isLoading || driversQuery.isLoading;
     const isError = metricsQuery.isError || driversQuery.isError;
+    const isVolumeFetching = metricsQuery.isFetching && !metricsQuery.isLoading;
+
+    const handleFechaDesdeChange = (value: string) => {
+        const next = coerceMetricsDateRange(value, fechaHasta, 'desde');
+        setFechaDesde(next.fecha_desde);
+        setFechaHasta(next.fecha_hasta);
+        resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
+    };
+
+    const handleFechaHastaChange = (value: string) => {
+        const next = coerceMetricsDateRange(fechaDesde, value, 'hasta');
+        setFechaDesde(next.fecha_desde);
+        setFechaHasta(next.fecha_hasta);
+        resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
+    };
 
     const onRefresh = () => {
         metricsQuery.refetch();
@@ -628,24 +650,35 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const totalInRange = metricsQuery.data?.total_orders_in_range ?? 0;
     const totalFiltered = metricsQuery.data?.total_filtered ?? 0;
     const apiHasTimeSeriesField = metricsQuery.data != null && 'time_series' in metricsQuery.data;
-    const { series: timeSeries, needsBackendUpdate } = useMemo(
-        () =>
-            resolveDeliveryTimeSeries(
-                fechaDesde,
-                fechaHasta,
-                timeGranularity,
-                metricsQuery.data?.time_series,
-                {
-                    total: summary.total,
-                    active: summary.active,
-                    delivered: summary.delivered,
-                    canceled: summary.canceled,
-                    returned: summary.returned,
-                },
-                apiHasTimeSeriesField
-            ),
-        [fechaDesde, fechaHasta, timeGranularity, metricsQuery.data, apiHasTimeSeriesField, summary]
-    );
+    const { series: timeSeries, needsBackendUpdate } = useMemo(() => {
+        if (dateRangeError || isVolumeFetching) {
+            return { series: [], needsBackendUpdate: false };
+        }
+        return resolveDeliveryTimeSeries(
+            fechaDesde,
+            fechaHasta,
+            timeGranularity,
+            metricsQuery.data?.time_series,
+            {
+                total: summary.total,
+                active: summary.active,
+                delivered: summary.delivered,
+                canceled: summary.canceled,
+                returned: summary.returned,
+            },
+            apiHasTimeSeriesField
+        );
+    }, [
+        dateRangeError,
+        isVolumeFetching,
+        fechaDesde,
+        fechaHasta,
+        timeGranularity,
+        metricsQuery.data,
+        apiHasTimeSeriesField,
+        summary,
+    ]);
+    const volumeChartKey = `${fechaDesde}|${fechaHasta}|${timeGranularity}|${metricsQuery.dataUpdatedAt}`;
     const timeGranularityLabel =
         TIME_GRANULARITY_OPTIONS.find((option) => option.value === timeGranularity)?.label ?? 'Por día';
 
@@ -741,10 +774,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                             type="date"
                                             value={fechaDesde}
                                             max={fechaHasta}
-                                            onChange={(e) => {
-                                                setFechaDesde(e.target.value);
-                                                resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
-                                            }}
+                                            onChange={(e) => handleFechaDesdeChange(e.target.value)}
                                             className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2.5 text-sm text-app-text outline-none focus:border-app-delivery-muted"
                                         />
                                     </label>
@@ -754,14 +784,16 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                             type="date"
                                             value={fechaHasta}
                                             min={fechaDesde}
-                                            onChange={(e) => {
-                                                setFechaHasta(e.target.value);
-                                                resetSecondaryFilters({ setEstado, setLocatario, setPlataforma, setDriver, setRunner });
-                                            }}
+                                            onChange={(e) => handleFechaHastaChange(e.target.value)}
                                             className="w-full rounded-xl border border-app-border bg-app-input px-3 py-2.5 text-sm text-app-text outline-none focus:border-app-delivery-muted"
                                         />
                                     </label>
                                 </div>
+                                {dateRangeError && (
+                                    <p className="rounded-xl border border-app-danger/40 bg-app-danger-muted px-3 py-2 text-[10px] text-app-danger">
+                                        {dateRangeError}
+                                    </p>
+                                )}
                                 <div className="flex flex-wrap gap-2">
                                     <button
                                         type="button"
@@ -873,7 +905,9 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                             </p>
                         )}
 
-                        {isLoading ? (
+                        {dateRangeError ? (
+                            <p className="text-sm text-app-danger">{dateRangeError}</p>
+                        ) : isLoading || isVolumeFetching ? (
                             <p className="text-sm text-app-muted">Cargando volumen…</p>
                         ) : isError ? (
                             <p className="text-sm text-app-danger">No se pudo cargar la distribución temporal.</p>
@@ -881,6 +915,8 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                             <p className="text-sm text-app-muted">Sin pedidos en el rango seleccionado.</p>
                         ) : volumeView === 'chart' ? (
                             <DeliveryOrdersVolumeChart
+                                key={volumeChartKey}
+                                chartKey={volumeChartKey}
                                 series={timeSeries}
                                 granularity={timeGranularity}
                             />

@@ -47,3 +47,43 @@ export function lastMonthDeliveryMetricsDateRange(): { fecha_desde: string; fech
 export function defaultDeliveryMetricsDateRange(): { fecha_desde: string; fecha_hasta: string } {
     return thisMonthDeliveryMetricsDateRange();
 }
+
+/** Alineado con backend (ADMIN_ORDERS_MAX_DATE_RANGE_DAYS). */
+export const MAX_METRICS_DATE_RANGE_DAYS = 366;
+
+export function compareDateStrings(a: string, b: string): number {
+    return a.localeCompare(b);
+}
+
+export function daysBetweenInclusive(desde: string, hasta: string): number {
+    const [y0, m0, d0] = desde.split('-').map(Number);
+    const [y1, m1, d1] = hasta.split('-').map(Number);
+    const start = new Date(y0, m0 - 1, d0);
+    const end = new Date(y1, m1 - 1, d1);
+    return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+export function validateMetricsDateRange(desde: string, hasta: string): string | null {
+    if (!desde || !hasta) return 'Indica fecha desde y hasta.';
+    if (compareDateStrings(desde, hasta) > 0) return 'La fecha desde no puede ser posterior a hasta.';
+    if (daysBetweenInclusive(desde, hasta) > MAX_METRICS_DATE_RANGE_DAYS) {
+        return `El rango no puede superar ${MAX_METRICS_DATE_RANGE_DAYS} días.`;
+    }
+    return null;
+}
+
+/** Ajusta hasta si desde queda después, o desde si hasta queda antes. */
+export function coerceMetricsDateRange(
+    desde: string,
+    hasta: string,
+    changed: 'desde' | 'hasta'
+): { fecha_desde: string; fecha_hasta: string } {
+    if (!desde || !hasta) return { fecha_desde: desde, fecha_hasta: hasta };
+    if (compareDateStrings(desde, hasta) <= 0) {
+        return { fecha_desde: desde, fecha_hasta: hasta };
+    }
+    if (changed === 'desde') {
+        return { fecha_desde: desde, fecha_hasta: desde };
+    }
+    return { fecha_desde: hasta, fecha_hasta: hasta };
+}

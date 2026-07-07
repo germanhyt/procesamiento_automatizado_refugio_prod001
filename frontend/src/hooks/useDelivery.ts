@@ -168,7 +168,8 @@ export function useAdminOrders(
 
 export function useDeliveryMetrics(
     open: boolean,
-    params: DeliveryMetricsParams
+    params: DeliveryMetricsParams,
+    queryEnabled = true
 ) {
     const { token } = useAuth();
     return useQuery({
@@ -187,9 +188,10 @@ export function useDeliveryMetrics(
             params.time_granularity ?? 'day',
         ],
         queryFn: () => deliveryService.adminGetMetrics(token as string, params),
-        enabled: !!token && open && !!params.fecha_desde && !!params.fecha_hasta,
+        enabled: !!token && open && !!params.fecha_desde && !!params.fecha_hasta && queryEnabled,
         staleTime: 30_000,
         refetchOnMount: 'always',
+        placeholderData: undefined,
     });
 }
 
