@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type RefObject } from 'react';
 import type { CSSProperties } from 'react';
 import { ResponsiveBar, type BarLayer, type ComputedBarDatum } from '@nivo/bar';
 import type { DeliveryMetricsTimeSeriesRow } from '@/services/deliveryService';
@@ -31,16 +31,24 @@ type ChartDatum = {
     total: number;
 };
 
-const PANEL_STYLE: CSSProperties = {
+type HoverState = {
+    period: string;
+    x: number;
+    y: number;
+};
+
+const TOOLTIP_STYLE: CSSProperties = {
     background: '#171412',
     border: '1px solid rgba(231, 212, 198, 0.22)',
-    borderRadius: 12,
-    padding: '12px 14px',
-    minHeight: 88,
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    padding: '10px 12px',
+    minWidth: 180,
+    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.55)',
     color: '#f8f3ee',
     fontSize: 11,
     lineHeight: 1.45,
+    pointerEvents: 'none',
+    zIndex: 20,
 };
 
 const nivoTheme = {
@@ -81,21 +89,11 @@ function uniqueBarsByPeriod(bars: readonly ComputedBarDatum<ChartDatum>[]) {
     return result;
 }
 
-function VolumeDetailPanel({ data }: { data: ChartDatum | null }) {
-    if (!data) {
-        return (
-            <div style={PANEL_STYLE} className="flex items-center">
-                <p style={{ color: '#b8a79a', fontSize: 10, margin: 0 }}>
-                    Pasa el cursor sobre una columna del gráfico para ver el detalle del período.
-                </p>
-            </div>
-        );
-    }
-
+function VolumeFloatingTooltip({ data }: { data: ChartDatum }) {
     const rows = STACK_KEYS.filter((key) => data[key] > 0);
 
     return (
-        <div style={PANEL_STYLE}>
+        <div style={TOOLTIP_STYLE}>
             <div
                 style={{
                     fontWeight: 800,
@@ -111,12 +109,18 @@ function VolumeDetailPanel({ data }: { data: ChartDatum | null }) {
             {rows.length === 0 ? (
                 <div style={{ color: '#b8a79a', fontFamily: 'ui-monospace, monospace' }}>Sin pedidos</div>
             ) : (
-                <div className="flex flex-wrap gap-x-5 gap-y-1">
-                    {rows.map((key) => (
-                        <span
-                            key={key}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#d8c8bc' }}
-                        >
+                rows.map((key) => (
+                    <div
+                        key={key}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 16,
+                            marginTop: 4,
+                        }}
+                    >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#d8c8bc' }}>
                             <span
                                 style={{
                                     width: 8,
@@ -127,12 +131,12 @@ function VolumeDetailPanel({ data }: { data: ChartDatum | null }) {
                                 }}
                             />
                             {SEGMENT_LABELS[key]}
-                            <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#f8f3ee' }}>
-                                {data[key]}
-                            </span>
                         </span>
-                    ))}
-                </div>
+                        <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#f8f3ee' }}>
+                            {data[key]}
+                        </span>
+                    </div>
+                ))
             )}
             <div
                 style={{
@@ -156,7 +160,8 @@ function VolumeDetailPanel({ data }: { data: ChartDatum | null }) {
 }
 
 function createColumnHitLayer(
-    onHover: (period: string | null) => void,
+    chartWrapRef: RefObject<HTMLDivElement | null>,
+    onHover: (state: HoverState | null) => void,
     hoveredPeriod: string | null
 ): BarLayer<ChartDatum> {
     return ({ bars, innerHeight }) => (
@@ -164,16 +169,29 @@ function createColumnHitLayer(
             {uniqueBarsByPeriod(bars).map((bar) => {
                 const period = bar.data.data.period;
                 const active = hoveredPeriod === period;
+
+                const updateHover = (clientX: number, clientY: number) => {
+                    const wrap = chartWrapRef.current;
+                    if (!wrap) return;
+                    const rect = wrap.getBoundingClientRect();
+                    onHover({
+                        period,
+                        x: clientX - rect.left,
+                        y: clientY - rect.top,
+                    });
+                };
+
                 return (
                     <rect
                         key={period}
-                        x={bar.x - 8}
+                        x={bar.x - 10}
                         y={0}
-                        width={bar.width + 16}
+                        width={bar.width + 20}
                         height={innerHeight}
-                        fill={active ? 'rgba(20, 184, 166, 0.06)' : 'transparent'}
+                        fill={active ? 'rgba(20, 184, 166, 0.07)' : 'transparent'}
                         style={{ cursor: 'pointer' }}
-                        onMouseEnter={() => onHover(period)}
+                        onMouseEnter={(e) => updateHover(e.clientX, e.clientY)}
+                        onMouseMove={(e) => updateHover(e.clientX, e.clientY)}
                         onMouseLeave={() => onHover(null)}
                     />
                 );
@@ -189,15 +207,16 @@ type DeliveryOrdersVolumeChartProps = {
 };
 
 export default function DeliveryOrdersVolumeChart({ series, granularity, chartKey }: DeliveryOrdersVolumeChartProps) {
-    const [hoveredPeriod, setHoveredPeriod] = useState<string | null>(null);
+    const chartWrapRef = useRef<HTMLDivElement>(null);
+    const [hover, setHover] = useState<HoverState | null>(null);
     const data = useMemo(() => toChartData(series, granularity), [series, granularity]);
     const hoveredDatum = useMemo(
-        () => data.find((row) => row.period === hoveredPeriod) ?? null,
-        [data, hoveredPeriod]
+        () => data.find((row) => row.period === hover?.period) ?? null,
+        [data, hover?.period]
     );
     const hitLayer = useMemo(
-        () => createColumnHitLayer(setHoveredPeriod, hoveredPeriod),
-        [hoveredPeriod]
+        () => createColumnHitLayer(chartWrapRef, setHover, hover?.period ?? null),
+        [hover?.period]
     );
     const scrollWidth = Math.max(data.length * 34, 680);
     const dense = data.length > 18;
@@ -210,6 +229,9 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
     if (data.length === 0) {
         return <p className="text-sm text-app-muted">Sin datos para graficar en este rango.</p>;
     }
+
+    const tooltipLeft = hover ? Math.min(Math.max(hover.x + 14, 8), scrollWidth - 200) : 0;
+    const tooltipTop = hover ? Math.max(hover.y - 12, 8) : 0;
 
     return (
         <div className="rounded-2xl border border-app-border bg-app-input/20 p-3">
@@ -224,11 +246,25 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
                     </span>
                 ))}
             </div>
-            <div className="mb-3">
-                <VolumeDetailPanel data={hoveredDatum} />
-            </div>
             <div className="overflow-x-auto rounded-xl">
-                <div style={{ height: 300, width: scrollWidth, minWidth: '100%' }}>
+                <div
+                    ref={chartWrapRef}
+                    className="relative"
+                    style={{ height: 300, width: scrollWidth, minWidth: '100%' }}
+                    onMouseLeave={() => setHover(null)}
+                >
+                    {hover && hoveredDatum && (
+                        <div
+                            className="absolute"
+                            style={{
+                                left: tooltipLeft,
+                                top: tooltipTop,
+                                transform: 'translateY(-100%)',
+                            }}
+                        >
+                            <VolumeFloatingTooltip data={hoveredDatum} />
+                        </div>
+                    )}
                     <ResponsiveBar
                         key={chartKey}
                         data={data}
