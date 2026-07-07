@@ -48,7 +48,7 @@ const TOOLTIP_STYLE: CSSProperties = {
     fontSize: 11,
     lineHeight: 1.45,
     pointerEvents: 'none',
-    zIndex: 20,
+    zIndex: 50,
 };
 
 const nivoTheme = {
@@ -249,22 +249,10 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
             <div className="overflow-x-auto rounded-xl">
                 <div
                     ref={chartWrapRef}
-                    className="relative"
+                    className="relative isolate"
                     style={{ height: 300, width: scrollWidth, minWidth: '100%' }}
                     onMouseLeave={() => setHover(null)}
                 >
-                    {hover && hoveredDatum && (
-                        <div
-                            className="absolute"
-                            style={{
-                                left: tooltipLeft,
-                                top: tooltipTop,
-                                transform: 'translateY(-100%)',
-                            }}
-                        >
-                            <VolumeFloatingTooltip data={hoveredDatum} />
-                        </div>
-                    )}
                     <ResponsiveBar
                         key={chartKey}
                         data={data}
@@ -298,6 +286,18 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
                         role="img"
                         ariaLabel="Gráfico de pedidos por período"
                     />
+                    {hover && hoveredDatum && (
+                        <div
+                            className="pointer-events-none absolute z-50"
+                            style={{
+                                left: tooltipLeft,
+                                top: tooltipTop,
+                                transform: 'translateY(-100%)',
+                            }}
+                        >
+                            <VolumeFloatingTooltip data={hoveredDatum} />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
