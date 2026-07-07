@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { ResponsiveBar, type BarTooltipProps } from '@nivo/bar';
+import { ResponsiveBar, type BarLayer, type ComputedBarDatum } from '@nivo/bar';
 import type { DeliveryMetricsTimeSeriesRow } from '@/services/deliveryService';
 import { chartAxisLabel, type TimeGranularity } from '@/utils/deliveryMetricsTimeSeries';
 
@@ -31,17 +31,16 @@ type ChartDatum = {
     total: number;
 };
 
-const TOOLTIP_STYLE: CSSProperties = {
+const PANEL_STYLE: CSSProperties = {
     background: '#171412',
     border: '1px solid rgba(231, 212, 198, 0.22)',
     borderRadius: 12,
     padding: '12px 14px',
-    minWidth: 196,
-    boxShadow: '0 14px 36px rgba(0, 0, 0, 0.55)',
+    minHeight: 88,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
     color: '#f8f3ee',
     fontSize: 11,
     lineHeight: 1.45,
-    pointerEvents: 'none',
 };
 
 const nivoTheme = {
@@ -55,7 +54,6 @@ const nivoTheme = {
         },
     },
     grid: { line: { stroke: 'rgba(231, 212, 198, 0.14)', strokeWidth: 1, strokeOpacity: 0.28 } },
-    tooltip: { container: { background: 'transparent', boxShadow: 'none', padding: 0 } },
 };
 
 function toChartData(series: DeliveryMetricsTimeSeriesRow[], granularity: TimeGranularity): ChartDatum[] {
@@ -71,13 +69,33 @@ function toChartData(series: DeliveryMetricsTimeSeriesRow[], granularity: TimeGr
     }));
 }
 
-function VolumeTooltip({ data }: BarTooltipProps<ChartDatum>) {
-    if (!data) return null;
+function uniqueBarsByPeriod(bars: readonly ComputedBarDatum<ChartDatum>[]) {
+    const seen = new Set<string>();
+    const result: ComputedBarDatum<ChartDatum>[] = [];
+    for (const bar of bars) {
+        const period = bar.data.data.period;
+        if (seen.has(period)) continue;
+        seen.add(period);
+        result.push(bar);
+    }
+    return result;
+}
+
+function VolumeDetailPanel({ data }: { data: ChartDatum | null }) {
+    if (!data) {
+        return (
+            <div style={PANEL_STYLE} className="flex items-center">
+                <p style={{ color: '#b8a79a', fontSize: 10, margin: 0 }}>
+                    Pasa el cursor sobre una columna del gráfico para ver el detalle del período.
+                </p>
+            </div>
+        );
+    }
 
     const rows = STACK_KEYS.filter((key) => data[key] > 0);
 
     return (
-        <div style={TOOLTIP_STYLE}>
+        <div style={PANEL_STYLE}>
             <div
                 style={{
                     fontWeight: 800,
@@ -93,18 +111,12 @@ function VolumeTooltip({ data }: BarTooltipProps<ChartDatum>) {
             {rows.length === 0 ? (
                 <div style={{ color: '#b8a79a', fontFamily: 'ui-monospace, monospace' }}>Sin pedidos</div>
             ) : (
-                rows.map((key) => (
-                    <div
-                        key={key}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 16,
-                            marginTop: 4,
-                        }}
-                    >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#d8c8bc' }}>
+                <div className="flex flex-wrap gap-x-5 gap-y-1">
+                    {rows.map((key) => (
+                        <span
+                            key={key}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#d8c8bc' }}
+                        >
                             <span
                                 style={{
                                     width: 8,
@@ -115,12 +127,12 @@ function VolumeTooltip({ data }: BarTooltipProps<ChartDatum>) {
                                 }}
                             />
                             {SEGMENT_LABELS[key]}
+                            <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#f8f3ee' }}>
+                                {data[key]}
+                            </span>
                         </span>
-                        <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#f8f3ee' }}>
-                            {data[key]}
-                        </span>
-                    </div>
-                ))
+                    ))}
+                </div>
             )}
             <div
                 style={{
@@ -143,6 +155,33 @@ function VolumeTooltip({ data }: BarTooltipProps<ChartDatum>) {
     );
 }
 
+function createColumnHitLayer(
+    onHover: (period: string | null) => void,
+    hoveredPeriod: string | null
+): BarLayer<ChartDatum> {
+    return ({ bars, innerHeight }) => (
+        <g>
+            {uniqueBarsByPeriod(bars).map((bar) => {
+                const period = bar.data.data.period;
+                const active = hoveredPeriod === period;
+                return (
+                    <rect
+                        key={period}
+                        x={bar.x - 8}
+                        y={0}
+                        width={bar.width + 16}
+                        height={innerHeight}
+                        fill={active ? 'rgba(20, 184, 166, 0.06)' : 'transparent'}
+                        style={{ cursor: 'pointer' }}
+                        onMouseEnter={() => onHover(period)}
+                        onMouseLeave={() => onHover(null)}
+                    />
+                );
+            })}
+        </g>
+    );
+}
+
 type DeliveryOrdersVolumeChartProps = {
     series: DeliveryMetricsTimeSeriesRow[];
     granularity: TimeGranularity;
@@ -150,7 +189,16 @@ type DeliveryOrdersVolumeChartProps = {
 };
 
 export default function DeliveryOrdersVolumeChart({ series, granularity, chartKey }: DeliveryOrdersVolumeChartProps) {
+    const [hoveredPeriod, setHoveredPeriod] = useState<string | null>(null);
     const data = useMemo(() => toChartData(series, granularity), [series, granularity]);
+    const hoveredDatum = useMemo(
+        () => data.find((row) => row.period === hoveredPeriod) ?? null,
+        [data, hoveredPeriod]
+    );
+    const hitLayer = useMemo(
+        () => createColumnHitLayer(setHoveredPeriod, hoveredPeriod),
+        [hoveredPeriod]
+    );
     const scrollWidth = Math.max(data.length * 34, 680);
     const dense = data.length > 18;
     const tickStride = dense ? Math.ceil(data.length / 16) : 1;
@@ -176,6 +224,9 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
                     </span>
                 ))}
             </div>
+            <div className="mb-3">
+                <VolumeDetailPanel data={hoveredDatum} />
+            </div>
             <div className="overflow-x-auto rounded-xl">
                 <div style={{ height: 300, width: scrollWidth, minWidth: '100%' }}>
                     <ResponsiveBar
@@ -185,7 +236,7 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
                         indexBy="period"
                         theme={nivoTheme}
                         margin={{ top: 8, right: 12, bottom: dense ? 58 : 44, left: 44 }}
-                        padding={dense ? 0.14 : 0.28}
+                        padding={dense ? 0.08 : 0.16}
                         innerPadding={2}
                         groupMode="stacked"
                         colors={({ id }) => SEGMENT_COLORS[id as (typeof STACK_KEYS)[number]]}
@@ -205,8 +256,9 @@ export default function DeliveryOrdersVolumeChart({ series, granularity, chartKe
                         enableGridY
                         enableLabel={false}
                         animate={false}
-                        isInteractive
-                        tooltip={VolumeTooltip}
+                        isInteractive={false}
+                        tooltip={() => null}
+                        layers={['grid', 'axes', 'bars', hitLayer, 'markers', 'legends', 'annotations']}
                         role="img"
                         ariaLabel="Gráfico de pedidos por período"
                     />

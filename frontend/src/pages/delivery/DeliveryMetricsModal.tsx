@@ -679,6 +679,20 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
         summary,
     ]);
     const volumeChartKey = `${fechaDesde}|${fechaHasta}|${timeGranularity}|${metricsQuery.dataUpdatedAt}`;
+    const volumeTotals = useMemo(
+        () =>
+            timeSeries.reduce(
+                (acc, row) => ({
+                    total: acc.total + row.total,
+                    active: acc.active + row.active,
+                    delivered: acc.delivered + row.delivered,
+                    canceled: acc.canceled + row.canceled,
+                    returned: acc.returned + row.returned,
+                }),
+                { total: 0, active: 0, delivered: 0, canceled: 0, returned: 0 }
+            ),
+        [timeSeries]
+    );
     const timeGranularityLabel =
         TIME_GRANULARITY_OPTIONS.find((option) => option.value === timeGranularity)?.label ?? 'Por día';
 
@@ -947,6 +961,19 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                             </tr>
                                         ))}
                                     </tbody>
+                                    <tfoot>
+                                        <tr className="border-t border-app-border bg-app-input/50">
+                                            <td className="px-3 py-3 text-[9px] font-black uppercase tracking-widest text-app-text">Total</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-text">{volumeTotals.total}</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-muted">{volumeTotals.active}</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-muted">{volumeTotals.delivered}</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-muted">{volumeTotals.canceled}</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-muted">{volumeTotals.returned}</td>
+                                            <td className="px-3 py-3 font-mono font-bold text-app-delivery">
+                                                {formatPercent(volumeTotals.total, totalFiltered)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         )}
@@ -1052,6 +1079,21 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                                                 </tr>
                                             ))}
                                         </tbody>
+                                        <tfoot>
+                                            <tr className="border-t border-app-border bg-app-input/50">
+                                                <td className="px-3 py-3 text-[9px] font-black uppercase tracking-widest text-app-text">Total</td>
+                                                <td className="px-3 py-3 align-middle">
+                                                    <span className="text-[9px] font-mono text-app-delivery">100%</span>
+                                                </td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-text">{summary.total}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{summary.active}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{summary.delivered}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{summary.canceled}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{summary.returned}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{summary.matched}</td>
+                                                <td className="px-3 py-3 font-mono font-bold text-app-muted">{formatMinutes(summary.avgReadyToDelivered)}</td>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                             )}
