@@ -98,9 +98,10 @@ export function resolveDeliveryTimeSeries(
         delivered: number;
         canceled: number;
         returned: number;
-    }
+    },
+    apiHasTimeSeriesField: boolean
 ): { series: DeliveryMetricsTimeSeriesRow[]; needsBackendUpdate: boolean } {
-    if (apiSeries && apiSeries.length > 0) {
+    if (apiHasTimeSeriesField && apiSeries && apiSeries.length > 0) {
         return { series: apiSeries, needsBackendUpdate: false };
     }
 
@@ -108,28 +109,20 @@ export function resolveDeliveryTimeSeries(
         return { series: [], needsBackendUpdate: false };
     }
 
+    const skeleton = buildPeriodKeys(fechaDesde, fechaHasta, granularity).map((period) =>
+        emptyRow(period, granularity)
+    );
+
     if (summary.total > 0) {
         return {
-            series: [
-                {
-                    period: `${fechaDesde}_${fechaHasta}`,
-                    label: `${fechaDesde} → ${fechaHasta}`,
-                    total: summary.total,
-                    active: summary.active,
-                    delivered: summary.delivered,
-                    canceled: summary.canceled,
-                    returned: summary.returned,
-                },
-            ],
-            needsBackendUpdate: true,
+            series: skeleton,
+            needsBackendUpdate: !apiHasTimeSeriesField,
         };
     }
 
     return {
-        series: buildPeriodKeys(fechaDesde, fechaHasta, granularity).map((period) =>
-            emptyRow(period, granularity)
-        ),
-        needsBackendUpdate: true,
+        series: skeleton,
+        needsBackendUpdate: !apiHasTimeSeriesField,
     };
 }
 

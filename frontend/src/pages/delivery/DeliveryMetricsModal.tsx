@@ -8,13 +8,10 @@ import AppSelect from '@/components/ui/AppSelect';
 import { DRIVER_STATUS, ORDER_STATUSES_ADMIN, orderStatusBadgeClass } from '@/constants/delivery';
 import { useDeliveryMetrics } from '@/hooks/useDelivery';
 import { useAuth } from '@/context/AuthContext';
-import type { DeliveryMetricsRowApi, DeliveryMetricsTimeSeriesRow, DriverArrival } from '@/services/deliveryService';
+import type { DeliveryMetricsRowApi, DriverArrival } from '@/services/deliveryService';
 import { deliveryService } from '@/services/deliveryService';
-import {
-    chartAxisLabel,
-    resolveDeliveryTimeSeries,
-    type TimeGranularity,
-} from '@/utils/deliveryMetricsTimeSeries';
+import DeliveryOrdersVolumeChart from '@/pages/delivery/DeliveryOrdersVolumeChart';
+import { resolveDeliveryTimeSeries, type TimeGranularity } from '@/utils/deliveryMetricsTimeSeries';
 import {
     defaultDeliveryMetricsDateRange,
     lastMonthDeliveryMetricsDateRange,
@@ -630,6 +627,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
     const insights = useMemo(() => buildInsights(summary, rows, dimensionLabel), [summary, rows, dimensionLabel]);
     const totalInRange = metricsQuery.data?.total_orders_in_range ?? 0;
     const totalFiltered = metricsQuery.data?.total_filtered ?? 0;
+    const apiHasTimeSeriesField = metricsQuery.data != null && 'time_series' in metricsQuery.data;
     const { series: timeSeries, needsBackendUpdate } = useMemo(
         () =>
             resolveDeliveryTimeSeries(
@@ -643,13 +641,10 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                     delivered: summary.delivered,
                     canceled: summary.canceled,
                     returned: summary.returned,
-                }
+                },
+                apiHasTimeSeriesField
             ),
-        [fechaDesde, fechaHasta, timeGranularity, metricsQuery.data?.time_series, summary]
-    );
-    const maxSeriesTotal = useMemo(
-        () => timeSeries.reduce((max, row) => Math.max(max, row.total), 0),
-        [timeSeries]
+        [fechaDesde, fechaHasta, timeGranularity, metricsQuery.data, apiHasTimeSeriesField, summary]
     );
     const timeGranularityLabel =
         TIME_GRANULARITY_OPTIONS.find((option) => option.value === timeGranularity)?.label ?? 'Por día';
@@ -874,7 +869,7 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
 
                         {needsBackendUpdate && totalFiltered > 0 && (
                             <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-100">
-                                Distribución por día/semana/mes requiere backend actualizado. Mostrando total agregado del rango.
+                                Actualiza la página (Ctrl+Shift+R) para cargar la distribución por día/semana/mes desde el servidor.
                             </p>
                         )}
 
@@ -885,9 +880,8 @@ const DeliveryMetricsModal: React.FC<DeliveryMetricsModalProps> = ({
                         ) : summary.total === 0 && timeSeries.every((row) => row.total === 0) ? (
                             <p className="text-sm text-app-muted">Sin pedidos en el rango seleccionado.</p>
                         ) : volumeView === 'chart' ? (
-                            <OrdersVolumeChart
+                            <DeliveryOrdersVolumeChart
                                 series={timeSeries}
-                                maxTotal={maxSeriesTotal}
                                 granularity={timeGranularity}
                             />
                         ) : (
@@ -1128,91 +1122,5 @@ const SlaLine: React.FC<{ label: string; value: number | null }> = ({ label, val
         <span className="font-mono text-xs text-app-text">{formatMinutes(value)}</span>
     </div>
 );
-
-type OrdersVolumeChartProps = {
-    series: DeliveryMetricsTimeSeriesRow[];
-    maxTotal: number;
-    granularity: TimeGranularity;
-};
-
-const CHART_HEIGHT = 180;
-const BAR_WIDTH = 22;
-const BAR_GAP = 8;
-const CHART_PADDING = 12;
-
-const OrdersVolumeChart: React.FC<OrdersVolumeChartProps> = ({ series, maxTotal, granularity }) => {
-    const labelStride = series.length > 14 ? Math.ceil(series.length / 14) : 1;
-    const plotWidth = Math.max(series.length * (BAR_WIDTH + BAR_GAP) + CHART_PADDING * 2, 320);
-    const svgHeight = CHART_HEIGHT + 48;
-    const effectiveMax = maxTotal > 0 ? maxTotal : 1;
-
-    return (
-        <div className="overflow-x-auto rounded-2xl border border-app-border bg-app-input/20 p-3">
-            <svg
-                width={plotWidth}
-                height={svgHeight}
-                role="img"
-                aria-label="Gráfico de pedidos por período"
-                className="block"
-            >
-                <line
-                    x1={CHART_PADDING}
-                    y1={CHART_HEIGHT + 8}
-                    x2={plotWidth - CHART_PADDING}
-                    y2={CHART_HEIGHT + 8}
-                    stroke="var(--app-border)"
-                    strokeWidth={1}
-                />
-                {series.map((row, index) => {
-                    const barHeight = row.total > 0
-                        ? Math.max(8, (row.total / effectiveMax) * CHART_HEIGHT)
-                        : 2;
-                    const x = CHART_PADDING + index * (BAR_WIDTH + BAR_GAP);
-                    const y = CHART_HEIGHT + 8 - barHeight;
-                    const showLabel = index % labelStride === 0 || index === series.length - 1;
-                    const fill = row.total > 0 ? 'var(--app-delivery-accent)' : 'var(--app-border)';
-
-                    return (
-                        <g key={row.period}>
-                            <title>{`${row.label}: ${row.total} pedidos`}</title>
-                            <rect
-                                x={x}
-                                y={y}
-                                width={BAR_WIDTH}
-                                height={barHeight}
-                                rx={4}
-                                fill={fill}
-                            />
-                            {row.total > 0 && (
-                                <text
-                                    x={x + BAR_WIDTH / 2}
-                                    y={y - 4}
-                                    textAnchor="middle"
-                                    fontSize={9}
-                                    fill="var(--app-text)"
-                                    fontFamily="ui-monospace, monospace"
-                                >
-                                    {row.total}
-                                </text>
-                            )}
-                            {showLabel && (
-                                <text
-                                    x={x + BAR_WIDTH / 2}
-                                    y={svgHeight - 6}
-                                    textAnchor="middle"
-                                    fontSize={8}
-                                    fill="var(--app-muted)"
-                                    fontFamily="ui-monospace, monospace"
-                                >
-                                    {chartAxisLabel(row, granularity)}
-                                </text>
-                            )}
-                        </g>
-                    );
-                })}
-            </svg>
-        </div>
-    );
-};
 
 export default DeliveryMetricsModal;

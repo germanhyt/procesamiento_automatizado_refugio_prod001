@@ -189,6 +189,7 @@ export function useDeliveryMetrics(
         queryFn: () => deliveryService.adminGetMetrics(token as string, params),
         enabled: !!token && open && !!params.fecha_desde && !!params.fecha_hasta,
         staleTime: 30_000,
+        refetchOnMount: 'always',
     });
 }
 
